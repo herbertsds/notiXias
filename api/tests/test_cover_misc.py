@@ -108,3 +108,57 @@ def test_healthz_503_quando_mongo_indisponivel(client):
         client.app.state.client = original
     assert r.status_code == 503
     assert r.json() == {"status": "mongo_unavailable"}
+
+
+# ---- resposta + original (autores diferentes): um único registro ----
+def _resposta_e_original(client):
+    """R (resposta, autor b) tem seq 1; O (original, autor a) vem depois, seq 2 — como no uso real."""
+    append(client, [item(900, "a"), item(700, "b")])  # feed: mais novo primeiro -> seq1=700(b), seq2=900(a)
+    q = queue(client)
+    assert [e["tweet_id"] for e in q] == ["700", "900"]
+    return q
+
+
+def test_ancestrais_de_outro_autor_viram_o_mesmo_registro(client):
+    _resposta_e_original(client)
+    r = client.post("/api/v1/entries/cover", json={"covered_by": 1, "ancestor_ids": ["900"]})
+    assert r.json() == {"covered": 1}
+    assert [e["seq"] for e in queue(client)] == [1]
+    assert client.get("/api/v1/entries/2").status_code == 200
+    assert client.get("/api/v1/entries/1").json()["covered_count"] == 1
+    # ao sair da resposta, o original conta como visto no mesmo momento
+    client.post("/api/v1/views", json={"seqs": [1]})
+    assert client.get("/api/v1/entries/2").json()["read_at"] is not None
+
+
+def test_tweet_ids_continua_restrito_ao_mesmo_autor(client):
+    _resposta_e_original(client)
+    r = client.post("/api/v1/entries/cover", json={"covered_by": 1, "tweet_ids": ["900"]})
+    assert r.json() == {"covered": 0}  # 900 é de outro autor: só entra por ancestor_ids
+
+
+def test_ancestrais_nao_cobrem_lidas_nem_ja_cobertas_por_outra(client):
+    append(client, [item(3, "c"), item(2, "b"), item(1, "a")])  # seq 1=1(a) 2=2(b) 3=3(c)
+    client.post("/api/v1/views", json={"seqs": [1]})  # 1 já lida
+    client.post("/api/v1/entries/cover", json={"covered_by": 2, "ancestor_ids": ["1"]})  # lida: ignorada
+    assert client.get("/api/v1/entries/1").json()["covered"] is False
+    client.post("/api/v1/entries/cover", json={"covered_by": 3, "ancestor_ids": ["2"]})
+    r = client.post("/api/v1/entries/cover", json={"covered_by": 1, "ancestor_ids": ["2"]})  # já coberta por 3
+    assert r.json() == {"covered": 0}
+    assert client.get("/api/v1/entries/2").json()["covered_by"] == 3
+
+
+def test_ancestrais_e_pedacos_juntos_e_validacao(client):
+    append(client, [item(30, "a"), item(20, "b"), item(10, "a")])  # seq1=10(a) seq2=20(b) seq3=30(a)
+    r = client.post("/api/v1/entries/cover", json={"covered_by": 3, "tweet_ids": ["10"], "ancestor_ids": ["20", "999"]})
+    assert r.json() == {"covered": 2}
+    assert [e["seq"] for e in queue(client)] == [3]
+    assert client.post("/api/v1/entries/cover", json={"covered_by": 3}).status_code == 422
+    assert client.post("/api/v1/entries/cover", json={"covered_by": 3, "tweet_ids": [], "ancestor_ids": []}).status_code == 422
+
+
+def test_reabrir_devolve_tambem_os_ancestrais(client):
+    _resposta_e_original(client)
+    client.post("/api/v1/entries/cover", json={"covered_by": 1, "ancestor_ids": ["900"]})
+    assert client.post("/api/v1/entries/uncover", json={"covered_by": 1}).json() == {"reopened": 1}
+    assert [e["seq"] for e in queue(client)] == [1, 2]

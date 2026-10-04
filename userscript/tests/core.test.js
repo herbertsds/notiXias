@@ -129,3 +129,11 @@ test('repost aparece também em entrada já vista: usa all_reposters (de outras 
   // all_reposters vazio e reposters vazio: nada
   assert.deepEqual(Core.buildLabelParts({ reposters: [], all_reposters: [] }), { top: [], seen: null });
 });
+
+test('splitConversation: ancestrais (acima do focal, qualquer autor) e o resto', () => {
+  const items = [{ id: '1', author: 'a' }, { id: '2', author: 'b' }, { id: '3', author: 'c' }, { id: '4', author: 'c' }];
+  assert.deepEqual(Core.splitConversation(items, '3').before.map((i) => i.id), ['1', '2']);
+  assert.deepEqual(Core.splitConversation(items, '3').after.map((i) => i.id), ['4']);
+  assert.deepEqual(Core.splitConversation(items, '1').before, []);
+  assert.deepEqual(Core.splitConversation(items, '99'), { before: [], after: [] });
+});

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.2.6
+// @version      0.2.7
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -102,6 +102,14 @@ const Core = (function () {
     return entry.reposters || [];
   }
 
+  // Separa a conversa da página em: posts ACIMA do focal (cadeia de ancestrais, de qualquer autor) e abaixo.
+  // `items` = [{id, author}] em ordem de DOM; `focalId` = ID do post da URL.
+  function splitConversation(items, focalId) {
+    const idx = items.findIndex((i) => i.id === focalId);
+    if (idx < 0) return { before: [], after: [] };
+    return { before: items.slice(0, idx), after: items.slice(idx + 1) };
+  }
+
   // Etiquetas exibidas na barra para uma entrada (formato da API).
   function buildBadges(entry, fmt) {
     const f = fmt || formatDateBR;
@@ -173,7 +181,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1157,10 +1165,15 @@ function startApp() {
       }
     }
 
-    // Cobertura: só o que está de fato desenhado na página.
-    const ids = Xdom.pageItems(document).map((i) => i.id).filter((id) => id !== cur.tweet_id);
-    if (ids.length) {
-      const res = await api.cover({ covered_by: cur.seq, tweet_ids: ids });
+    // Cobertura: só o que está de fato desenhado na conversa da página.
+    //  - pedaços do mesmo autor (thread) e
+    //  - TODOS os posts acima do post aberto (resposta -> original), de qualquer autor: um único registro.
+    const items = Xdom.pageItems(document);
+    const split = Core.splitConversation(items, status.id);
+    const ancestorIds = split.before.map((i) => i.id).filter((id) => id !== cur.tweet_id);
+    const sameAuthorIds = items.map((i) => i.id).filter((id) => id !== cur.tweet_id);
+    if (ancestorIds.length || sameAuthorIds.length) {
+      const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
       if (token !== routeToken) return;
       if (res.covered > 0) renderEntryBar(await api.state(), notice);
     }

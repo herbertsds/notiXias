@@ -51,8 +51,18 @@ class EntryPatch(BaseModel):
 
 
 class CoverIn(BaseModel):
+    """`tweet_ids`: só do MESMO autor da entrada de destino (pedaços de thread).
+    `ancestor_ids`: posts que estão ACIMA do post aberto na conversa (resposta -> original), de qualquer autor."""
+
     covered_by: int = Field(ge=1)
-    tweet_ids: list[TweetId] = Field(min_length=1, max_length=500)
+    tweet_ids: list[TweetId] = Field(default_factory=list, max_length=500)
+    ancestor_ids: list[TweetId] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def _some_ids(self):
+        if not self.tweet_ids and not self.ancestor_ids:
+            raise ValueError("informe tweet_ids ou ancestor_ids")
+        return self
 
 
 class UncoverIn(BaseModel):

@@ -83,6 +83,14 @@ const Core = (function () {
     return entry.reposters || [];
   }
 
+  // Separa a conversa da página em: posts ACIMA do focal (cadeia de ancestrais, de qualquer autor) e abaixo.
+  // `items` = [{id, author}] em ordem de DOM; `focalId` = ID do post da URL.
+  function splitConversation(items, focalId) {
+    const idx = items.findIndex((i) => i.id === focalId);
+    if (idx < 0) return { before: [], after: [] };
+    return { before: items.slice(0, idx), after: items.slice(idx + 1) };
+  }
+
   // Etiquetas exibidas na barra para uma entrada (formato da API).
   function buildBadges(entry, fmt) {
     const f = fmt || formatDateBR;
@@ -154,7 +162,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

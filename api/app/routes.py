@@ -92,7 +92,7 @@ def patch_entry(seq: int, body: EntryPatch, request: Request):
 @router.post("/entries/cover")
 def post_cover(body: CoverIn, request: Request):
     try:
-        return svc.cover_by_tweet_ids(_db(request), body.covered_by, body.tweet_ids)
+        return svc.cover_by_tweet_ids(_db(request), body.covered_by, body.tweet_ids, body.ancestor_ids)
     except svc.UnknownEntry:
         raise HTTPException(status_code=404, detail="entrada de destino não encontrada")
 

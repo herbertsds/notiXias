@@ -290,21 +290,37 @@ def record_views(db, seqs: list[int], viewed_at: datetime | None) -> dict:
 
 
 # ---------- cobertura ----------
-def cover_by_tweet_ids(db, covered_by: int, tweet_ids: list[str]) -> dict:
+def cover_by_tweet_ids(db, covered_by: int, tweet_ids: list[str], ancestor_ids: list[str] | None = None) -> dict:
+    """Marca como cobertas (parte do mesmo registro de leitura) entradas NÃO LIDAS.
+    - `tweet_ids`: só as do mesmo autor da entrada de destino (pedaços de thread);
+    - `ancestor_ids`: posts acima na conversa (resposta -> original), de qualquer autor, ainda não cobertos."""
     dest = db.entries.find_one({"seq": covered_by, "removed": False})
     if not dest:
         raise UnknownEntry()
-    res = db.entries.update_many(
-        {
-            "tweet_id": {"$in": tweet_ids},
-            "author_lc": dest["author_lc"],
-            "read_at": None,
-            "removed": False,
-            "seq": {"$ne": covered_by},
-        },
-        {"$set": {"covered": True, "covered_by": covered_by}},
-    )
-    return {"covered": res.modified_count}
+    n = 0
+    if tweet_ids:
+        n += db.entries.update_many(
+            {
+                "tweet_id": {"$in": tweet_ids},
+                "author_lc": dest["author_lc"],
+                "read_at": None,
+                "removed": False,
+                "seq": {"$ne": covered_by},
+            },
+            {"$set": {"covered": True, "covered_by": covered_by}},
+        ).modified_count
+    if ancestor_ids:
+        n += db.entries.update_many(
+            {
+                "tweet_id": {"$in": ancestor_ids},
+                "read_at": None,
+                "removed": False,
+                "covered": False,
+                "seq": {"$ne": covered_by},
+            },
+            {"$set": {"covered": True, "covered_by": covered_by}},
+        ).modified_count
+    return {"covered": n}
 
 
 def uncover(db, covered_by: int) -> dict:

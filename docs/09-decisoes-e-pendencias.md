@@ -16,7 +16,7 @@
 | D10 | Reposts do mesmo post antes da leitura viram uma entrada só. | Evita ler repetido. |
 | D11 | Threads: abrir o **último** post da cadeia; verificação na hora da leitura, por DOM e URL. | Preferência do dono; evita JSON interno do X. |
 | D12 | Nunca agrupar por vizinhança na lista; só o que aparece encadeado na página; só cobrir o que está no DOM. | Evitar pular posts independentes seguidos. |
-| D13 | Respostas entre contas diferentes: absorção **desligada** por padrão. | Menos evidente que thread do mesmo autor. |
+| D13 | Respostas entre contas diferentes: ao abrir uma resposta, os posts **acima** dela na conversa (qualquer autor) ainda não lidos na fila viram o **mesmo registro** (cobertos). Descendentes de outro autor continuam fora (podem ser ramos irmãos). | Pedido do dono (userscript 0.2.7); antes estava desligado. |
 | D14 | Âncoras do X: padrão de URL `/usuario/status/ID`, nunca classes CSS. | Estabilidade. |
 | D15 | Verificador de saúde + esqueleto sem texto, em vez de tweet de referência. | O dono não quer tweet de referência. |
 | D16 | Não ler o JSON interno do X (por ora). | Frágil; pode voltar como complemento. |

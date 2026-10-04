@@ -135,7 +135,7 @@ Regras de segurança contra pular posts:
 - Só marcar como coberto o que está **no DOM** da página final.
 - Pedaços escondidos por "mostrar mais" **não** são cobertos e permanecem na fila.
 - Cobertura é **reversível** (menu "reabrir cobertos").
-- Respostas entre contas **diferentes**: absorção opcional, **desligada por padrão**.
+- Respostas entre contas **diferentes**: ao abrir uma resposta, **todos os posts acima dela** na conversa (de qualquer autor) que ainda estão por ler na fila viram o **mesmo registro** (`ancestor_ids` do `cover`); a tela já mostra a cadeia de cima para baixo. Descendentes de outro autor **não** são cobertos (podem ser ramos irmãos).
 - Pedaço novo de thread já lida → nova entrada, com a etiqueta de continuação.
 
 > A experiência do salto (mostrar brevemente o post 1 ou uma tela de "carregando") fica como pendência para ajuste na prática.

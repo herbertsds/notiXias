@@ -141,7 +141,10 @@ Campos permitidos:
 ```
 ou `{ "covered": false }` (reabrir) ou `{ "removed": true }`.
 
-Operação em lote: `POST /api/v1/entries/cover` com `{"covered_by": 120, "tweet_ids": ["...","..."]}` — marca como cobertas as entradas **não lidas** com esses IDs e `author` igual (sem distinguir maiúsculas) ao de `covered_by`. Resposta `{"covered": N}`.
+Operação em lote: `POST /api/v1/entries/cover` com `{"covered_by": 120, "tweet_ids": [...], "ancestor_ids": [...]}` (ao menos uma lista). Marca como cobertas entradas **não lidas**:
+- `tweet_ids`: só as do mesmo `author` (sem distinguir maiúsculas) da entrada `covered_by` — pedaços de thread;
+- `ancestor_ids`: posts que estão **acima** do post aberto na conversa (resposta → original), de **qualquer autor**, que ainda não estejam cobertas por outra entrada.
+Resposta `{"covered": N}`.
 
 Reabrir: `POST /api/v1/entries/uncover` com `{"covered_by": 120}` — devolve à fila todas as cobertas por essa entrada. Resposta `{"reopened": N}`.
 

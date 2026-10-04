@@ -1,0 +1,61 @@
+name: notixias
+
+services:
+  mongo:
+    image: mongo:7
+    command: ["--wiredTigerCacheSizeGB", "0.25"]
+    volumes:
+      - notixias_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [notixias_net]
+    # Sem portas publicadas: acesso só pela rede interna ou `docker compose exec mongo mongosh`.
+
+  api:
+    build:
+      context: ./api
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    networks: [notixias_net]
+
+  # Testes da API: docker compose --profile test run --rm api-test
+  api-test:
+    profiles: ["test"]
+    build:
+      context: ./api
+    environment:
+      ENV: test
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: notixias_test
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: ["pytest", "-q"]
+    networks: [notixias_net]
+
+  # Testes do userscript: docker compose --profile test run --rm userscript-test
+  userscript-test:
+    profiles: ["test"]
+    image: node:22-alpine
+    working_dir: /work
+    volumes:
+      - ./userscript:/work
+    command: ["sh", "-c", "npm install --no-audit --no-fund --silent && npm test"]
+
+volumes:
+  notixias_mongo_data:
+
+networks:
+  notixias_net:

@@ -15,10 +15,32 @@ def test_ordem_de_leitura_mais_antigo_primeiro(client):
     assert [e["seq"] for e in q] == [1, 2, 3]
 
 
-def test_repost_de_tweet_antigo_segue_a_posicao_no_feed_e_nao_o_horario_original(client):
-    # feed (novo -> antigo): 900, repost do tweet antigo 100, 800, 700. O repost aconteceu entre 800 e 900.
+def test_repost_de_conta_nao_seguida_fica_onde_esta_no_feed(client):
+    # feed (novo -> antigo): 900, repost do tweet antigo 100 (dono "velho" NÃO é seguido), 800, 700
     append(client, [item(900, "a"), item(100, "velho", reposter="x"), item(800, "b"), item(700, "c")])
     assert tweet_ids(queue(client)) == ["700", "800", "100", "900"]
+
+
+def test_repost_de_conta_seguida_vai_pelo_horario_do_tweet_original(client):
+    client.put("/api/v1/accounts/following", json={"accounts": [{"handle": "velho"}, {"handle": "a"}, {"handle": "b"}, {"handle": "c"}]})
+    append(client, [item(900, "a"), item(100, "velho", reposter="x"), item(800, "b"), item(700, "c")])
+    assert tweet_ids(queue(client)) == ["100", "700", "800", "900"]
+
+
+def test_dono_aprendido_do_feed_como_seguido_tambem_conta_sem_a_lista_completa(client):
+    append(client, [item(500, "velho")])                    # post próprio no feed: aprendido como seguido
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
+    client.put("/api/v1/state", json={"cursor_seq": 1})
+    append(client, [item(900, "a"), item(100, "velho", reposter="x"), item(800, "b")])
+    assert tweet_ids(queue(client, after=1)) == ["100", "800", "900"]
+
+
+def test_lista_exata_vence_o_aprendido_no_repost(client):
+    client.put("/api/v1/accounts/following", json={"accounts": [{"handle": "a"}, {"handle": "b"}]})   # "velho" NÃO está
+    append(client, [item(500, "velho")])                    # aprendido como seguido, mas a lista exata diz que não
+    client.post("/api/v1/views", json={"seqs": [1]})
+    append(client, [item(900, "a"), item(100, "velho", reposter="x"), item(800, "b")])
+    assert tweet_ids(queue(client, after=1))[0:3] == ["800", "100", "900"]
 
 
 def test_repost_no_fim_do_lote_usa_o_vizinho_mais_novo(client):

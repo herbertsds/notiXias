@@ -385,7 +385,7 @@ def _place_cluster(db, group, cutoff, stats):
 
 
 def _repost_anchor_id(rev, i):
-    """ID do tweet comum (sem repost) vizinho no feed que estima o horário do repost `rev[i]`.
+    """Repost de tweet de conta NÃO seguida. ID do tweet comum (sem repost) vizinho no feed que estima o horário do repost `rev[i]`.
     `rev` está do mais antigo ao mais novo: o vizinho mais antigo vem antes do índice; o repost fica logo depois
     dele. Sem vizinho mais antigo, usa o mais novo; sem nenhum, o próprio tweet."""
     for k in range(i - 1, -1, -1):
@@ -410,14 +410,19 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
     cutoff = now() - revisit_after
 
     _learn_accounts(db, items)
+    owners_followed = _followed(db, [it.author for it in items if it.reposter])
     rev = list(reversed(items))
     i = 0
     while i < len(rev):
         it = rev[i]
         if it.cluster is None:
-            # Repost: a posição vem de QUANDO o repost aconteceu (onde ele está no feed), não do horário do tweet
-            # original (um repost de tweet antigo iria para o começo da fila, longe de onde o X o mostra).
-            _place(db, it, cutoff, stats, sort_id=_repost_anchor_id(rev, i) if it.reposter else None)
+            # Repost: se o DONO do tweet está na sua lista de seguidos, vale o horário do tweet original (pode ir
+            # para a frente); se o dono NÃO é seguido, o tweet fica onde o X o mostra no feed (vizinho comum mais
+            # antigo), sem mexer na ordem.
+            sid = None
+            if it.reposter and it.author.lower() not in owners_followed:
+                sid = _repost_anchor_id(rev, i)
+            _place(db, it, cutoff, stats, sort_id=sid)
             i += 1
             continue
         j = i

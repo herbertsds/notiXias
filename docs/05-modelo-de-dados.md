@@ -154,4 +154,4 @@ Ver `07-ambiente-e-infra.md` (dump diário). O conteúdo é pequeno e valioso (h
 
 ## Ordem dos reposts
 
-`sort_id` de um repost = ID do tweet comum vizinho mais antigo no lote (onde o X o mostra), não o ID do tweet original. Ver `04-api.md`, "Posição na fila".
+`sort_id` de um repost = o ID do tweet original se o dono é seguido; senão, o ID do tweet comum vizinho mais antigo no lote (onde o X o mostra). Ver `04-api.md`, "Posição na fila".

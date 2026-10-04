@@ -277,3 +277,25 @@ def test_conversa_de_post_lido_volta_ao_fim_pelo_horario_da_resposta_nova(client
     append(client, [item(50, "x")])                       # não lido 50
     append(client, [citem(10, "joao", 1), citem(60, "jose", 1)])   # resposta nova (60) ao post lido
     assert tweet_ids(queue(client)) == ["5", "10", "50", "60"]
+
+
+
+# ---- exemplo do dono: 10 comentários; o horário é o do PRIMEIRO que ele segue, de cima para baixo ----
+def test_horario_da_conversa_e_o_do_primeiro_seguido_de_cima_para_baixo(client):
+    client.put("/api/v1/accounts/following", json={"accounts": [{"handle": h} for h in ("x1", "x2", "c3", "c2", "c1")]})
+    append(client, [item(100, "x1"), item(65, "x2"), item(55, "x1")])        # não lidos: 55, 65, 100
+    # conversa (topo -> base): raiz de conta não seguida, comentário de não seguida, e depois c3, c2, c1 (seguidos)
+    append(client, [
+        citem(50, "joao_nao_sigo", 1), citem(51, "outro_nao_sigo", 1),
+        citem(60, "c3", 1), citem(70, "c2", 1), citem(80, "c1", 1),
+    ])
+    # entra com o horário do antepenúltimo (c3 = 60): entre o 55 e o 65; a referência é o último (c1 = 80)
+    assert tweet_ids(queue(client)) == ["55", "80", "65", "100"]
+    assert entry(client, 80)["covered"] is False and entry(client, 60)["covered"] is True
+
+
+def test_conversa_sem_nenhum_seguido_entre_os_novos_usa_o_horario_do_ultimo(client):
+    client.put("/api/v1/accounts/following", json={"accounts": [{"handle": "x"}]})
+    append(client, [item(30, "x"), item(10, "x")])
+    append(client, [citem(5, "a", 1), citem(20, "b", 1)])                      # ninguém seguido
+    assert tweet_ids(queue(client))[:3] == ["10", "20", "30"]

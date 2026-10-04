@@ -34,6 +34,7 @@ Um **userscript** no navegador (que roda dentro do x.com, na sessão logada do d
 | [docs/07-ambiente-e-infra.md](docs/07-ambiente-e-infra.md) | Docker local, servidor Oracle, deploy |
 | [docs/08-roteiro.md](docs/08-roteiro.md) | Fases de desenvolvimento e critérios de aceite |
 | [docs/09-decisoes-e-pendencias.md](docs/09-decisoes-e-pendencias.md) | Registro de decisões, pendências e riscos |
+| [docs/10-deploy.md](docs/10-deploy.md) | Deploy no servidor, compose de produção, backup |
 | [docs/STATUS.md](docs/STATUS.md) | Situação atual, como rodar, checklist de validação no X |
 
 ## Estrutura planejada do repositório

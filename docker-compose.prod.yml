@@ -1,0 +1,60 @@
+# Produção (servidor). Uso:  docker compose -f docker-compose.prod.yml up -d --build
+# - Mongo próprio, com autenticação, SEM portas publicadas.
+# - API sem porta publicada no host: só o proxy (Nginx Proxy Manager) a alcança pela rede `infra_net`,
+#   pelo nome `notixias-api` (porta 8000).
+# - Nada aqui toca nos containers, volumes ou redes dos outros projetos.
+name: notixias
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["--wiredTigerCacheSizeGB", "0.5"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - notixias_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    mem_limit: 1g
+    networks: [notixias_net]
+
+  api:
+    build:
+      context: ./api
+      args:
+        INSTALL_DEV: "0"
+    restart: unless-stopped
+    environment:
+      ENV: prod
+      MONGO_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      MONGO_DB: ${MONGO_DB:-notixias}
+      API_KEY_HASH: ${API_KEY_HASH}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).status == 200 else 1)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    networks:
+      notixias_net:
+      infra_net:
+        aliases: [notixias-api]
+
+volumes:
+  notixias_mongo_data:
+
+networks:
+  notixias_net:
+  infra_net:
+    external: true

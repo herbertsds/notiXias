@@ -78,7 +78,7 @@ Tudo abaixo depende do X real. As fixtures dos testes são HTML **sintético** q
 - [ ] **Navegação interna** (`go()`): "Próxima" troca de post sem recarregar? Se a página recarregar ou travar, desligar em menu → "Navegação interna: não" e me avisar.
 - [ ] **Rolagem ao topo** da página do post: revela o post respondido/a cadeia acima; para de rolar quando você mexe.
 - [ ] **Próxima/Anterior:** posição "n / total" correta; fechar e reabrir o navegador retoma no mesmo post (abrindo `x.com/home`).
-- [ ] **Já visto:** depois de avançar, um post repostado de novo mostra "👁 já visto em dd/mm/aaaa às hh:mm".
+- [ ] **Já visto:** depois de avançar, um post repostado de novo mostra "👁 Visto em dd/mm/aaaa às hh:mm".
 - [ ] **Segunda busca:** ao acabar a fila (ou menu → "Buscar novas agora"), o script rola até reencontrar o último post guardado e traz só o novo. Verificar se avisa lacuna quando deveria.
 - [ ] **Thread real** (3+ posts): abre o 1º, salta para o último e rola ao topo; "⛓ inclui N posts" bate com o que aparece. Posts seguidos **independentes** do mesmo autor NÃO devem ser agrupados.
 - [ ] **"Reabrir posts cobertos"** devolve os pedaços (use ◀ para vê-los).

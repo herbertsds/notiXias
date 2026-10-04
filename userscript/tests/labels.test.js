@@ -7,7 +7,7 @@ const { article, page } = require('./fixtures/builders.js');
 const dom = (html) => new JSDOM(html, { url: 'https://x.com/ana/status/3' }).window.document;
 const arts = (d) => Array.from(d.querySelectorAll('article'));
 const nx = (art, kind) => (art.previousElementSibling && art.previousElementSibling.getAttribute('data-nx') === kind ? [art.previousElementSibling] : []);
-const MODEL = { tweetId: '3', lines: ['↻ repostado por @ana'], seen: '👁 já visto em 03/10/2026 às 21:14', bannerText: '↻ uma mensagem dessa thread foi repostada por @ana' };
+const MODEL = { tweetId: '3', lines: ['↻ repostado por @ana'], seen: '👁 Visto em 03/10/2026 às 21:14', bannerText: '↻ uma mensagem dessa thread foi repostada por @ana' };
 
 test('a faixa é IRMÃ imediatamente antes do article (não filha: os filhos do X ficam lado a lado)', () => {
   const d = dom(page(article({ id: '3', author: 'a' })));
@@ -17,7 +17,7 @@ test('a faixa é IRMÃ imediatamente antes do article (não filha: os filhos do 
   assert.equal(art.previousElementSibling.getAttribute('data-nx'), 'label');
   assert.equal(art.querySelectorAll('[data-nx]').length, 0, 'nada injetado dentro do article');
   assert.match(art.previousElementSibling.textContent, /repostado por @ana/);
-  assert.match(art.previousElementSibling.textContent, /já visto em 03\/10\/2026/);
+  assert.match(art.previousElementSibling.textContent, /Visto em 03\/10\/2026/);
   const st = art.previousElementSibling.getAttribute('style');
   assert.match(st, /width:100%/);
   assert.match(st, /color:#71767b/); // cinza discreto, sem fundo colorido
@@ -107,7 +107,7 @@ test('texto da etiqueta entra como texto (sem interpretar HTML)', () => {
 });
 
 // ---- posição do "já visto": logo abaixo da data ----
-const SEEN = '👁 já visto em 03/10/2026 às 21:14';
+const SEEN = '👁 Visto em 03/10/2026 às 21:14';
 
 test('"já visto" vai logo ABAIXO da linha da data; "repostado" continua acima do post', () => {
   const d = dom(page(article({ id: '3', author: 'a', detail: true })));
@@ -118,7 +118,7 @@ test('"já visto" vai logo ABAIXO da linha da data; "repostado" continua acima d
   assert.equal(row.nextElementSibling.getAttribute('data-nx'), 'seen');
   assert.equal(row.nextElementSibling.textContent.replace(/\s+/g, ''), SEEN.replace(/\s+/g, ''));
   assert.equal(art.previousElementSibling.getAttribute('data-nx'), 'label');
-  assert.ok(!/já visto/.test(art.previousElementSibling.textContent), 'o topo não repete o "já visto"');
+  assert.ok(!/Visto em/.test(art.previousElementSibling.textContent), 'o topo não repete o "já visto"');
   assert.match(art.previousElementSibling.textContent, /repostado por @ana/);
 });
 
@@ -128,7 +128,7 @@ test('sem linha de data (layout compacto): "já visto" cai para o fim da faixa d
   assert.deepEqual(r, { label: true, seen: false, banner: false });
   assert.equal(d.querySelectorAll('[data-nx="seen"]').length, 0);
   const lines = [...arts(d)[0].previousElementSibling.children].map((c) => c.textContent);
-  assert.match(lines[lines.length - 1], /já visto em 03\/10\/2026/);
+  assert.match(lines[lines.length - 1], /Visto em 03\/10\/2026/);
 });
 
 test('"já visto" sozinho (sem etiquetas de cima): não cria faixa no topo', () => {
@@ -150,7 +150,7 @@ test('"já visto" é idempotente, reinserido se sumir, atualizado e removido qua
   d.querySelector('[data-nx="seen"]').remove();
   Labels.sync(d, MODEL);
   assert.equal(d.querySelectorAll('[data-nx="seen"]').length, 1);
-  Labels.sync(d, { ...MODEL, seen: '👁 já visto em 04/10/2026 às 08:42 (2 vezes)' });
+  Labels.sync(d, { ...MODEL, seen: '👁 Visto em 04/10/2026 às 08:42 (2 vezes)' });
   assert.match(d.querySelector('[data-nx="seen"]').textContent, /04\/10\/2026.*2 vezes/);
   Labels.sync(d, { ...MODEL, seen: null });
   assert.equal(d.querySelectorAll('[data-nx="seen"]').length, 0);

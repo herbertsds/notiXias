@@ -95,7 +95,7 @@ Para cada aparição nova (processada do mais antigo ao mais novo):
 2. Se existe: `$addToSet` da chave em `appearance_keys` e do reposter em `reposters`. Não cria entrada.
 3. Se não existe (ou a existente já foi lida): cria nova entrada, com `reposters = [reposter]` se houver.
 
-Consequência: um post lido e depois repostado volta como **nova entrada**; a etiqueta "já visto em…" vem das `views` do `tweet_id`.
+Consequência: um post lido e depois repostado volta como **nova entrada**; a etiqueta "Visto em…" vem das `views` do `tweet_id`.
 
 ### Visualizações
 

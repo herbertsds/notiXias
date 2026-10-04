@@ -75,12 +75,12 @@ test('buildBadges: repost, já visto (com contagem), thread e lacuna', () => {
   };
   assert.deepEqual(Core.buildBadges(e, fmt), [
     '↻ repostado por @ana, @beto',
-    '👁 já visto em 03/10/2026 às 21:14 (2 vezes)',
+    '👁 Visto em 03/10/2026 às 21:14 (2 vezes)',
     '⛓ inclui 3 posts desta thread',
     '⚠ pode haver posts não capturados antes deste',
   ]);
   assert.deepEqual(Core.buildBadges({ reposters: [], view_count: 1, views: [{ viewed_at: 'x' }], covered_count: 1 }, fmt), [
-    '👁 já visto em 03/10/2026 às 21:14',
+    '👁 Visto em 03/10/2026 às 21:14',
     '⛓ inclui 1 post desta thread',
   ]);
   assert.deepEqual(Core.buildBadges({ reposters: [], view_count: 0, views: [], covered_count: 0 }, fmt), []);
@@ -112,7 +112,7 @@ test('buildLabelParts: topo (repost, thread, lacuna) separado do "já visto"', (
   const e = { reposters: ['ana'], view_count: 2, views: [{ viewed_at: 'x' }, { viewed_at: 'y' }], covered_count: 2, gap_before: true };
   assert.deepEqual(Core.buildLabelParts(e, fmt), {
     top: ['↻ repostado por @ana', '⛓ inclui 2 posts desta thread', '⚠ pode haver posts não capturados antes deste'],
-    seen: '👁 já visto em 03/10/2026 às 21:14 (2 vezes)',
+    seen: '👁 Visto em 03/10/2026 às 21:14 (2 vezes)',
   });
   assert.deepEqual(Core.buildLabelParts({ reposters: [], view_count: 0, views: [] }, fmt), { top: [], seen: null });
   assert.deepEqual(Core.buildLabelParts(null), { top: [], seen: null });

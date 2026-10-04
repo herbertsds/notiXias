@@ -187,7 +187,7 @@ Se a página for de login (`/i/flow/login`, `/login`), o script não age.
 
 Estilo do "fulano repostou" nativo do X: **texto cinza discreto, largura inteira, acima do avatar e do nome**, sem fundo colorido; `@fulano` é link para o perfil.
 
-- **Faixa do post da fila:** "↻ repostado por @…", "👁 já visto em…", "⛓ inclui N posts desta thread", "⚠ pode haver posts não capturados…" (esta em âmbar).
+- **Faixa do post da fila:** "↻ repostado por @…", "👁 Visto em…", "⛓ inclui N posts desta thread", "⚠ pode haver posts não capturados…" (esta em âmbar).
 - **Aviso de repost no topo da tela:** se o post repostado **não** é o primeiro da página (há cadeia acima), o primeiro post ganha "↻ uma mensagem dessa thread foi repostada por @fulano". Se o primeiro já é o repostado, só a faixa dele aparece.
 - **Posição no DOM:** a faixa é **irmã imediatamente anterior ao `<article>`**, e não filha. Os filhos do `article` do X ficam lado a lado, então um filho novo virava uma coluna estreita (defeito visto na 0.2.0 e corrigido na 0.2.1).
 - O X redesenha posts o tempo todo: um `MutationObserver` reexecuta `Labels.sync`, que é **idempotente** (só escreve no DOM se algo mudou), então não há laço de mutação.

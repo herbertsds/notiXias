@@ -33,7 +33,7 @@ Nenhuma fase começa sem o dono pedir. Cada fase termina com critérios de aceit
 - [ ] "Próxima" registra a visualização, avança o cursor e abre a seguinte.
 - [ ] "Anterior" volta sem duplicar visualizações.
 - [ ] Fechar e reabrir o navegador retoma na mesma entrada.
-- [ ] Etiquetas "repostado por" e "já visto em dd/mm/aaaa às hh:mm" corretas.
+- [ ] Etiquetas "repostado por" e "Visto em dd/mm/aaaa às hh:mm" corretas.
 - [ ] Página de post sempre rola ao topo; para de rolar se o dono interagir.
 - [ ] Decisão registrada: navegação interna do X funciona ou fica o fallback.
 

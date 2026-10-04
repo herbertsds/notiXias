@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.2.4
+// @version      0.2.5
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -104,7 +104,7 @@ const Core = (function () {
       out.push('↻ repostado por ' + entry.reposters.map((r) => '@' + r).join(', '));
     }
     if (entry.view_count > 0 && entry.views && entry.views.length) {
-      let t = '👁 já visto em ' + f(entry.views[0].viewed_at);
+      let t = '👁 Visto em ' + f(entry.views[0].viewed_at);
       if (entry.view_count > 1) t += ' (' + entry.view_count + ' vezes)';
       out.push(t);
     }
@@ -128,7 +128,7 @@ const Core = (function () {
     }
     if (entry.gap_before) parts.top.push('⚠ pode haver posts não capturados antes deste');
     if (entry.view_count > 0 && entry.views && entry.views.length) {
-      parts.seen = '👁 já visto em ' + f(entry.views[0].viewed_at) + (entry.view_count > 1 ? ' (' + entry.view_count + ' vezes)' : '');
+      parts.seen = '👁 Visto em ' + f(entry.views[0].viewed_at) + (entry.view_count > 1 ? ' (' + entry.view_count + ' vezes)' : '');
     }
     return parts;
   }

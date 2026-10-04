@@ -1,0 +1,13 @@
+{
+  "name": "notixias-userscript",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Userscript do notiXias (testes e build)",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}

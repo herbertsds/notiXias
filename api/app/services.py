@@ -1,0 +1,301 @@
+"""Regras de negócio da fila. Funções recebem o `db` (pymongo) e são independentes do FastAPI."""
+from datetime import datetime, timezone
+
+from pymongo import ASCENDING, DESCENDING, ReturnDocument
+from pymongo.errors import DuplicateKeyError
+
+DEFAULT_FEED = {"url": "https://x.com/home", "tab_index": 1}
+VISIBLE = {"removed": False, "covered": False}
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def ensure_indexes(db) -> None:
+    db.entries.create_index([("seq", ASCENDING)], unique=True)
+    # Único: uma mesma aparição nunca pertence a duas entradas (protege contra corrida).
+    db.entries.create_index([("appearance_keys", ASCENDING)], unique=True)
+    db.entries.create_index([("tweet_id", ASCENDING), ("read_at", ASCENDING)])
+    db.entries.create_index([("removed", ASCENDING), ("covered", ASCENDING), ("seq", ASCENDING)])
+    db.entries.create_index([("covered_by", ASCENDING)])
+    db.views.create_index([("entry_seq", ASCENDING)], unique=True)
+    db.views.create_index([("tweet_id", ASCENDING), ("viewed_at", DESCENDING)])
+    db.batches.create_index([("created_at", ASCENDING)], expireAfterSeconds=7 * 24 * 3600)
+    db.skeletons.create_index([("created_at", ASCENDING)], expireAfterSeconds=90 * 24 * 3600)
+
+
+def appearance_key(tweet_id: str, reposter: str | None) -> str:
+    return f"{tweet_id}|{(reposter or '').lower()}"
+
+
+def next_seq(db) -> int:
+    doc = db.counters.find_one_and_update(
+        {"_id": "entries_seq"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return doc["value"]
+
+
+# ---------- apresentação ----------
+def entry_summary(doc: dict) -> dict:
+    return {
+        "seq": doc["seq"],
+        "tweet_id": doc["tweet_id"],
+        "url": doc["url"],
+        "author": doc["author"],
+        "reposters": doc["reposters"],
+        "kind": doc["kind"],
+        "captured_at": doc["captured_at"],
+        "read_at": doc["read_at"],
+        "covered": doc["covered"],
+        "covered_by": doc["covered_by"],
+        "gap_before": doc["gap_before"],
+    }
+
+
+def entry_detail(db, doc: dict) -> dict:
+    out = entry_summary(doc)
+    views = list(db.views.find({"tweet_id": doc["tweet_id"]}).sort("viewed_at", DESCENDING))
+    out["views"] = [{"viewed_at": v["viewed_at"], "entry_seq": v["entry_seq"]} for v in views]
+    out["view_count"] = len(views)
+    out["covered_count"] = db.entries.count_documents({"covered_by": doc["seq"], "removed": False})
+    return out
+
+
+# ---------- fila ----------
+def append_items(db, items: list, anchor_found: bool, batch_id: str | None) -> dict:
+    """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
+    if batch_id:
+        prev = db.batches.find_one({"_id": batch_id})
+        if prev:
+            return prev["result"]
+
+    had_entries = db.entries.find_one({}, {"_id": 1}) is not None
+    created = merged = skipped = 0
+    first_new_seq = None
+
+    for it in reversed(items):
+        key = appearance_key(it.tweet_id, it.reposter)
+        if db.entries.find_one({"appearance_keys": key}, {"_id": 1}):
+            skipped += 1
+            continue
+
+        existing = db.entries.find_one(
+            {"tweet_id": it.tweet_id, "read_at": None, "removed": False},
+            sort=[("seq", ASCENDING)],
+        )
+        if existing:
+            upd = {"$addToSet": {"appearance_keys": key}}
+            if it.reposter:
+                upd["$addToSet"]["reposters"] = it.reposter
+            try:
+                db.entries.update_one({"_id": existing["_id"]}, upd)
+                merged += 1
+            except DuplicateKeyError:
+                skipped += 1
+            continue
+
+        seq = next_seq(db)
+        doc = {
+            "seq": seq,
+            "tweet_id": it.tweet_id,
+            "url": f"https://x.com/{it.author}/status/{it.tweet_id}",
+            "author": it.author,
+            "author_lc": it.author.lower(),
+            "reposters": [it.reposter] if it.reposter else [],
+            "appearance_keys": [key],
+            "kind": "repost" if it.reposter else ("post" if it.kind == "repost" else it.kind),
+            "captured_at": now(),
+            "read_at": None,
+            "covered": False,
+            "covered_by": None,
+            "gap_before": False,
+            "removed": False,
+        }
+        try:
+            db.entries.insert_one(doc)
+        except DuplicateKeyError:
+            skipped += 1
+            continue
+        created += 1
+        if first_new_seq is None:
+            first_new_seq = seq
+
+    gap = bool(not anchor_found and had_entries and created > 0)
+    if gap:
+        db.entries.update_one({"seq": first_new_seq}, {"$set": {"gap_before": True}})
+
+    result = {
+        "created": created,
+        "merged": merged,
+        "skipped": skipped,
+        "first_new_seq": first_new_seq,
+        "gap": gap,
+    }
+    if batch_id:
+        try:
+            db.batches.insert_one({"_id": batch_id, "result": result, "created_at": now()})
+        except DuplicateKeyError:
+            pass
+    return result
+
+
+def anchor_keys(db, depth: int) -> dict:
+    docs = list(db.entries.find({}, {"appearance_keys": 1, "seq": 1}).sort("seq", DESCENDING).limit(depth))
+    keys: list[str] = []
+    for d in docs:
+        keys.extend(d["appearance_keys"])
+    return {"keys": keys, "last_seq": docs[0]["seq"] if docs else None}
+
+
+def list_queue(db, after: int | None, before: int | None, limit: int, include_covered: bool) -> dict:
+    flt: dict = {"removed": False}
+    if not include_covered:
+        flt["covered"] = False
+    if before is not None:
+        flt["seq"] = {"$lt": before}
+        sort = [("seq", DESCENDING)]
+    else:
+        flt["seq"] = {"$gt": after or 0}
+        sort = [("seq", ASCENDING)]
+    docs = list(db.entries.find(flt).sort(sort).limit(limit + 1))
+    has_more = len(docs) > limit
+    return {"items": [entry_summary(d) for d in docs[:limit]], "has_more": has_more}
+
+
+# ---------- estado ----------
+def _state_doc(db) -> dict:
+    return db.state.find_one_and_update(
+        {"_id": "main"},
+        {"$setOnInsert": {"cursor_seq": None, "feed": DEFAULT_FEED, "version": 0, "updated_at": now()}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+def state_view(db) -> dict:
+    st = _state_doc(db)
+    cursor = st["cursor_seq"]
+    total = db.entries.count_documents(VISIBLE)
+    if cursor is not None:
+        unread_after = db.entries.count_documents({**VISIBLE, "seq": {"$gt": cursor}})
+        position = db.entries.count_documents({**VISIBLE, "seq": {"$lte": cursor}})
+        cur_doc = db.entries.find_one({"seq": cursor, "removed": False})
+    else:
+        unread_after, position, cur_doc = total, 0, None
+    nxt = db.entries.find_one({**VISIBLE, "seq": {"$gt": cursor or 0}}, {"seq": 1}, sort=[("seq", ASCENDING)])
+    return {
+        "cursor_seq": cursor,
+        "current": entry_detail(db, cur_doc) if cur_doc else None,
+        "next_seq": nxt["seq"] if nxt else None,
+        "position": position,
+        "unread_after": unread_after,
+        "total_visible": total,
+        "feed": st["feed"],
+        "version": st["version"],
+        "updated_at": st["updated_at"],
+    }
+
+
+class VersionConflict(Exception):
+    pass
+
+
+class InvalidCursor(Exception):
+    pass
+
+
+def update_state(db, fields: set[str], cursor_seq, feed, expected_version) -> dict:
+    st = _state_doc(db)
+    if expected_version is not None and st["version"] != expected_version:
+        raise VersionConflict()
+    sets: dict = {"updated_at": now()}
+    if "cursor_seq" in fields:
+        if cursor_seq is not None and not db.entries.find_one({"seq": cursor_seq, "removed": False}, {"_id": 1}):
+            raise InvalidCursor()
+        sets["cursor_seq"] = cursor_seq
+    if "feed" in fields and feed is not None:
+        sets["feed"] = feed
+    res = db.state.update_one({"_id": "main", "version": st["version"]}, {"$set": sets, "$inc": {"version": 1}})
+    if res.matched_count == 0:
+        raise VersionConflict()
+    return state_view(db)
+
+
+# ---------- visualizações ----------
+class UnknownEntry(Exception):
+    pass
+
+
+def record_views(db, seqs: list[int], viewed_at: datetime | None) -> dict:
+    wanted = set(seqs)
+    found = {d["seq"] for d in db.entries.find({"seq": {"$in": list(wanted)}, "removed": False}, {"seq": 1})}
+    if found != wanted:
+        raise UnknownEntry()
+    # Entradas cobertas pelas que estão sendo vistas contam como vistas no mesmo momento.
+    for d in db.entries.find({"covered_by": {"$in": list(wanted)}, "removed": False}, {"seq": 1}):
+        wanted.add(d["seq"])
+
+    at = viewed_at or now()
+    recorded = already = 0
+    for seq in sorted(wanted):
+        doc = db.entries.find_one_and_update(
+            {"seq": seq, "read_at": None},
+            {"$set": {"read_at": at}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc is None:
+            already += 1
+            continue
+        try:
+            db.views.insert_one({"entry_seq": seq, "tweet_id": doc["tweet_id"], "viewed_at": at})
+            recorded += 1
+        except DuplicateKeyError:
+            already += 1
+    return {"recorded": recorded, "already": already, "seqs": sorted(wanted)}
+
+
+# ---------- cobertura ----------
+def cover_by_tweet_ids(db, covered_by: int, tweet_ids: list[str]) -> dict:
+    dest = db.entries.find_one({"seq": covered_by, "removed": False})
+    if not dest:
+        raise UnknownEntry()
+    res = db.entries.update_many(
+        {
+            "tweet_id": {"$in": tweet_ids},
+            "author_lc": dest["author_lc"],
+            "read_at": None,
+            "removed": False,
+            "seq": {"$ne": covered_by},
+        },
+        {"$set": {"covered": True, "covered_by": covered_by}},
+    )
+    return {"covered": res.modified_count}
+
+
+def uncover(db, covered_by: int) -> dict:
+    res = db.entries.update_many({"covered_by": covered_by}, {"$set": {"covered": False, "covered_by": None}})
+    return {"reopened": res.modified_count}
+
+
+def patch_entry(db, seq: int, patch) -> dict | None:
+    doc = db.entries.find_one({"seq": seq, "removed": False})
+    if not doc:
+        return None
+    sets: dict = {}
+    fields = patch.model_fields_set
+    if "covered" in fields and patch.covered is not None:
+        if patch.covered:
+            if patch.covered_by == seq or not db.entries.find_one({"seq": patch.covered_by, "removed": False}, {"_id": 1}):
+                raise UnknownEntry()
+            sets.update(covered=True, covered_by=patch.covered_by)
+        else:
+            sets.update(covered=False, covered_by=None)
+    if "removed" in fields and patch.removed is not None:
+        sets["removed"] = patch.removed
+    if sets:
+        db.entries.update_one({"seq": seq}, {"$set": sets})
+    return db.entries.find_one({"seq": seq})

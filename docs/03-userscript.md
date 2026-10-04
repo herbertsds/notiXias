@@ -26,7 +26,7 @@ Arquivo único (inicialmente): `userscript/notixias.user.js`. Roda em `https://x
 
 | Chave | Padrão | Descrição |
 |---|---|---|
-| `apiBaseUrl` | `http://localhost:8000` | Base da API. Pedido na primeira execução. |
+| `apiBaseUrl` | `http://localhost:8010` | Base da API. Pedido na primeira execução. |
 | `apiKey` | — | Chave da API. Pedida na primeira execução; **nunca** escrita no arquivo. |
 | `feedUrl` | `https://x.com/home` | Feed. Para uma Lista: `https://x.com/i/lists/<ID>`. |
 | `feedTabIndex` | `1` | Aba (0-based) a selecionar em `/home`. `1` = "Seguindo". `null` para listas. |

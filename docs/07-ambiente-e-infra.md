@@ -18,7 +18,7 @@
 
 ### Diretrizes
 
-- **Portas locais publicadas somente em `127.0.0.1`** (ex.: `127.0.0.1:8000:8000`); Mongo não publicado (acesso por `docker compose exec` quando necessário).
+- **Portas locais publicadas somente em `127.0.0.1`**: a API em `127.0.0.1:8010` (variável `API_HOST_PORT`; a 8000 do Mac já era usada por outro serviço); Mongo não publicado (acesso por `docker compose exec mongo mongosh`).
 - Volume nomeado para os dados do Mongo (`notixias_mongo_data`).
 - Limite de cache do Mongo para conter memória (ex.: `--wiredTigerCacheSizeGB 0.25`).
 - `healthcheck` no Mongo e na API; `api` depende de `mongo` saudável.

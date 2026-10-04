@@ -17,6 +17,7 @@ Uma entrada por post original (com possíveis reposters). A ordem de leitura é 
 | `author` | string | Autor do post original. |
 | `reposters` | array\<string\> | Contas que repostaram (sem repetição). |
 | `appearance_keys` | array\<string\> | Chaves `tweet_id\|reposter` já vistas nesta entrada. |
+| `author_lc` | string | Autor em minúsculas (uso interno, comparação de cobertura). Não é exposto. |
 | `kind` | string | `post` \| `repost` (refinável: `reply`, `quote`). |
 | `captured_at` | date | Quando foi capturada. |
 | `read_at` | date \| null | Preenchido ao sair com "próxima" (primeira vez). |
@@ -27,7 +28,7 @@ Uma entrada por post original (com possíveis reposters). A ordem de leitura é 
 
 Índices:
 - `{ seq: 1 }` único
-- `{ appearance_keys: 1 }` (multikey) — para dedupe e âncoras
+- `{ appearance_keys: 1 }` **único** (multikey) — dedupe e âncoras; garante que uma mesma aparição nunca pertença a duas entradas, mesmo com escritas concorrentes
 - `{ tweet_id: 1, read_at: 1 }` — para merge com entradas não lidas
 - `{ removed: 1, covered: 1, seq: 1 }` — para listar a fila
 

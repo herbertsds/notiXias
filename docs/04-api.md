@@ -35,7 +35,9 @@ Estado de leitura e resumo da fila.
 ```json
 {
   "cursor_seq": 118,
-  "current": { "...entrada..." },
+  "current": { "...entrada com views e covered_count..." },
+  "next_seq": 119,
+  "position": 104,
   "unread_after": 14,
   "total_visible": 132,
   "feed": { "url": "https://x.com/home", "tab_index": 1 },
@@ -44,7 +46,9 @@ Estado de leitura e resumo da fila.
 }
 ```
 
-- `cursor_seq`: `seq` da entrada atual (`null` se a fila está vazia).
+- `cursor_seq`: `seq` da entrada atual (`null` se ainda não começou a ler).
+- `next_seq`: primeira entrada visível (não coberta, não removida) depois do cursor; `null` se não há.
+- `position`: quantas entradas visíveis existem até o cursor (inclusive); `total_visible` é o total visível.
 - `unread_after`: entradas não cobertas, não removidas, com `seq` maior que o cursor.
 
 ### `PUT /api/v1/state`
@@ -55,7 +59,8 @@ Atualiza cursor e/ou feed. Concorrência otimista pela `version`.
 { "cursor_seq": 119, "feed": {"url":"...","tab_index":1}, "expected_version": 57 }
 ```
 
-- `409` se `expected_version` não confere (outro aparelho avançou). A resposta traz o estado atual; o cliente decide (padrão: aceitar o estado do servidor se ele estiver à frente).
+- `409` se `expected_version` não confere (outro aparelho avançou). Corpo: `{"detail": "version_conflict", "state": {...estado atual...}}`; o cliente decide (padrão: aceitar o estado do servidor se ele estiver à frente).
+- `feed.url` só aceita `https://x.com/...` ou `https://twitter.com/...`.
 - `cursor_seq` deve existir; caso contrário `422`.
 
 ### `GET /api/v1/queue/anchor?depth=10`
@@ -114,7 +119,8 @@ Entrada com suas visualizações anteriores.
   "gap_before": false,
   "read_at": null,
   "views": [ { "viewed_at": "2026-10-03T21:14:00Z" } ],
-  "view_count": 1
+  "view_count": 1,
+  "covered_count": 0
 }
 ```
 
@@ -122,7 +128,7 @@ Entrada com suas visualizações anteriores.
 
 ### `GET /api/v1/queue?after=118&limit=20`
 
-Lista entradas com `seq` > `after`, em ordem crescente, ignorando removidas. Parâmetro `include_covered=false` por padrão.
+Lista entradas com `seq` > `after`, em ordem crescente, ignorando removidas. Com `before=N` (em vez de `after`) lista as de `seq` < N em ordem **decrescente** (a mais próxima primeiro), útil para "anterior". `after` e `before` juntos → 422. Parâmetro `include_covered=false` por padrão. Resposta: `{"items": [...], "has_more": bool}`.
 
 ### `PATCH /api/v1/entries/{seq}`
 
@@ -133,7 +139,9 @@ Campos permitidos:
 ```
 ou `{ "covered": false }` (reabrir) ou `{ "removed": true }`.
 
-Operação em lote: `POST /api/v1/entries/cover` com `{"covered_by": 120, "tweet_ids": ["...","..."]}` — marca como cobertas as entradas **não lidas** com esses IDs e `author` igual ao de `covered_by`.
+Operação em lote: `POST /api/v1/entries/cover` com `{"covered_by": 120, "tweet_ids": ["...","..."]}` — marca como cobertas as entradas **não lidas** com esses IDs e `author` igual (sem distinguir maiúsculas) ao de `covered_by`. Resposta `{"covered": N}`.
+
+Reabrir: `POST /api/v1/entries/uncover` com `{"covered_by": 120}` — devolve à fila todas as cobertas por essa entrada. Resposta `{"reopened": N}`.
 
 ### `POST /api/v1/views`
 
@@ -144,6 +152,8 @@ Registra que o dono viu entradas (ao sair com "próxima").
 ```
 
 - Cria uma visualização por `seq`, **uma só vez por entrada** (`read_at` da entrada é preenchido; repetir não duplica).
+- Entradas **cobertas** pelas informadas também são marcadas como vistas no mesmo momento.
+- Se algum `seq` não existe → `404` e nada é gravado.
 - `viewed_at` opcional (padrão: agora do servidor).
 
 ### `POST /api/v1/health/skeleton`
@@ -161,7 +171,7 @@ Exporta fila, visualizações e estado em JSON (backup manual, auditoria).
 
 ## Documentação interativa
 
-`/docs` (Swagger) ativo apenas em desenvolvimento local; **desligado em produção**.
+`/docs` (Swagger) ativo apenas em desenvolvimento local (`ENV=dev`, em `http://127.0.0.1:8010/docs`); **desligado em produção** (`ENV=prod`), assim como `/openapi.json`.
 
 ## CORS
 

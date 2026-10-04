@@ -102,7 +102,7 @@ saída:   sequência de aparições (do mais novo ao mais antigo), anchorFound
    - se já visto neste scan, ignora;
    - se a `appearance_key` está nas âncoras → `anchorFound = true`, para;
    - senão, adiciona à sequência.
-3. Condições de parada: âncora encontrada; (fila vazia e `initialBackfill` atingido); `maxCollect`; fim do feed (altura estável por 3 passos); `maxSteps`.
+3. Condições de parada: **`knownRun` (5) itens conhecidos consecutivos _e_ `minKnown` (25) conhecidos no total** (ou todas as âncoras, se forem menos); a varredura profunda (menu) usa `minKnown` 100; (fila vazia e `initialBackfill` atingido); `maxCollect`; fim do feed (altura estável por 3 passos); `maxSteps`.
 4. Rola `stepSize` e espera um tempo aleatório em `stepDelayMs`.
 5. Mostra progresso na tela própria; botão "Cancelar".
 
@@ -227,3 +227,17 @@ O X escolhe o layout mobile pela **largura da janela**; um userscript não conse
 - `@connect` para o domínio HTTPS do servidor (o Safari bloqueia conteúdo misto).
 - Verificar compatibilidade de `GM_xmlhttpRequest` e `GM_setValue` no Userscripts.
 - Aba precisa ficar em primeiro plano durante a busca.
+
+
+## Busca: por que não para no primeiro item conhecido (0.3.0)
+
+O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no feed junto delas, ficando *acima* de posts novos. Parar no primeiro item conhecido fazia a busca perder tudo que ficava abaixo dele (6 posts reais foram perdidos assim em 2026-10-04). Agora:
+
+- a busca só termina após `knownRun` conhecidos seguidos **e** `minKnown` conhecidos no total (cobre conversas que sobem abaixo de uma sequência longa de conhecidos);
+- as âncoras são as últimas **100** entradas; o scanner devolve também os itens conhecidos (contexto para reconhecer conversas);
+- se o X demora a desenhar, o scanner espera alguns instantes antes de rolar mais (não pula posts);
+- menu "Buscar novas (varredura profunda)" para recuperar lacunas antigas.
+
+### Conversas no feed
+
+`Core.clusterize`: corrida de itens **consecutivos, sem reposts, com ID crescente de cima para baixo** = conversa (raiz, respostas). Verificado com o Seguindo real: `[703, RicardoPF, venecasagrande]` e `[militaofernand, flamengomeumund, flamengomeumund]` aparecem assim. Cada conversa vira **um registro** com a última resposta como referência; ao abrir a página da referência o script cobre os posts acima dela (`ancestor_ids`) e chama `settle` para confirmar o que a página mostra e soltar o resto.

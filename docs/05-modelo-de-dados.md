@@ -23,6 +23,8 @@ Uma entrada por post original (com possíveis reposters). A ordem de leitura é 
 | `read_at` | date \| null | Preenchido ao sair com "próxima" (primeira vez). |
 | `covered` | bool | Parte de outra entrada (thread). |
 | `covered_by` | int \| null | `seq` da entrada que a cobre. |
+| `members` | array\<string\> | Só na referência de uma conversa: `tweet_id` dos demais membros (inclusive já lidos); alimenta o "Visto em". |
+| `cover_tentative` | bool | Cobertura ainda não confirmada pela página da referência (`settle`). |
 | `gap_before` | bool | Pode haver posts não capturados antes desta. |
 | `removed` | bool | Remoção lógica. |
 

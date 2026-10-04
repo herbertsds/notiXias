@@ -45,11 +45,11 @@ test('Api: erros viram ApiError com status e corpo', async () => {
 test('Api: rotas usadas pelo script', async () => {
   const { api, calls } = fakeApi(() => ({ status: 200, json: {} }));
   await api.anchor(10); await api.append({}); await api.views({ seqs: [1] });
-  await api.cover({}); await api.uncover({}); await api.skeleton({}); await api.entry(7); await api.exportAll();
+  await api.cover({}); await api.uncover({}); await api.settle({}); await api.skeleton({}); await api.entry(7); await api.exportAll();
   await api.patchEntry(2, { removed: true });
   assert.deepEqual(calls.map((c) => c.method + ' ' + c.url.replace('http://localhost:8010/api/v1', '')), [
     'GET /queue/anchor?depth=10', 'POST /queue/append', 'POST /views', 'POST /entries/cover',
-    'POST /entries/uncover', 'POST /health/skeleton', 'GET /entries/7', 'GET /export', 'PATCH /entries/2',
+    'POST /entries/uncover', 'POST /entries/settle', 'POST /health/skeleton', 'GET /entries/7', 'GET /export', 'PATCH /entries/2',
   ]);
 });
 

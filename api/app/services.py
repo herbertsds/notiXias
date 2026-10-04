@@ -61,10 +61,13 @@ def entry_summary(doc: dict) -> dict:
 
 def entry_detail(db, doc: dict) -> dict:
     out = entry_summary(doc)
-    views = list(db.views.find({"tweet_id": doc["tweet_id"]}).sort("viewed_at", DESCENDING))
+    # "Visto em": vale qualquer parte da conversa (o próprio tweet ou os que ele agrupa).
+    ids = [doc["tweet_id"], *doc.get("members", [])]
+    views = list(db.views.find({"tweet_id": {"$in": ids}}).sort("viewed_at", DESCENDING))
     out["views"] = [{"viewed_at": v["viewed_at"], "entry_seq": v["entry_seq"]} for v in views]
     out["view_count"] = len(views)
     out["covered_count"] = db.entries.count_documents({"covered_by": doc["seq"], "removed": False})
+    out["members"] = doc.get("members", [])
     # Quem repostou este tweet em QUALQUER entrada (lida ou não): a etiqueta aparece também nas já vistas.
     seen: set[str] = set()
     all_reposters: list[str] = []
@@ -78,6 +81,106 @@ def entry_detail(db, doc: dict) -> dict:
 
 
 # ---------- fila ----------
+def _new_doc(it, seq: int) -> dict:
+    return {
+        "seq": seq,
+        "tweet_id": it.tweet_id,
+        "url": f"https://x.com/{it.author}/status/{it.tweet_id}",
+        "author": it.author,
+        "author_lc": it.author.lower(),
+        "reposters": [it.reposter] if it.reposter else [],
+        "appearance_keys": [appearance_key(it.tweet_id, it.reposter)],
+        "kind": "repost" if it.reposter else ("post" if it.kind == "repost" else it.kind),
+        "captured_at": now(),
+        "read_at": None,
+        "covered": False,
+        "covered_by": None,
+        "gap_before": False,
+        "removed": False,
+    }
+
+
+def _place(db, it, cutoff, stats):
+    """Regra de UMA aparição. Devolve (entrada afetada | None, o que aconteceu)."""
+    key = appearance_key(it.tweet_id, it.reposter)
+    known = db.entries.find_one({"appearance_keys": key})
+    if known:
+        stats["skipped"] += 1
+        return known, "known"
+
+    existing = db.entries.find_one({"tweet_id": it.tweet_id, "read_at": None, "removed": False}, sort=[("seq", ASCENDING)])
+    if existing:
+        upd = {"$addToSet": {"appearance_keys": key}}
+        if it.reposter:
+            upd["$addToSet"]["reposters"] = it.reposter
+        try:
+            db.entries.update_one({"_id": existing["_id"]}, upd)
+        except DuplicateKeyError:
+            stats["skipped"] += 1
+            return existing, "known"
+        stats["merged"] += 1
+        return existing, "merged"
+
+    # Tweet visto há pouco: o repost não volta à fila; fica registrado na entrada mais recente do tweet
+    # (a etiqueta "repostado por" a mostra, inclusive nas já vistas).
+    last_view = db.views.find_one({"tweet_id": it.tweet_id}, sort=[("viewed_at", DESCENDING)])
+    if last_view and last_view["viewed_at"] > cutoff:
+        recent = db.entries.find_one({"tweet_id": it.tweet_id, "removed": False}, sort=[("seq", DESCENDING)])
+        if recent:
+            upd = {"$addToSet": {"appearance_keys": key}}
+            if it.reposter:
+                upd["$addToSet"]["reposters"] = it.reposter
+            try:
+                db.entries.update_one({"_id": recent["_id"]}, upd)
+            except DuplicateKeyError:
+                stats["skipped"] += 1
+                return recent, "known"
+            stats["absorbed"] += 1
+            return recent, "absorbed"
+
+    doc = _new_doc(it, next_seq(db))
+    try:
+        db.entries.insert_one(doc)
+    except DuplicateKeyError:
+        stats["skipped"] += 1
+        return None, "known"
+    stats["created"] += 1
+    if stats["first_new_seq"] is None:
+        stats["first_new_seq"] = doc["seq"]
+    return doc, "created"
+
+
+def _place_cluster(db, group, cutoff, stats):
+    """Conversa vista no feed (raiz, respostas...), em ordem de baixo para cima: group[0] é a ÚLTIMA resposta.
+    Ela é a referência (um único registro de leitura). Os demais membros não lidos ficam cobertos de forma
+    provisória: a página da referência confirma o que realmente mostra (`settle_cover`)."""
+    ref_doc, _ = _place(db, group[0], cutoff, stats)
+    if ref_doc is None:
+        return
+    members = group[1:]
+    for m in members:
+        key = appearance_key(m.tweet_id, m.reposter)
+        ex = db.entries.find_one({"appearance_keys": key})
+        if ex:
+            if ex["seq"] != ref_doc["seq"] and ex["read_at"] is None and not ex["covered"] and not ex["removed"]:
+                r = db.entries.update_one(
+                    {"_id": ex["_id"], "covered": False, "read_at": None},
+                    {"$set": {"covered": True, "covered_by": ref_doc["seq"], "cover_tentative": True}},
+                )
+                stats["linked"] += r.modified_count
+            continue
+        doc = _new_doc(m, next_seq(db))  # seq maior que o da referência: se for solto depois, vem após ela
+        doc.update(covered=True, covered_by=ref_doc["seq"], cover_tentative=True)
+        try:
+            db.entries.insert_one(doc)
+            stats["linked"] += 1
+        except DuplicateKeyError:
+            stats["skipped"] += 1
+    ids = [m.tweet_id for m in members]
+    if ids:
+        db.entries.update_one({"_id": ref_doc["_id"]}, {"$addToSet": {"members": {"$each": ids}}})
+
+
 def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None) -> dict:
     """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
     revisit_after = REVISIT_AFTER if revisit_after is None else revisit_after
@@ -87,83 +190,34 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
             return prev["result"]
 
     had_entries = db.entries.find_one({}, {"_id": 1}) is not None
-    created = merged = absorbed = skipped = 0
-    first_new_seq = None
+    stats = {"created": 0, "merged": 0, "absorbed": 0, "skipped": 0, "linked": 0, "first_new_seq": None}
     cutoff = now() - revisit_after
 
-    for it in reversed(items):
-        key = appearance_key(it.tweet_id, it.reposter)
-        if db.entries.find_one({"appearance_keys": key}, {"_id": 1}):
-            skipped += 1
+    rev = list(reversed(items))
+    i = 0
+    while i < len(rev):
+        it = rev[i]
+        if it.cluster is None:
+            _place(db, it, cutoff, stats)
+            i += 1
             continue
+        j = i
+        while j < len(rev) and rev[j].cluster == it.cluster:
+            j += 1
+        _place_cluster(db, rev[i:j], cutoff, stats)
+        i = j
 
-        existing = db.entries.find_one(
-            {"tweet_id": it.tweet_id, "read_at": None, "removed": False},
-            sort=[("seq", ASCENDING)],
-        )
-        if existing:
-            upd = {"$addToSet": {"appearance_keys": key}}
-            if it.reposter:
-                upd["$addToSet"]["reposters"] = it.reposter
-            try:
-                db.entries.update_one({"_id": existing["_id"]}, upd)
-                merged += 1
-            except DuplicateKeyError:
-                skipped += 1
-            continue
-
-        # Tweet visto há pouco: o repost não volta à fila; fica registrado na entrada mais recente do tweet
-        # (a etiqueta "repostado por" a mostra, inclusive nas já vistas).
-        last_view = db.views.find_one({"tweet_id": it.tweet_id}, sort=[("viewed_at", DESCENDING)])
-        if last_view and last_view["viewed_at"] > cutoff:
-            recent = db.entries.find_one({"tweet_id": it.tweet_id, "removed": False}, sort=[("seq", DESCENDING)])
-            if recent:
-                upd = {"$addToSet": {"appearance_keys": key}}
-                if it.reposter:
-                    upd["$addToSet"]["reposters"] = it.reposter
-                try:
-                    db.entries.update_one({"_id": recent["_id"]}, upd)
-                    absorbed += 1
-                except DuplicateKeyError:
-                    skipped += 1
-                continue
-
-        seq = next_seq(db)
-        doc = {
-            "seq": seq,
-            "tweet_id": it.tweet_id,
-            "url": f"https://x.com/{it.author}/status/{it.tweet_id}",
-            "author": it.author,
-            "author_lc": it.author.lower(),
-            "reposters": [it.reposter] if it.reposter else [],
-            "appearance_keys": [key],
-            "kind": "repost" if it.reposter else ("post" if it.kind == "repost" else it.kind),
-            "captured_at": now(),
-            "read_at": None,
-            "covered": False,
-            "covered_by": None,
-            "gap_before": False,
-            "removed": False,
-        }
-        try:
-            db.entries.insert_one(doc)
-        except DuplicateKeyError:
-            skipped += 1
-            continue
-        created += 1
-        if first_new_seq is None:
-            first_new_seq = seq
-
-    gap = bool(not anchor_found and had_entries and created > 0)
+    gap = bool(not anchor_found and had_entries and stats["created"] > 0)
     if gap:
-        db.entries.update_one({"seq": first_new_seq}, {"$set": {"gap_before": True}})
+        db.entries.update_one({"seq": stats["first_new_seq"]}, {"$set": {"gap_before": True}})
 
     result = {
-        "created": created,
-        "merged": merged,
-        "absorbed": absorbed,
-        "skipped": skipped,
-        "first_new_seq": first_new_seq,
+        "created": stats["created"],
+        "merged": stats["merged"],
+        "absorbed": stats["absorbed"],
+        "linked": stats["linked"],
+        "skipped": stats["skipped"],
+        "first_new_seq": stats["first_new_seq"],
         "gap": gap,
     }
     if batch_id:
@@ -172,6 +226,20 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
         except DuplicateKeyError:
             pass
     return result
+
+
+def settle_cover(db, covered_by: int, present_ids: list[str]) -> dict:
+    """Confirma a cobertura provisória do que a página da referência realmente mostra; solta o resto."""
+    present = set(present_ids)
+    confirmed = released = 0
+    for e in db.entries.find({"covered_by": covered_by, "cover_tentative": True, "removed": False}):
+        if e["tweet_id"] in present:
+            db.entries.update_one({"_id": e["_id"]}, {"$set": {"cover_tentative": False}})
+            confirmed += 1
+        else:
+            db.entries.update_one({"_id": e["_id"]}, {"$set": {"covered": False, "covered_by": None, "cover_tentative": False}})
+            released += 1
+    return {"confirmed": confirmed, "released": released}
 
 
 def anchor_keys(db, depth: int) -> dict:
@@ -267,7 +335,7 @@ def record_views(db, seqs: list[int], viewed_at: datetime | None) -> dict:
     if found != wanted:
         raise UnknownEntry()
     # Entradas cobertas pelas que estão sendo vistas contam como vistas no mesmo momento.
-    for d in db.entries.find({"covered_by": {"$in": list(wanted)}, "removed": False}, {"seq": 1}):
+    for d in db.entries.find({"covered_by": {"$in": list(wanted)}, "removed": False, "cover_tentative": {"$ne": True}}, {"seq": 1}):
         wanted.add(d["seq"])
 
     at = viewed_at or now()
@@ -307,7 +375,7 @@ def cover_by_tweet_ids(db, covered_by: int, tweet_ids: list[str], ancestor_ids: 
                 "removed": False,
                 "seq": {"$ne": covered_by},
             },
-            {"$set": {"covered": True, "covered_by": covered_by}},
+            {"$set": {"covered": True, "covered_by": covered_by, "cover_tentative": False}},
         ).modified_count
     if ancestor_ids:
         n += db.entries.update_many(
@@ -315,16 +383,17 @@ def cover_by_tweet_ids(db, covered_by: int, tweet_ids: list[str], ancestor_ids: 
                 "tweet_id": {"$in": ancestor_ids},
                 "read_at": None,
                 "removed": False,
-                "covered": False,
                 "seq": {"$ne": covered_by},
+                # ainda livres, ou já cobertas de forma provisória por esta mesma referência (confirma)
+                "$or": [{"covered": False}, {"covered_by": covered_by, "cover_tentative": True}],
             },
-            {"$set": {"covered": True, "covered_by": covered_by}},
+            {"$set": {"covered": True, "covered_by": covered_by, "cover_tentative": False}},
         ).modified_count
     return {"covered": n}
 
 
 def uncover(db, covered_by: int) -> dict:
-    res = db.entries.update_many({"covered_by": covered_by}, {"$set": {"covered": False, "covered_by": None}})
+    res = db.entries.update_many({"covered_by": covered_by}, {"$set": {"covered": False, "covered_by": None, "cover_tentative": False}})
     return {"reopened": res.modified_count}
 
 
@@ -338,9 +407,9 @@ def patch_entry(db, seq: int, patch) -> dict | None:
         if patch.covered:
             if patch.covered_by == seq or not db.entries.find_one({"seq": patch.covered_by, "removed": False}, {"_id": 1}):
                 raise UnknownEntry()
-            sets.update(covered=True, covered_by=patch.covered_by)
+            sets.update(covered=True, covered_by=patch.covered_by, cover_tentative=False)
         else:
-            sets.update(covered=False, covered_by=None)
+            sets.update(covered=False, covered_by=None, cover_tentative=False)
     if "removed" in fields and patch.removed is not None:
         sets["removed"] = patch.removed
     if sets:

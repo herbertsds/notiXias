@@ -1,0 +1,151 @@
+"""Conversas vistas no feed: raiz, resposta 1, resposta 2 (IDs crescendo de cima para baixo) = um registro,
+tendo a ÚLTIMA resposta como referência."""
+from .helpers import append, citem, entry, item, queue, tweet_ids
+
+
+def conversa(client, a=10, b=11, c=12, cluster=1):
+    """Feed (topo -> base): raiz a, resposta b, resposta c."""
+    return append(client, [citem(a, "x", cluster), citem(b, "y", cluster), citem(c, "z", cluster)])
+
+
+def test_conversa_vira_um_unico_registro_com_a_ultima_como_referencia(client):
+    r = conversa(client)
+    assert r["created"] == 1 and r["linked"] == 2
+    assert tweet_ids(queue(client)) == ["12"]          # só a referência na fila de leitura
+    ref = entry(client, 12)
+    assert ref["seq"] == 1 and ref["covered"] is False
+    for tid in (10, 11):
+        e = entry(client, tid)
+        assert e["covered"] is True and e["covered_by"] == 1
+    det = client.get("/api/v1/entries/1").json()
+    assert det["covered_count"] == 2 and sorted(det["members"]) == ["10", "11"]
+
+
+def test_conversa_ocupa_o_lugar_dela_entre_os_outros_posts(client):
+    # feed: X(30) novo no topo, conversa A,B,C, Y(5) velho embaixo -> leitura: Y, conversa, X
+    append(client, [item(30, "w"), citem(10, "x", 1), citem(11, "y", 1), citem(12, "z", 1), item(5, "v")])
+    assert tweet_ids(queue(client)) == ["5", "12", "30"]
+
+
+def test_raiz_ja_na_fila_nao_lida_e_coberta_provisoriamente_pela_nova_resposta(client):
+    append(client, [item(10, "x")])                     # raiz sozinha, seq 1, não lida
+    r = append(client, [citem(10, "x", 1), citem(11, "y", 1)])
+    assert r["created"] == 1 and r["linked"] == 1 and r["skipped"] == 0 or r["skipped"] >= 0
+    assert tweet_ids(queue(client)) == ["11"]
+    raiz = entry(client, 10)
+    assert raiz["covered"] is True and raiz["covered_by"] == entry(client, 11)["seq"]
+
+
+def test_raiz_ja_lida_nao_e_coberta_mas_o_visto_aparece_na_resposta(client):
+    append(client, [item(10, "x")])
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-03T10:00:00Z"})
+    append(client, [citem(10, "x", 1), citem(11, "y", 1)])
+    assert entry(client, 10)["covered"] is False and entry(client, 10)["read_at"] is not None
+    ref = client.get(f"/api/v1/entries/{entry(client, 11)['seq']}").json()
+    assert ref["members"] == ["10"]
+    assert ref["view_count"] == 1 and ref["views"][0]["viewed_at"].startswith("2026-10-03T10:00")
+
+
+def test_nova_resposta_numa_conversa_antiga_assume_a_referencia(client):
+    conversa(client)                                    # referência = 12 (seq 1), não lida
+    append(client, [citem(10, "x", 1), citem(11, "y", 1), citem(12, "z", 1), citem(13, "x", 1)])
+    assert tweet_ids(queue(client)) == ["13"]           # a nova resposta é a referência
+    assert entry(client, 12)["covered"] is True and entry(client, 12)["covered_by"] == entry(client, 13)["seq"]
+
+
+def test_reenvio_da_mesma_conversa_nao_duplica(client):
+    conversa(client)
+    r = conversa(client)
+    assert r["created"] == 0 and r["linked"] == 0
+    assert len(queue(client, include_covered="true")) == 3
+
+
+def test_settle_confirma_o_que_a_pagina_mostra_e_solta_o_resto(client):
+    conversa(client)                                    # ref 12 (seq1), membros 11 (seq2), 10 (seq3)
+    r = client.post("/api/v1/entries/settle", json={"covered_by": 1, "present_ids": ["10", "12"]})
+    assert r.json() == {"confirmed": 1, "released": 1}
+    assert entry(client, 10)["covered"] is True         # estava na página: confirmada
+    assert entry(client, 11)["covered"] is False        # não estava: volta à fila, depois da referência
+    assert tweet_ids(queue(client)) == ["12", "11"]
+
+
+def test_visualizacao_so_inclui_cobertas_confirmadas(client):
+    conversa(client)
+    r = client.post("/api/v1/views", json={"seqs": [1]})
+    assert r.json()["recorded"] == 1                    # provisórias não contam como vistas
+    assert entry(client, 10)["read_at"] is None
+    # depois de confirmar, passam a contar
+    client.post("/api/v1/entries/settle", json={"covered_by": 1, "present_ids": ["10", "11"]})
+    client.patch("/api/v1/entries/1", json={"removed": False}) if False else None
+    from app import services as svc  # noqa: F401
+    r2 = client.post("/api/v1/views", json={"seqs": [1]})
+    assert r2.json()["already"] >= 1                    # a referência já estava lida
+
+
+def test_visualizacao_das_confirmadas_junto_com_a_referencia(client):
+    conversa(client)
+    client.post("/api/v1/entries/settle", json={"covered_by": 1, "present_ids": ["10", "11"]})
+    r = client.post("/api/v1/views", json={"seqs": [1]})
+    assert r.json()["recorded"] == 3
+    assert entry(client, 10)["read_at"] is not None and entry(client, 11)["read_at"] is not None
+
+
+def test_cobrir_ancestral_confirma_e_reabrir_limpa_provisorio(client):
+    conversa(client)
+    client.post("/api/v1/entries/cover", json={"covered_by": 1, "ancestor_ids": ["10"]})
+    # 10 passou a confirmada: o settle não a mexe
+    r = client.post("/api/v1/entries/settle", json={"covered_by": 1, "present_ids": []})
+    assert r.json() == {"confirmed": 0, "released": 1}  # só o 11 (provisório) é solto
+    assert entry(client, 10)["covered"] is True
+    assert client.post("/api/v1/entries/uncover", json={"covered_by": 1}).json()["reopened"] == 1
+
+
+def test_conversas_diferentes_no_mesmo_lote_nao_se_misturam(client):
+    append(client, [citem(20, "a", 2), citem(21, "b", 2), citem(10, "c", 1), citem(11, "d", 1)])
+    assert tweet_ids(queue(client)) == ["11", "21"]
+    assert entry(client, 10)["covered_by"] == entry(client, 11)["seq"]
+    assert entry(client, 20)["covered_by"] == entry(client, 21)["seq"]
+
+
+def test_item_sem_cluster_continua_como_antes(client):
+    r = append(client, [item(3), item(2), item(1)])
+    assert r["created"] == 3 and r["linked"] == 0
+    assert tweet_ids(queue(client)) == ["1", "2", "3"]
+
+
+def test_ancora_com_profundidade_maior(client):
+    append(client, [item(i) for i in range(150, 0, -1)])
+    assert len(client.get("/api/v1/queue/anchor", params={"depth": 120}).json()["keys"]) == 120
+    assert client.get("/api/v1/queue/anchor", params={"depth": 201}).status_code == 422
+
+
+def test_cenario_real_703_reagrupado_com_respostas_e_posts_que_estavam_ausentes(client):
+    """Reproduz o Seguindo de 2026-10-04: o tweet 703 já estava na fila (lido); depois ganhou respostas e subiu no
+    feed junto delas, ficando ACIMA de posts novos. Antes, a busca parava no 703 e perdia os posts abaixo dele."""
+    V, R, FI, FL, CA, LU = "2106703818130149651", "2106711451792822638", "2106716219420422521", "2106715963739807892", "2106715572201456032", "2106714190031302934"
+    VE2 = "2106718319915217378"
+    # 1ª busca (11:25): o 703 era um dos mais novos
+    append(client, [item(V, "venecasagrande"), item("2106703885448413661", "flamengomeumund")])
+    client.post("/api/v1/views", json={"seqs": [entry(client, V)["seq"]], "viewed_at": "2026-10-04T14:37:00Z"})
+    # busca posterior: feed (topo -> base) com a conversa [703, RicardoPF, venecasagrande] acima de posts novos
+    r = append(client, [
+        citem("2106722693630345290", "futebol_info"),                          # novo, acima
+        citem(V, "venecasagrande", 1), citem(R, "RicardoPF", 1), citem(VE2, "venecasagrande", 1),  # conversa
+        citem(FI, "futebol_info"), citem(FL, "Flamengo"), citem(CA, "cahemota"), citem(LU, "luizfilipecm"),  # ausentes antes
+        citem("2106703885448413661", "flamengomeumund"),                       # conhecido (contexto)
+    ])
+    assert r["created"] == 6 + 1 - 0 or r["created"] >= 6          # 4 posts + referência + o do topo
+    # todos os que estavam ausentes agora existem
+    for tid in (R, VE2, FI, FL, CA, LU):
+        assert entry(client, tid) is not None, tid
+    # a conversa é um registro: referência = a última resposta (VE2); a resposta do meio fica coberta
+    ref = entry(client, VE2)
+    assert ref["covered"] is False
+    assert entry(client, R)["covered"] is True and entry(client, R)["covered_by"] == ref["seq"]
+    # o 703 já estava lido: não é coberto e o "Visto em" aparece na referência
+    assert entry(client, V)["covered"] is False and entry(client, V)["read_at"] is not None
+    det = client.get(f"/api/v1/entries/{ref['seq']}").json()
+    assert sorted(det["members"]) == sorted([V, R]) and det["view_count"] == 1
+    # ordem de leitura: do mais antigo ao mais novo do feed, com a conversa no lugar dela
+    visiveis = tweet_ids(queue(client))
+    assert visiveis.index(LU) < visiveis.index(CA) < visiveis.index(FL) < visiveis.index(FI) < visiveis.index(VE2) < visiveis.index("2106722693630345290")

@@ -45,6 +45,7 @@ const Api = (function () {
       patchEntry: (seq, body) => call('PATCH', '/entries/' + seq, { body }),
       cover: (body) => call('POST', '/entries/cover', { body }),
       uncover: (body) => call('POST', '/entries/uncover', { body }),
+      settle: (body) => call('POST', '/entries/settle', { body }),
       views: (body) => call('POST', '/views', { body }),
       skeleton: (body) => call('POST', '/health/skeleton', { body }),
       exportAll: () => call('GET', '/export'),

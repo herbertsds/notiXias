@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.2.7
+// @version      0.3.0
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -166,13 +166,36 @@ const Core = (function () {
     return !!u && normPath(u.pathname) === normPath(pathname);
   }
 
+  // Conversas no feed: o X mostra raiz e respostas em sequência, com IDs CRESCENTES de cima para baixo (o
+  // contrário do normal, que é do mais novo ao mais antigo). Uma corrida de posts consecutivos, sem reposts,
+  // com ID crescente é uma conversa. Devolve cópias com `cluster` (1, 2, ...) nos itens que a formam.
+  function clusterize(items) {
+    const out = items.map((i) => Object.assign({}, i));
+    let n = 0;
+    let i = 0;
+    while (i < out.length) {
+      let j = i;
+      if (!out[i].reposter) {
+        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id)) j++;
+      }
+      if (j > i) {
+        n++;
+        for (let k = i; k <= j; k++) out[k].cluster = n;
+      }
+      i = j + 1;
+    }
+    return out;
+  }
+
   function toApiItem(item) {
-    return {
+    const o = {
       tweet_id: item.id,
       author: item.author,
       reposter: item.reposter || null,
       kind: item.reposter ? 'repost' : 'post',
     };
+    if (item.cluster) o.cluster = item.cluster;
+    return o;
   }
 
   function newBatchId() {
@@ -181,7 +204,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, splitConversation, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -542,16 +565,31 @@ const Scanner = (function () {
     stepDelayMs: [900, 1700],
     stepFraction: 0.7,
     settleMs: 800,
+    knownRun: 5, // itens CONHECIDOS seguidos necessários para encerrar...
+    minKnown: 25, // ...e total mínimo de conhecidos vistos (cobre conversas que sobem no feed abaixo de uma sequência longa de conhecidos)
+    settlePolls: 4, // esperas extras (pollMs) por itens novos quando o X ainda não desenhou nada
+    pollMs: 500,
   };
 
   // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(),
   //        sleep(ms), rand(a,b), onProgress(n, steps), isCancelled() }
-  // Devolve { seq (do mais novo ao mais antigo), anchorFound, reason, steps }
+  //
+  // Por que NÃO parar no primeiro item conhecido: o X reagrupa conversas (um post antigo com respostas novas
+  // sobe no feed junto delas), então um item conhecido pode aparecer ACIMA de itens novos. A busca só termina
+  // depois de `knownRun` itens conhecidos consecutivos E de ter visto `minKnown` conhecidos no total (ou todas as âncoras).
+  //
+  // Devolve { seq, anchorFound, reason, steps }. `seq` traz todos os itens lidos, do mais novo ao mais antigo,
+  // cada um com `known` (já está na fila); os conhecidos servem de contexto para reconhecer conversas.
   async function run(env, options, anchorKeys) {
     const o = Object.assign({}, DEFAULTS, options || {});
-    const anchors = new Set(anchorKeys || []);
+    const known = new Set(anchorKeys || []);
+    const need = Math.max(1, Math.min(o.knownRun, known.size || 1));
+    const needTotal = Math.min(o.minKnown, known.size);
     const seen = new Set();
     const seq = [];
+    let fresh = 0; // itens novos (desconhecidos)
+    let consecutive = 0;
+    let knownTotal = 0;
     let anchorFound = false;
     let stagnant = 0;
     let steps = 0;
@@ -563,24 +601,38 @@ const Scanner = (function () {
     for (;;) {
       for (const it of env.readItems()) {
         if (seen.has(it.key)) continue;
-        if (anchors.has(it.key)) {
+        seen.add(it.key);
+        const isKnown = known.has(it.key);
+        seq.push(Object.assign({}, it, { known: isKnown }));
+        if (isKnown) {
+          consecutive++;
+          knownTotal++;
+        } else {
+          consecutive = 0;
+          fresh++;
+        }
+        if (known.size && consecutive >= need && knownTotal >= needTotal) {
           anchorFound = true;
           break;
         }
-        seen.add(it.key);
-        seq.push(it);
       }
-      env.onProgress(seq.length, steps);
+      env.onProgress(fresh, steps);
 
       if (anchorFound) { reason = 'anchor'; break; }
       if (env.isCancelled()) { reason = 'cancelled'; break; }
-      if (anchors.size === 0 && seq.length >= o.initialBackfill) { reason = 'backfill'; break; }
+      if (known.size === 0 && fresh >= o.initialBackfill) { reason = 'backfill'; break; }
       if (seq.length >= o.maxCollect) { reason = 'max_collect'; break; }
       if (steps >= o.maxSteps) { reason = 'max_steps'; break; }
 
       const before = env.scrollHeight();
       env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
       await env.sleep(env.rand(o.stepDelayMs[0], o.stepDelayMs[1]));
+      // O X às vezes demora a desenhar: espera um pouco antes de seguir (não pula posts sem ler).
+      for (let p = 0; p < o.settlePolls; p++) {
+        if (env.atBottom()) break;
+        if (env.readItems().some((it) => !seen.has(it.key))) break;
+        await env.sleep(o.pollMs);
+      }
       steps++;
       if (env.atBottom() && env.scrollHeight() === before) {
         if (++stagnant >= 3) { reason = 'end'; break; }
@@ -643,6 +695,7 @@ const Api = (function () {
       patchEntry: (seq, body) => call('PATCH', '/entries/' + seq, { body }),
       cover: (body) => call('POST', '/entries/cover', { body }),
       uncover: (body) => call('POST', '/entries/uncover', { body }),
+      settle: (body) => call('POST', '/entries/settle', { body }),
       views: (body) => call('POST', '/views', { body }),
       skeleton: (body) => call('POST', '/health/skeleton', { body }),
       exportAll: () => call('GET', '/export'),
@@ -875,7 +928,7 @@ function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
   };
-  const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 10 };
+  const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
   const FETCH_STALE_MS = 30 * 60 * 1000;
   const ERROR_STALE_MS = 5 * 60 * 1000;
   const NOTICE_MS = 6000;
@@ -1022,6 +1075,7 @@ function startApp() {
   function menuItems(st) {
     return [
       { label: 'Buscar novas agora', onClick: () => startFetch() },
+      { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
       { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
@@ -1175,13 +1229,18 @@ function startApp() {
     if (ancestorIds.length || sameAuthorIds.length) {
       const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
       if (token !== routeToken) return;
-      if (res.covered > 0) renderEntryBar(await api.state(), notice);
+      // Confirma a cobertura provisória do que esta página mostra; o que não aparece volta à fila.
+      const st2 = await api.settle({ covered_by: cur.seq, present_ids: items.map((i) => i.id) });
+      if (token !== routeToken) return;
+      if (res.covered > 0 || st2.confirmed > 0 || st2.released > 0) renderEntryBar(await api.state(), notice);
+    } else {
+      await api.settle({ covered_by: cur.seq, present_ids: [] });
     }
   }
 
   // ---------- busca de novas ----------
-  function startFetch() {
-    setPhase('fetching');
+  function startFetch(deep) {
+    setPhase('fetching', { deep: !!deep });
     if (Core.isFeedPath(feed.url, location.pathname)) onRoute();
     else go(feed.url);
   }
@@ -1240,7 +1299,8 @@ function startApp() {
       onProgress: progress,
       isCancelled: () => cancelled || token !== routeToken,
     };
-    const scan = await Scanner.run(env, SCAN, anchor.keys);
+    const deep = !!getPhase().deep;
+    const scan = await Scanner.run(env, deep ? Object.assign({}, SCAN, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : SCAN, anchor.keys);
     if (token !== routeToken) return;
 
     if (scan.reason === 'cancelled') {
@@ -1250,10 +1310,10 @@ function startApp() {
       if (st.current) { await openEntry(st.current); return; }
       return;
     }
-    if (!scan.seq.length && !anchor.keys.length) return failFetch('A busca terminou sem capturar nenhum post.');
+    if (!scan.seq.filter((i) => !i.known).length && !anchor.keys.length) return failFetch('A busca terminou sem capturar nenhum post.');
 
     const res = await api.append({
-      items: scan.seq.map(Core.toApiItem),
+      items: Core.clusterize(scan.seq).map(Core.toApiItem),
       anchor_found: scan.anchorFound,
       batch_id: Core.newBatchId(),
     });

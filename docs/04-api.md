@@ -79,7 +79,9 @@ Recebe um lote de aparições em **ordem do feed** (mais nova primeiro), exatame
 {
   "items": [
     { "tweet_id": "1840000000000000009", "author": "conta_a", "reposter": null,    "kind": "post" },
-    { "tweet_id": "1840000000000000004", "author": "conta_b", "reposter": "conta_c", "kind": "repost" }
+    { "tweet_id": "1840000000000000004", "author": "conta_b", "reposter": "conta_c", "kind": "repost" },
+    { "tweet_id": "1840000000000000011", "author": "conta_d", "cluster": 1 },
+    { "tweet_id": "1840000000000000012", "author": "conta_e", "cluster": 1 }
   ],
   "anchor_found": true,
   "batch_id": "b-2026-10-04T12:00:00Z-ab12"
@@ -102,6 +104,12 @@ Resposta:
 { "created": 12, "merged": 2, "absorbed": 1, "skipped": 3, "first_new_seq": 119, "gap": false }
 ```
 
+**Conversas (`cluster`).** O feed mostra uma conversa como raiz, resposta 1, resposta 2..., com IDs *crescentes* de cima para baixo (o contrário do normal). O cliente numera esses itens consecutivos com o mesmo `cluster`. Para cada conversa o servidor cria **um registro**, tendo a **última resposta** (maior ID) como **referência**; os demais membros ainda não lidos ficam **cobertos de forma provisória** (`cover_tentative`) e a página da referência os confirma ou solta (`POST /entries/settle`). Membros que já estavam lidos não são cobertos; seus "Visto em" aparecem na referência (`members`). Os itens enviados incluem também os já conhecidos (contexto da conversa); os conhecidos fora de conversa são ignorados. Resposta: `linked` = membros ligados à referência.
+
+### `POST /api/v1/entries/settle`
+
+`{ "covered_by": 120, "present_ids": ["..."] }`. Para as entradas cobertas **provisoriamente** por `covered_by`: as que aparecem em `present_ids` (o que a página da referência realmente mostra) são **confirmadas**; as demais **voltam à fila** (depois da referência). Resposta `{ "confirmed": N, "released": M }`. Coberturas provisórias **não** contam como vistas ao registrar `POST /views`.
+
 ### `GET /api/v1/entries/{seq}`
 
 Entrada com suas visualizações anteriores.
@@ -114,6 +122,7 @@ Entrada com suas visualizações anteriores.
   "author": "conta_b",
   "reposters": ["conta_c"],
   "all_reposters": ["conta_c"],
+  "members": [],
   "kind": "repost",
   "captured_at": "2026-10-04T12:00:00Z",
   "covered": false,

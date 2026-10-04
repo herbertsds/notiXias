@@ -147,13 +147,36 @@ const Core = (function () {
     return !!u && normPath(u.pathname) === normPath(pathname);
   }
 
+  // Conversas no feed: o X mostra raiz e respostas em sequência, com IDs CRESCENTES de cima para baixo (o
+  // contrário do normal, que é do mais novo ao mais antigo). Uma corrida de posts consecutivos, sem reposts,
+  // com ID crescente é uma conversa. Devolve cópias com `cluster` (1, 2, ...) nos itens que a formam.
+  function clusterize(items) {
+    const out = items.map((i) => Object.assign({}, i));
+    let n = 0;
+    let i = 0;
+    while (i < out.length) {
+      let j = i;
+      if (!out[i].reposter) {
+        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id)) j++;
+      }
+      if (j > i) {
+        n++;
+        for (let k = i; k <= j; k++) out[k].cluster = n;
+      }
+      i = j + 1;
+    }
+    return out;
+  }
+
   function toApiItem(item) {
-    return {
+    const o = {
       tweet_id: item.id,
       author: item.author,
       reposter: item.reposter || null,
       kind: item.reposter ? 'repost' : 'post',
     };
+    if (item.cluster) o.cluster = item.cluster;
+    return o;
   }
 
   function newBatchId() {
@@ -162,7 +185,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, splitConversation, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

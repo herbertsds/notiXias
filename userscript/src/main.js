@@ -10,7 +10,7 @@ function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
   };
-  const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 10 };
+  const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
   const FETCH_STALE_MS = 30 * 60 * 1000;
   const ERROR_STALE_MS = 5 * 60 * 1000;
   const NOTICE_MS = 6000;
@@ -157,6 +157,7 @@ function startApp() {
   function menuItems(st) {
     return [
       { label: 'Buscar novas agora', onClick: () => startFetch() },
+      { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
       { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
@@ -310,13 +311,18 @@ function startApp() {
     if (ancestorIds.length || sameAuthorIds.length) {
       const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
       if (token !== routeToken) return;
-      if (res.covered > 0) renderEntryBar(await api.state(), notice);
+      // Confirma a cobertura provisória do que esta página mostra; o que não aparece volta à fila.
+      const st2 = await api.settle({ covered_by: cur.seq, present_ids: items.map((i) => i.id) });
+      if (token !== routeToken) return;
+      if (res.covered > 0 || st2.confirmed > 0 || st2.released > 0) renderEntryBar(await api.state(), notice);
+    } else {
+      await api.settle({ covered_by: cur.seq, present_ids: [] });
     }
   }
 
   // ---------- busca de novas ----------
-  function startFetch() {
-    setPhase('fetching');
+  function startFetch(deep) {
+    setPhase('fetching', { deep: !!deep });
     if (Core.isFeedPath(feed.url, location.pathname)) onRoute();
     else go(feed.url);
   }
@@ -375,7 +381,8 @@ function startApp() {
       onProgress: progress,
       isCancelled: () => cancelled || token !== routeToken,
     };
-    const scan = await Scanner.run(env, SCAN, anchor.keys);
+    const deep = !!getPhase().deep;
+    const scan = await Scanner.run(env, deep ? Object.assign({}, SCAN, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : SCAN, anchor.keys);
     if (token !== routeToken) return;
 
     if (scan.reason === 'cancelled') {
@@ -385,10 +392,10 @@ function startApp() {
       if (st.current) { await openEntry(st.current); return; }
       return;
     }
-    if (!scan.seq.length && !anchor.keys.length) return failFetch('A busca terminou sem capturar nenhum post.');
+    if (!scan.seq.filter((i) => !i.known).length && !anchor.keys.length) return failFetch('A busca terminou sem capturar nenhum post.');
 
     const res = await api.append({
-      items: scan.seq.map(Core.toApiItem),
+      items: Core.clusterize(scan.seq).map(Core.toApiItem),
       anchor_found: scan.anchorFound,
       batch_id: Core.newBatchId(),
     });

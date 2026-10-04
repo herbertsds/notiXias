@@ -15,6 +15,8 @@ class AppearanceIn(BaseModel):
     author: Handle
     reposter: Handle | None = None
     kind: Kind = "post"
+    # Itens consecutivos do feed que formam uma conversa (raiz, resposta 1, resposta 2...) têm o mesmo número.
+    cluster: int | None = Field(default=None, ge=1, le=1_000_000)
 
 
 class AppendIn(BaseModel):
@@ -63,6 +65,13 @@ class CoverIn(BaseModel):
         if not self.tweet_ids and not self.ancestor_ids:
             raise ValueError("informe tweet_ids ou ancestor_ids")
         return self
+
+
+class SettleIn(BaseModel):
+    """Confirma/solta a cobertura provisória de `covered_by` conforme o que a página mostra."""
+
+    covered_by: int = Field(ge=1)
+    present_ids: list[TweetId] = Field(default_factory=list, max_length=1000)
 
 
 class UncoverIn(BaseModel):

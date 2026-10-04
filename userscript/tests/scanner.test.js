@@ -3,18 +3,22 @@ const assert = require('node:assert/strict');
 const Scanner = require('../src/scanner.js');
 
 // Feed simulado: lista do mais novo (índice 0) ao mais antigo. O "DOM" mostra uma janela
-// de `win` itens a partir da posição de rolagem (feed virtualizado).
-function fakeEnv(feed, { win = 5, itemPx = 100, viewport = 500, cancelAt = Infinity } = {}) {
+// de `win` itens a partir da posição de rolagem (feed virtualizado). `lag` = leituras "atrasadas" depois de cada
+// rolagem (o X ainda não desenhou os itens novos).
+function fakeEnv(feed, { win = 5, itemPx = 100, viewport = 500, cancelAt = Infinity, lag = 0 } = {}) {
   let scroll = 0;
+  let stale = 0;
+  let shown = 0; // posição "desenhada" (pode ficar para trás da posição real)
   const total = () => feed.length * itemPx;
   const env = {
     log: { steps: 0 },
     readItems: () => {
-      const start = Math.floor(scroll / itemPx);
+      if (stale > 0) stale--; else shown = scroll;
+      const start = Math.floor(shown / itemPx);
       return feed.slice(start, start + win);
     },
-    scrollToTop: () => { scroll = 0; },
-    scrollBy: (px) => { scroll = Math.min(scroll + px, Math.max(0, total() - viewport)); env.log.steps++; },
+    scrollToTop: () => { scroll = 0; shown = 0; },
+    scrollBy: (px) => { scroll = Math.min(scroll + px, Math.max(0, total() - viewport)); env.log.steps++; stale = lag; },
     scrollHeight: () => total(),
     viewportHeight: () => viewport,
     atBottom: () => scroll + viewport >= total() - 4,
@@ -31,52 +35,78 @@ const mk = (n, reposterFor = {}) => Array.from({ length: n }, (_, i) => {
   const reposter = reposterFor[id] || null;
   return { id, author: 'a', reposter, key: id + '|' + (reposter || '') };
 });
+const keys = (items) => items.map((i) => i.key);
+const fresh = (r) => r.seq.filter((i) => !i.known);
+const ids = (items) => items.map((i) => i.id);
 
-const OPTS = { stepDelayMs: [0, 0], settleMs: 0 };
+const OPTS = { stepDelayMs: [0, 0], settleMs: 0, pollMs: 0 };
 
-test('para ao reencontrar a âncora e devolve só o que é mais novo, do mais novo ao mais antigo', async () => {
+test('para depois de 5 itens conhecidos seguidos e devolve os novos, do mais novo ao mais antigo', async () => {
   const feed = mk(60);
-  const env = fakeEnv(feed, { win: 6 });
-  const r = await Scanner.run(env, OPTS, ['970|']); // âncora = item de índice 30
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), OPTS, keys(feed.slice(30, 40))); // conhecidos: índices 30..39
   assert.equal(r.anchorFound, true);
   assert.equal(r.reason, 'anchor');
-  assert.deepEqual(r.seq.map((i) => i.id), feed.slice(0, 30).map((i) => i.id));
+  assert.deepEqual(ids(fresh(r)), ids(feed.slice(0, 30)));
+  assert.deepEqual(ids(r.seq.filter((i) => i.known)), ids(feed.slice(30, 40))); // contexto: as 10 âncoras vistas
 });
 
-test('não perde itens quando a rolagem pula (janela maior que o passo)', async () => {
+test('REGRESSÃO: um item conhecido ACIMA de itens novos (conversa que subiu no feed) não encerra a busca', async () => {
+  // índices 0..9 novos | 10 conhecido (o "703") | 11..15 novos (os que estavam ausentes) | 16..25 conhecidos
   const feed = mk(40);
-  const env = fakeEnv(feed, { win: 8, viewport: 600 }); // passo 420px = 4,2 itens; janela de 8
-  const r = await Scanner.run(env, OPTS, ['970|']);
-  assert.deepEqual(r.seq.map((i) => i.id), feed.slice(0, 30).map((i) => i.id));
-});
-
-test('âncora na primeira tela: nada novo', async () => {
-  const feed = mk(20);
-  const r = await Scanner.run(fakeEnv(feed), OPTS, ['1000|']);
+  const known = [feed[10], ...feed.slice(16, 26)];
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), OPTS, keys(known));
   assert.equal(r.anchorFound, true);
-  assert.equal(r.seq.length, 0);
+  assert.deepEqual(ids(fresh(r)), ids([...feed.slice(0, 10), ...feed.slice(11, 16)]));
 });
 
-test('âncora considera o reposter (mesmo post, outra aparição, não é âncora)', async () => {
-  const feed = mk(20, { 990: 'ana' });
-  const r = await Scanner.run(fakeEnv(feed), OPTS, ['990|']); // âncora sem reposter: não casa 990|ana
-  assert.equal(r.anchorFound, false);
-  const r2 = await Scanner.run(fakeEnv(feed), OPTS, ['990|ana']);
-  assert.equal(r2.anchorFound, true);
-  assert.deepEqual(r2.seq.map((i) => i.id), feed.slice(0, 10).map((i) => i.id));
+test('âncoras já na primeira tela: nada novo, só as conhecidas de contexto', async () => {
+  const feed = mk(20);
+  const r = await Scanner.run(fakeEnv(feed), OPTS, keys(feed.slice(0, 8)));
+  assert.equal(r.anchorFound, true);
+  assert.equal(fresh(r).length, 0);
+  assert.equal(r.seq.length, 8);
+});
+
+test('com poucas âncoras (menos que o limite), basta a quantidade delas', async () => {
+  const feed = mk(30);
+  const r = await Scanner.run(fakeEnv(feed), OPTS, keys(feed.slice(10, 12))); // só 2 conhecidos
+  assert.equal(r.anchorFound, true);
+  assert.deepEqual(ids(fresh(r)), ids(feed.slice(0, 10)));
+});
+
+test('âncora considera o reposter (mesmo post, outra aparição, não é conhecida)', async () => {
+  const feed = mk(30, { 990: 'ana' });
+  const semRepost = await Scanner.run(fakeEnv(feed), OPTS, ['990|', '989|', '988|', '987|', '986|']);
+  assert.equal(semRepost.seq.find((i) => i.id === '990').known, false);
+  const comRepost = await Scanner.run(fakeEnv(feed), OPTS, ['990|ana', '989|', '988|', '987|', '986|']);
+  assert.equal(comRepost.anchorFound, true);
+  assert.deepEqual(ids(fresh(comRepost)), ids(feed.slice(0, 10)));
 });
 
 test('sem âncoras (primeira carga): para em initialBackfill', async () => {
   const r = await Scanner.run(fakeEnv(mk(200)), { ...OPTS, initialBackfill: 20 }, []);
   assert.equal(r.reason, 'backfill');
-  assert.ok(r.seq.length >= 20 && r.seq.length < 40);
+  assert.ok(fresh(r).length >= 20 && fresh(r).length < 40);
 });
 
 test('âncora que não existe: percorre até o fim e sinaliza anchorFound=false', async () => {
   const r = await Scanner.run(fakeEnv(mk(30)), OPTS, ['1|']);
   assert.equal(r.anchorFound, false);
   assert.equal(r.reason, 'end');
-  assert.equal(r.seq.length, 30);
+  assert.equal(fresh(r).length, 30);
+});
+
+test('não perde itens quando a rolagem pula (janela maior que o passo)', async () => {
+  const feed = mk(40);
+  const r = await Scanner.run(fakeEnv(feed, { win: 8, viewport: 600 }), OPTS, keys(feed.slice(30, 40)));
+  assert.deepEqual(ids(fresh(r)), ids(feed.slice(0, 30)));
+});
+
+test('X lento para desenhar: espera os itens aparecerem em vez de pular', async () => {
+  const feed = mk(40);
+  const r = await Scanner.run(fakeEnv(feed, { win: 6, lag: 2 }), { ...OPTS, settlePolls: 4 }, keys(feed.slice(30, 40)));
+  assert.deepEqual(ids(fresh(r)), ids(feed.slice(0, 30)));
+  assert.equal(new Set(ids(r.seq)).size, r.seq.length);
 });
 
 test('limites maxSteps e maxCollect', async () => {
@@ -93,13 +123,35 @@ test('cancelamento interrompe a busca', async () => {
 
 test('itens repetidos no DOM entre passos não duplicam', async () => {
   const feed = mk(25);
-  const r = await Scanner.run(fakeEnv(feed, { win: 10 }), OPTS, ['976|']);
-  const ids = r.seq.map((i) => i.id);
-  assert.equal(new Set(ids).size, ids.length);
+  const r = await Scanner.run(fakeEnv(feed, { win: 10 }), OPTS, keys(feed.slice(20, 25)));
+  const all = ids(r.seq);
+  assert.equal(new Set(all).size, all.length);
 });
 
 test('feed vazio termina por "end" sem travar', async () => {
   const r = await Scanner.run(fakeEnv([]), OPTS, ['1|']);
   assert.equal(r.reason, 'end');
   assert.equal(r.seq.length, 0);
+});
+
+test('REGRESSÃO (banco real): sequência longa de conhecidos no topo e posts ausentes bem abaixo', async () => {
+  // 0..1 novos | 2..17 conhecidos (16) | 18 conhecido solto | 19..24 AUSENTES | 25..30 conhecidos
+  const feed = mk(40);
+  const known = [...feed.slice(2, 19), ...feed.slice(25, 31)];
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), OPTS, keys(known));
+  assert.equal(r.anchorFound, true);
+  assert.deepEqual(ids(fresh(r)), ids([...feed.slice(0, 2), ...feed.slice(19, 25)]));
+});
+
+test('minKnown limita a profundidade: com poucas âncoras a busca termina logo', async () => {
+  const feed = mk(60);
+  const r = await Scanner.run(fakeEnv(feed), { ...OPTS, minKnown: 25 }, keys(feed.slice(3, 8))); // 5 âncoras
+  assert.equal(r.seq.length, 8);
+});
+
+test('varredura profunda: minKnown alto continua além dos primeiros conhecidos', async () => {
+  const feed = mk(60);
+  const known = keys(feed.slice(0, 40));
+  const r = await Scanner.run(fakeEnv(feed), { ...OPTS, minKnown: 40 }, known);
+  assert.equal(r.seq.length, 40);
 });

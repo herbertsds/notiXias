@@ -137,3 +137,36 @@ test('splitConversation: ancestrais (acima do focal, qualquer autor) e o resto',
   assert.deepEqual(Core.splitConversation(items, '1').before, []);
   assert.deepEqual(Core.splitConversation(items, '99'), { before: [], after: [] });
 });
+
+// ---- conversas no feed (IDs reais observados no Seguindo em 2026-10-04) ----
+const f = (id, reposter) => ({ id, author: 'x', reposter: reposter || null });
+
+test('clusterize: raiz + respostas (ID crescente de cima para baixo) formam uma conversa', () => {
+  const feed = [
+    f('2106722693630345290'),
+    f('2106703818130149651'), f('2106711451792822638'), f('2106718319915217378'), // conversa 1: raiz, resposta, resposta
+    f('2106716219420422521'), f('2106715963739807892'), f('2106714190031302934'),
+    f('2106683929512005685', 'Videos_Dryzinho'),                                     // repost: nunca entra em conversa
+    f('2106704479487926388'),
+    f('2106348268871442511'), f('2106703509060211108'), f('2106703885448413661'),    // conversa 2
+    f('2106443813606596653'),
+  ];
+  const c = Core.clusterize(feed);
+  assert.deepEqual(c.map((i) => i.cluster || 0), [0, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 0]);
+});
+
+test('clusterize: repost no meio quebra a corrida; ordem normal (decrescente) nunca agrupa', () => {
+  assert.deepEqual(Core.clusterize([f('1'), f('3', 'r'), f('5')]).map((i) => i.cluster || 0), [0, 0, 0]);
+  assert.deepEqual(Core.clusterize([f('9'), f('8'), f('7')]).map((i) => i.cluster || 0), [0, 0, 0]);
+  assert.deepEqual(Core.clusterize([f('5'), f('5')]).map((i) => i.cluster || 0), [0, 0]); // igual não é crescente
+  assert.deepEqual(Core.clusterize([]), []);
+});
+
+test('clusterize não altera a entrada e toApiItem leva o cluster', () => {
+  const feed = [f('10'), f('11')];
+  const c = Core.clusterize(feed);
+  assert.equal(feed[0].cluster, undefined);
+  assert.equal(Core.toApiItem(c[0]).cluster, 1);
+  assert.equal('cluster' in Core.toApiItem(f('3')), false);
+  assert.equal(Core.toApiItem({ ...c[1], known: true }).known, undefined); // known não vai para a API
+});

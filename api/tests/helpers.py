@@ -26,3 +26,17 @@ def seed(client, n=5, author="conta_a"):
     newest_first = [item(100 + i, author) for i in range(n, 0, -1)]
     append(client, newest_first)
     return queue(client)
+
+
+def citem(tweet_id, author="conta_a", cluster=None, reposter=None):
+    d = item(tweet_id, author, reposter)
+    if cluster is not None:
+        d["cluster"] = cluster
+    return d
+
+
+def entry(client, tweet_id, include_covered=True):
+    for e in queue(client, include_covered=str(include_covered).lower()):
+        if e["tweet_id"] == str(tweet_id):
+            return e
+    return None

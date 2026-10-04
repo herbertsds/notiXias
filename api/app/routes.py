@@ -8,6 +8,7 @@ from .models import (
     AppendIn,
     CoverIn,
     EntryPatch,
+    SettleIn,
     SkeletonIn,
     StateIn,
     UncoverIn,
@@ -45,7 +46,7 @@ def put_state(body: StateIn, request: Request):
 
 # ---------- fila ----------
 @router.get("/queue/anchor")
-def get_anchor(request: Request, depth: int = Query(10, ge=1, le=50)):
+def get_anchor(request: Request, depth: int = Query(10, ge=1, le=200)):
     return svc.anchor_keys(_db(request), depth)
 
 
@@ -95,6 +96,11 @@ def post_cover(body: CoverIn, request: Request):
         return svc.cover_by_tweet_ids(_db(request), body.covered_by, body.tweet_ids, body.ancestor_ids)
     except svc.UnknownEntry:
         raise HTTPException(status_code=404, detail="entrada de destino não encontrada")
+
+
+@router.post("/entries/settle")
+def post_settle(body: SettleIn, request: Request):
+    return svc.settle_cover(_db(request), body.covered_by, body.present_ids)
 
 
 @router.post("/entries/uncover")

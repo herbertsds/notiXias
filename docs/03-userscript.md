@@ -248,3 +248,9 @@ O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no f
 - A fila **não segue o reagrupamento do X** para o que você ainda não leu: se o post do João (10h) não foi lido e o José responde às 12h, o registro continua na posição das 10h; só o **link** passa a abrir a resposta do José (a conversa inteira aparece, de cima para baixo).
 - **Exceção:** se o post do João **já foi lido**, a resposta do José entra como registro novo no fim da fila (com o "Visto em" do que você já tinha visto).
 - O script abre a página de `open_id` (a resposta mais recente), reconhece essa página como "da fila" e rotula/cobre a partir dela.
+
+
+## 0.4.0: nome de quem repostou e ordem por horário
+
+- A etiqueta mostra o **nome de exibição** de quem repostou (link para o perfil). O nome é lido do elemento com `dir` dentro do contexto social do post (`<span dir="ltr">Nome</span> repostou`), então independe do idioma; sem ele, aparece o `@`.
+- Novas entradas entram **entre as não lidas, pelo horário do tweet original** (ver `04-api.md`, "Posição na fila"). O script só pergunta "qual é a próxima" e abre a primeira não lida depois do cursor.

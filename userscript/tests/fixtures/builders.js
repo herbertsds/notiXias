@@ -2,12 +2,12 @@
 // Deve ser substituído/complementado por fixtures reais anonimizadas quando houver acesso ao X.
 const SECRET = 'TEXTO-SECRETO-DO-POST';
 
-function article({ id, author, reposter, repostStyle = 'anchor-wraps', quoted, ad = false, pinned = false, detail = false, text = SECRET }) {
+function article({ id, author, reposter, reposterName, repostStyle = 'anchor-wraps', quoted, ad = false, pinned = false, detail = false, text = SECRET }) {
   let ctx = '';
   if (reposter) {
     ctx =
       repostStyle === 'anchor-wraps'
-        ? `<a href="/${reposter}" role="link"><span data-testid="socialContext">${reposter} reposted</span></a>`
+        ? `<a href="/${reposter}" role="link"><span data-testid="socialContext"><span dir="ltr"><span>${reposterName === undefined ? reposter + ' Silva' : reposterName}</span></span> repostou</span></a>`
         : `<div data-testid="socialContext"><a href="/${reposter}"><span>${reposter} reposted</span></a></div>`;
   } else if (pinned) {
     ctx = `<div data-testid="socialContext"><span>Pinned</span></div>`;

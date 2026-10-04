@@ -158,3 +158,19 @@ def test_state_current_traz_all_reposters(client):
     append(client, [item(10, "b", reposter="ana")])
     client.put("/api/v1/state", json={"cursor_seq": 1})
     assert client.get("/api/v1/state").json()["current"]["all_reposters"] == ["ana"]
+
+
+def test_nome_de_quem_repostou_e_guardado_e_devolvido(client):
+    append(client, [{"tweet_id": "10", "author": "b", "reposter": "dryzinho", "reposter_name": "Dryzinho", "kind": "repost"}])
+    e = client.get("/api/v1/entries/1").json()
+    assert e["reposter_names"] == {"dryzinho": "Dryzinho"} and e["all_reposter_names"] == {"dryzinho": "Dryzinho"}
+
+
+def test_nome_chega_depois_e_vale_para_todas_as_entradas_do_tweet(client):
+    append(client, [item(10, "b", reposter="ana")])                    # sem nome
+    assert client.get("/api/v1/entries/1").json()["all_reposter_names"] == {}
+    append(client, [{"tweet_id": "10", "author": "b", "reposter": "ana", "reposter_name": "Ana Souza", "kind": "repost"}])
+    assert client.get("/api/v1/entries/1").json()["all_reposter_names"] == {"ana": "Ana Souza"}
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
+    append(client, [{"tweet_id": "10", "author": "b", "reposter": "beto", "reposter_name": "Beto Lima", "kind": "repost"}])   # nova entrada
+    assert client.get("/api/v1/entries/1").json()["all_reposter_names"] == {"ana": "Ana Souza", "beto": "Beto Lima"}

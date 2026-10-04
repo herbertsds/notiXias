@@ -24,6 +24,9 @@ Uma entrada por post original (com possíveis reposters). A ordem de leitura é 
 | `covered` | bool | Parte de outra entrada (thread). |
 | `covered_by` | int \| null | `seq` da entrada que a cobre. |
 | `open_id` | string | Tweet cuja página abrir: a resposta mais recente da conversa (padrão: o próprio `tweet_id`). `url` aponta para ele. |
+| `ord` | float | Posição de leitura. Começa igual ao `seq`; novas entradas entram entre as não lidas pelo horário (ponto médio entre vizinhas; renumera se o vão ficar < 1e-6). |
+| `sort_id` | string | ID do tweet que define o horário da entrada (o da conversa: primeiro novo de conta seguida). |
+| `reposter_names` | objeto | handle em minúsculas -> nome de exibição de quem repostou. |
 | `members` | array\<string\> | Só na referência de uma conversa: `tweet_id` dos demais membros (inclusive já lidos); alimenta o "Visto em". |
 | `cover_tentative` | bool | Cobertura ainda não confirmada pela página da referência (`settle`). |
 | `gap_before` | bool | Pode haver posts não capturados antes desta. |
@@ -136,3 +139,8 @@ Algumas centenas de entradas por dia, ~200 bytes cada: ordem de dezenas de MB po
 ## Backup
 
 Ver `07-ambiente-e-infra.md` (dump diário). O conteúdo é pequeno e valioso (histórico de leitura); o backup deve ser testado com restauração.
+
+
+## Coleção `accounts` (contas seguidas, aprendidas)
+
+`{ _id: "<handle em minúsculas>", first_seen }`. Preenchida a cada busca com: autores de posts próprios do feed, quem reposta e quem responde dentro de uma conversa (a raiz não conta, pode ser de conta não seguida). Usada para achar o horário-chave de uma conversa nova.

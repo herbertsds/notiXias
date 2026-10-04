@@ -15,10 +15,10 @@ def test_ordem_de_leitura_mais_antigo_primeiro(client):
     assert [e["seq"] for e in q] == [1, 2, 3]
 
 
-def test_ordem_segue_a_sequencia_do_feed_e_nao_o_id(client):
-    # repost de um post antigo (id menor) que aparece no feed depois de um id maior
+def test_novos_entram_entre_os_nao_lidos_pelo_horario_do_tweet_original(client):
+    # repost de um tweet antigo (id menor): entra pelo horário do tweet ORIGINAL, não pela ordem do feed
     append(client, [item(500), item(100, "conta_b", reposter="fulano"), item(400)])
-    assert tweet_ids(queue(client)) == ["400", "100", "500"]
+    assert tweet_ids(queue(client)) == ["100", "400", "500"]
 
 
 def test_lotes_sucessivos_acrescentam_no_fim(client):

@@ -170,3 +170,9 @@ test('clusterize não altera a entrada e toApiItem leva o cluster', () => {
   assert.equal('cluster' in Core.toApiItem(f('3')), false);
   assert.equal(Core.toApiItem({ ...c[1], known: true }).known, undefined); // known não vai para a API
 });
+
+test('toApiItem envia o nome de quem repostou', () => {
+  assert.deepEqual(Core.toApiItem({ id: '1', author: 'a', reposter: 'b', reposterName: 'Bia Souza' }), { tweet_id: '1', author: 'a', reposter: 'b', reposter_name: 'Bia Souza', kind: 'repost' });
+  assert.equal('reposter_name' in Core.toApiItem({ id: '1', author: 'a', reposter: 'b' }), false);
+  assert.equal('reposter_name' in Core.toApiItem({ id: '1', author: 'a', reposterName: 'x' }), false);
+});

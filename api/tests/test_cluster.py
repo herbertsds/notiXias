@@ -202,12 +202,78 @@ def test_cenario_real_703_reagrupado_com_respostas_e_posts_que_estavam_ausentes(
     assert entry(client, V)["covered"] is False and entry(client, V)["read_at"] is not None
     det = client.get(f"/api/v1/entries/{ref['seq']}").json()
     assert sorted(det["members"]) == sorted([V, R]) and det["view_count"] == 1
-    # ordem de leitura: do mais antigo ao mais novo do feed, com a conversa no lugar dela
+    # ordem de leitura: pelo horário. A conversa entra pelo horário do 1º post NOVO de conta seguida (RicardoPF,
+    # 11:42), que é anterior aos demais -> vem antes deles; o 703 já estava lido e não conta.
     visiveis = tweet_ids(queue(client))
-    assert visiveis.index(LU) < visiveis.index(CA) < visiveis.index(FL) < visiveis.index(FI) < visiveis.index(VE2) < visiveis.index("2106722693630345290")
+    assert visiveis.index(VE2) < visiveis.index(LU) < visiveis.index(CA) < visiveis.index(FL) < visiveis.index(FI) < visiveis.index("2106722693630345290")
 
 
 def test_open_id_padrao_e_o_proprio_tweet(client):
     append(client, [item(7, "a")])
     e = client.get("/api/v1/entries/1").json()
     assert e["open_id"] == "7"
+
+
+
+# ---- ordem por horário entre os não lidos ----
+def test_entrada_nova_vai_para_o_meio_dos_nao_lidos_pelo_horario(client):
+    append(client, [item(30, "a"), item(10, "b")])      # leitura: 10, 30
+    append(client, [item(20, "c")])                      # chegou depois, mas é de horário intermediário
+    assert tweet_ids(queue(client)) == ["10", "20", "30"]
+
+
+def test_entrada_nova_nunca_entra_antes_do_cursor_nem_entre_os_lidos(client):
+    append(client, [item(30, "a"), item(20, "b"), item(10, "c")])   # 10, 20, 30
+    client.post("/api/v1/views", json={"seqs": [1, 2]})             # 10 e 20 lidos
+    client.put("/api/v1/state", json={"cursor_seq": 2})             # cursor no 20
+    append(client, [item(5, "d")])                                   # tweet MAIS ANTIGO que tudo
+    # entra logo depois do cursor, antes dos não lidos (30), nunca antes dos lidos
+    assert tweet_ids(queue(client)) == ["10", "20", "5", "30"]
+    assert client.get("/api/v1/state").json()["next_seq"] == entry(client, 5)["seq"]
+
+
+def test_navegacao_segue_a_posicao_e_nao_o_seq(client):
+    append(client, [item(30, "a"), item(10, "b")])
+    append(client, [item(20, "c")])                       # seq 3, posição 2
+    client.put("/api/v1/state", json={"cursor_seq": 1})   # em "10"
+    proxima = client.get("/api/v1/queue", params={"after": 1, "limit": 1}).json()["items"][0]
+    assert proxima["tweet_id"] == "20"
+    anterior = client.get("/api/v1/queue", params={"before": 2, "limit": 1}).json()["items"][0]   # antes do "30"
+    assert anterior["tweet_id"] == "20"
+    s = client.get("/api/v1/state").json()
+    assert s["position"] == 1 and s["unread_after"] == 2
+
+
+def test_muitas_insercoes_no_mesmo_vao_renumeram_sem_perder_a_ordem(client):
+    append(client, [item(1000, "a"), item(10, "b")])
+    for i in range(60):                                   # 60 inserções entre o 10 e o 1000, sempre crescentes
+        append(client, [item(20 + i, "c")])
+    ids = [int(t) for t in tweet_ids(queue(client))]
+    assert ids == sorted(ids) and len(ids) == 62
+
+
+# ---- horário-chave da conversa: primeira conta SEGUIDA de cima para baixo ----
+def test_raiz_de_conta_nao_seguida_nao_define_o_horario_da_conversa(client):
+    # João (não seguido) postou ontem; José (seguido) respondeu depois de um post das 11h de outra conta
+    append(client, [item(60, "ana"), item(50, "bia")])    # leitura: 50 (bia), 60 (ana), ambas seguidas (posts próprios)
+    # conversa [joão=5 (raiz), josé=55]: josé é o "primeiro seguido" -> posição pelo horário 55, entre 50 e 60
+    append(client, [citem(5, "joao", 1), citem(55, "jose", 1)])
+    assert tweet_ids(queue(client)) == ["50", "55", "60"]
+
+
+def test_raiz_seguida_e_nova_define_o_horario(client):
+    append(client, [item(7, "joao")])                     # joão aparece com post próprio: é seguido (e está lido abaixo)
+    client.post("/api/v1/views", json={"seqs": [1]})
+    append(client, [item(90, "ana"), item(40, "bia")])    # 40, 90
+    # conversa nova [joão=70 (raiz, seguido), jose=80]: horário = o do joão (70)
+    append(client, [citem(70, "joao", 1), citem(80, "jose", 1)])
+    assert tweet_ids(queue(client)) == ["7", "40", "80", "90"]
+    assert entry(client, 80)["open_id"] == "80"
+
+
+def test_conversa_de_post_lido_volta_ao_fim_pelo_horario_da_resposta_nova(client):
+    append(client, [item(10, "joao"), item(5, "w")])
+    client.post("/api/v1/views", json={"seqs": [1, 2]})   # 5 e 10 lidos
+    append(client, [item(50, "x")])                       # não lido 50
+    append(client, [citem(10, "joao", 1), citem(60, "jose", 1)])   # resposta nova (60) ao post lido
+    assert tweet_ids(queue(client)) == ["5", "10", "50", "60"]

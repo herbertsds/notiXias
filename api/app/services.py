@@ -2,7 +2,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 
-from pymongo import ASCENDING, DESCENDING, ReturnDocument
+from pymongo import ASCENDING, DESCENDING, ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 # Um repost de um tweet já visto só volta como entrada nova se a última visualização foi há mais que isto.
@@ -26,6 +26,73 @@ def ensure_indexes(db) -> None:
     db.views.create_index([("tweet_id", ASCENDING), ("viewed_at", DESCENDING)])
     db.batches.create_index([("created_at", ASCENDING)], expireAfterSeconds=7 * 24 * 3600)
     db.skeletons.create_index([("created_at", ASCENDING)], expireAfterSeconds=90 * 24 * 3600)
+    db.entries.create_index([("ord", ASCENDING)])
+    migrate(db)
+
+
+def migrate(db) -> None:
+    """Entradas antigas: a posição de leitura (`ord`) começa igual ao `seq`; `sort_id` = o próprio tweet."""
+    db.entries.update_many({"ord": {"$exists": False}}, [{"$set": {"ord": {"$toDouble": "$seq"}}}])
+    db.entries.update_many({"sort_id": {"$exists": False}}, [{"$set": {"sort_id": "$tweet_id"}}])
+
+
+# ---------- posição de leitura (`ord`) ----------
+# `seq` é a identidade da entrada (nunca muda). `ord` é a posição na fila: novas entradas entram entre as não
+# lidas pelo horário do tweet (o ID do X cresce com o tempo), sem renumerar ninguém.
+NEG = -1e18
+
+
+def ord_of(db, seq: int | None) -> float:
+    if seq is None:
+        return NEG
+    d = db.entries.find_one({"seq": seq}, {"ord": 1})
+    return float(d["ord"]) if d and "ord" in d else float(seq)
+
+
+def _renumber(db) -> None:
+    for i, d in enumerate(db.entries.find({}, {"_id": 1}).sort("ord", ASCENDING), start=1):
+        db.entries.update_one({"_id": d["_id"]}, {"$set": {"ord": float(i)}})
+
+
+def _between(db, lower: float) -> float:
+    """Uma posição logo depois de `lower` (e antes da próxima entrada)."""
+    nxt = db.entries.find_one({"ord": {"$gt": lower}}, {"ord": 1}, sort=[("ord", ASCENDING)])
+    if not nxt:
+        return lower + 1.0
+    upper = float(nxt["ord"])
+    if upper - lower < 1e-6:
+        _renumber(db)
+        return _between(db, ord_of_value(db, lower))
+    return (lower + upper) / 2.0
+
+
+def ord_of_value(db, old_ord: float) -> float:
+    # depois de renumerar, o valor antigo deixou de existir; usa a entrada mais próxima abaixo dele
+    d = db.entries.find_one({"ord": {"$lte": old_ord}}, {"ord": 1}, sort=[("ord", DESCENDING)])
+    return float(d["ord"]) if d else 0.0
+
+
+def _insert_ord(db, sort_id: str) -> float:
+    """Posição de uma entrada NOVA: entre as NÃO LIDAS depois do cursor, pelo horário do tweet (`sort_id`):
+    antes da primeira não lida mais nova que ela; se não houver, no fim."""
+    st = db.state.find_one({"_id": "main"}) or {}
+    cur_ord = ord_of(db, st.get("cursor_seq"))
+    new = int(sort_id)
+    cands = db.entries.find(
+        {"read_at": None, "removed": False, "covered": False, "ord": {"$gt": cur_ord}},
+        {"ord": 1, "sort_id": 1, "tweet_id": 1},
+    ).sort("ord", ASCENDING)
+    for c in cands:
+        if int(c.get("sort_id", c["tweet_id"])) > new:
+            upper = float(c["ord"])
+            prev = db.entries.find_one({"ord": {"$lt": upper}}, {"ord": 1}, sort=[("ord", DESCENDING)])
+            lower = float(prev["ord"]) if prev else upper - 2.0
+            if upper - lower < 1e-6:
+                _renumber(db)
+                return _insert_ord(db, sort_id)
+            return (lower + upper) / 2.0
+    top = db.entries.find_one({}, {"ord": 1}, sort=[("ord", DESCENDING)])
+    return float(top["ord"]) + 1.0 if top else 1.0
 
 
 def appearance_key(tweet_id: str, reposter: str | None) -> str:
@@ -52,6 +119,7 @@ def entry_summary(doc: dict) -> dict:
         "url": doc["url"],
         "author": doc["author"],
         "reposters": doc["reposters"],
+        "reposter_names": doc.get("reposter_names", {}),
         "kind": doc["kind"],
         "captured_at": doc["captured_at"],
         "read_at": doc["read_at"],
@@ -79,12 +147,17 @@ def entry_detail(db, doc: dict) -> dict:
                 seen.add(r.lower())
                 all_reposters.append(r)
     out["all_reposters"] = all_reposters
+    names: dict[str, str] = {}
+    for d in db.entries.find({"tweet_id": doc["tweet_id"], "removed": False}, {"reposter_names": 1}):
+        for k, v in (d.get("reposter_names") or {}).items():
+            names.setdefault(k, v)
+    out["all_reposter_names"] = names
     return out
 
 
 # ---------- fila ----------
-def _new_doc(it, seq: int) -> dict:
-    return {
+def _new_doc(it, seq: int, sort_id: str | None = None, ord_value: float | None = None) -> dict:
+    doc = {
         "seq": seq,
         "tweet_id": it.tweet_id,
         "url": f"https://x.com/{it.author}/status/{it.tweet_id}",
@@ -99,14 +172,28 @@ def _new_doc(it, seq: int) -> dict:
         "covered_by": None,
         "gap_before": False,
         "removed": False,
+        "sort_id": sort_id or it.tweet_id,
+        "ord": float(seq) if ord_value is None else ord_value,
     }
+    if it.reposter and getattr(it, "reposter_name", None):
+        doc["reposter_names"] = {it.reposter.lower(): it.reposter_name}
+    return doc
 
 
-def _place(db, it, cutoff, stats):
+def _name_update(it) -> dict:
+    if it.reposter and getattr(it, "reposter_name", None):
+        return {f"reposter_names.{it.reposter.lower()}": it.reposter_name}
+    return {}
+
+
+def _place(db, it, cutoff, stats, sort_id=None):
     """Regra de UMA aparição. Devolve (entrada afetada | None, o que aconteceu)."""
     key = appearance_key(it.tweet_id, it.reposter)
     known = db.entries.find_one({"appearance_keys": key})
     if known:
+        names = _name_update(it)
+        if names:
+            db.entries.update_one({"_id": known["_id"]}, {"$set": names})
         stats["skipped"] += 1
         return known, "known"
 
@@ -115,6 +202,8 @@ def _place(db, it, cutoff, stats):
         upd = {"$addToSet": {"appearance_keys": key}}
         if it.reposter:
             upd["$addToSet"]["reposters"] = it.reposter
+        if _name_update(it):
+            upd["$set"] = _name_update(it)
         try:
             db.entries.update_one({"_id": existing["_id"]}, upd)
         except DuplicateKeyError:
@@ -132,6 +221,8 @@ def _place(db, it, cutoff, stats):
             upd = {"$addToSet": {"appearance_keys": key}}
             if it.reposter:
                 upd["$addToSet"]["reposters"] = it.reposter
+            if _name_update(it):
+                upd["$set"] = _name_update(it)
             try:
                 db.entries.update_one({"_id": recent["_id"]}, upd)
             except DuplicateKeyError:
@@ -140,7 +231,8 @@ def _place(db, it, cutoff, stats):
             stats["absorbed"] += 1
             return recent, "absorbed"
 
-    doc = _new_doc(it, next_seq(db))
+    sid = sort_id or it.tweet_id
+    doc = _new_doc(it, next_seq(db), sid, _insert_ord(db, sid))
     try:
         db.entries.insert_one(doc)
     except DuplicateKeyError:
@@ -150,6 +242,28 @@ def _place(db, it, cutoff, stats):
     if stats["first_new_seq"] is None:
         stats["first_new_seq"] = doc["seq"]
     return doc, "created"
+
+
+def _learn_accounts(db, items) -> None:
+    """Aprende quais contas você segue pelo próprio Seguindo: quem tem post próprio no feed, quem reposta e quem
+    responde dentro de uma conversa. A RAIZ de uma conversa não conta (pode ser conta que você não segue)."""
+    handles: set[str] = set()
+    seen_cluster: set[int] = set()
+    for it in items:  # ordem do feed
+        if it.cluster is None:
+            handles.add((it.reposter or it.author).lower())
+        elif it.cluster in seen_cluster:
+            handles.add(it.author.lower())
+        else:
+            seen_cluster.add(it.cluster)
+    ops = [UpdateOne({"_id": h}, {"$setOnInsert": {"first_seen": now()}}, upsert=True) for h in handles]
+    if ops:
+        db.accounts.bulk_write(ops, ordered=False)
+
+
+def _followed(db, handles) -> set[str]:
+    hs = list({h.lower() for h in handles})
+    return {d["_id"] for d in db.accounts.find({"_id": {"$in": hs}})}
 
 
 def _place_cluster(db, group, cutoff, stats):
@@ -187,7 +301,17 @@ def _place_cluster(db, group, cutoff, stats):
             stats["linked"] += r.modified_count
         return
 
-    ref_doc, _ = _place(db, group[0], cutoff, stats)
+    # Horário que posiciona o registro: o do post mais ao topo da conversa que seja de uma conta que você segue
+    # e que seja NOVO (posts já lidos ou já conhecidos não contam: a conversa volta pelo que há de novo).
+    known_keys = {k for d in known for k in d["appearance_keys"]}
+    followed = _followed(db, [g.author for g in group])
+    key_id = group[0].tweet_id
+    for g in reversed(group):  # de cima (raiz) para baixo
+        if appearance_key(g.tweet_id, g.reposter) not in known_keys and g.author.lower() in followed:
+            key_id = g.tweet_id
+            break
+
+    ref_doc, _ = _place(db, group[0], cutoff, stats, sort_id=key_id)
     if ref_doc is None:
         return
     members = group[1:]
@@ -196,7 +320,8 @@ def _place_cluster(db, group, cutoff, stats):
         ex = db.entries.find_one({"appearance_keys": key})
         if ex:
             continue  # já conhecido e lido (ou coberto): não mexe
-        doc = _new_doc(m, next_seq(db))  # seq maior que o da referência: se for solto depois, vem após ela
+        # fica logo depois da referência: se for solto no `settle`, aparece em seguida
+        doc = _new_doc(m, next_seq(db), None, float(ref_doc["ord"]) + 1e-7)
         doc.update(covered=True, covered_by=ref_doc["seq"], cover_tentative=True)
         try:
             db.entries.insert_one(doc)
@@ -220,6 +345,7 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
     stats = {"created": 0, "merged": 0, "absorbed": 0, "skipped": 0, "linked": 0, "updated": 0, "first_new_seq": None}
     cutoff = now() - revisit_after
 
+    _learn_accounts(db, items)
     rev = list(reversed(items))
     i = 0
     while i < len(rev):
@@ -265,7 +391,11 @@ def settle_cover(db, covered_by: int, present_ids: list[str]) -> dict:
             db.entries.update_one({"_id": e["_id"]}, {"$set": {"cover_tentative": False}})
             confirmed += 1
         else:
-            db.entries.update_one({"_id": e["_id"]}, {"$set": {"covered": False, "covered_by": None, "cover_tentative": False}})
+            ref_ord = ord_of(db, covered_by)
+            db.entries.update_one(
+                {"_id": e["_id"]},
+                {"$set": {"covered": False, "covered_by": None, "cover_tentative": False, "ord": _between(db, ref_ord)}},
+            )
             released += 1
     return {"confirmed": confirmed, "released": released}
 
@@ -279,15 +409,16 @@ def anchor_keys(db, depth: int) -> dict:
 
 
 def list_queue(db, after: int | None, before: int | None, limit: int, include_covered: bool) -> dict:
+    """`after`/`before` são `seq` de entradas; a ordem é a posição de leitura (`ord`)."""
     flt: dict = {"removed": False}
     if not include_covered:
         flt["covered"] = False
     if before is not None:
-        flt["seq"] = {"$lt": before}
-        sort = [("seq", DESCENDING)]
+        flt["ord"] = {"$lt": ord_of(db, before)}
+        sort = [("ord", DESCENDING)]
     else:
-        flt["seq"] = {"$gt": after or 0}
-        sort = [("seq", ASCENDING)]
+        flt["ord"] = {"$gt": ord_of(db, after) if after else NEG}
+        sort = [("ord", ASCENDING)]
     docs = list(db.entries.find(flt).sort(sort).limit(limit + 1))
     has_more = len(docs) > limit
     return {"items": [entry_summary(d) for d in docs[:limit]], "has_more": has_more}
@@ -307,13 +438,14 @@ def state_view(db) -> dict:
     st = _state_doc(db)
     cursor = st["cursor_seq"]
     total = db.entries.count_documents(VISIBLE)
+    cur_ord = ord_of(db, cursor)
     if cursor is not None:
-        unread_after = db.entries.count_documents({**VISIBLE, "seq": {"$gt": cursor}})
-        position = db.entries.count_documents({**VISIBLE, "seq": {"$lte": cursor}})
+        unread_after = db.entries.count_documents({**VISIBLE, "ord": {"$gt": cur_ord}})
+        position = db.entries.count_documents({**VISIBLE, "ord": {"$lte": cur_ord}})
         cur_doc = db.entries.find_one({"seq": cursor, "removed": False})
     else:
         unread_after, position, cur_doc = total, 0, None
-    nxt = db.entries.find_one({**VISIBLE, "seq": {"$gt": cursor or 0}}, {"seq": 1}, sort=[("seq", ASCENDING)])
+    nxt = db.entries.find_one({**VISIBLE, "ord": {"$gt": cur_ord}}, {"seq": 1}, sort=[("ord", ASCENDING)])
     return {
         "cursor_seq": cursor,
         "current": entry_detail(db, cur_doc) if cur_doc else None,

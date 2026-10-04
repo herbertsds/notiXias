@@ -14,6 +14,7 @@ class AppearanceIn(BaseModel):
     tweet_id: TweetId
     author: Handle
     reposter: Handle | None = None
+    reposter_name: str | None = Field(default=None, max_length=100)  # nome de exibição de quem repostou
     kind: Kind = "post"
     # Itens consecutivos do feed que formam uma conversa (raiz, resposta 1, resposta 2...) têm o mesmo número.
     cluster: int | None = Field(default=None, ge=1, le=1_000_000)

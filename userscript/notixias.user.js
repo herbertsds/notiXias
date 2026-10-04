@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.3.1
+// @version      0.4.0
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -194,6 +194,7 @@ const Core = (function () {
       reposter: item.reposter || null,
       kind: item.reposter ? 'repost' : 'post',
     };
+    if (item.reposter && item.reposterName) o.reposter_name = item.reposterName;
     if (item.cluster) o.cluster = item.cluster;
     return o;
   }
@@ -234,7 +235,8 @@ const Xdom = (function () {
     return null;
   }
 
-  // Quem repostou: link de perfil dentro do contexto social. Lido pelo href, não pelo texto.
+  // Quem repostou: link de perfil dentro do contexto social. O @ vem do href (não do texto); o NOME de exibição
+  // vem do elemento com `dir` dentro do contexto ("<span dir=ltr>Nome</span> repostou"), então independe do idioma.
   function reposterOf(art, author) {
     const cell = art.closest('[data-testid="cellInnerDiv"]');
     const sc =
@@ -245,17 +247,21 @@ const Xdom = (function () {
     if (!a) return null;
     const handle = C().parseProfileHref(a.getAttribute('href'), ORIGIN);
     if (!handle || handle.toLowerCase() === author.toLowerCase()) return null;
-    return handle;
+    const nameEl = sc.querySelector('[dir]');
+    const name = nameEl ? nameEl.textContent.trim() : '';
+    return { handle, name: name || null };
   }
 
   function parseArticle(art) {
     const st = primaryStatus(art);
     if (!st) return null; // anúncios e cartões sem link de post caem aqui
-    const reposter = reposterOf(art, st.author);
+    const rp = reposterOf(art, st.author);
+    const reposter = rp ? rp.handle : null;
     return {
       id: st.id,
       author: st.author,
       reposter,
+      reposterName: rp ? rp.name : null,
       key: C().appearanceKey(st.id, reposter),
       url: ORIGIN + '/' + st.author + '/status/' + st.id,
     };
@@ -451,13 +457,13 @@ const Labels = (function () {
   }
 
   // "@fulano" vira link para o perfil; o resto é texto puro (nunca HTML).
-  function fillText(doc, parent, text) {
+  function fillText(doc, parent, text, names) {
     for (const part of text.split(HANDLE_SPLIT)) {
       if (!part) continue;
       if (part.startsWith('@') && HANDLE_SPLIT.test(part)) {
         const a = doc.createElement('a');
         a.href = 'https://x.com/' + part.slice(1);
-        a.textContent = part;
+        a.textContent = (names && names[part.slice(1).toLowerCase()]) || part; // nome de exibição, se conhecido
         a.setAttribute('style', LINK);
         a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
         a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
@@ -469,28 +475,28 @@ const Labels = (function () {
   }
 
   // Ícone numa coluna própria, com o texto um pouco mais à direita.
-  function fillLine(doc, row, text, kind) {
+  function fillLine(doc, row, text, kind, names) {
     const m = ICON_SPLIT.exec(text);
     if (m) {
       const icon = doc.createElement('span');
       icon.setAttribute('style', kind === 'seen' ? ICON_SEEN : ICON);
       icon.textContent = m[1];
       row.append(icon);
-      fillText(doc, row, m[2]);
+      fillText(doc, row, m[2], names);
     } else {
-      fillText(doc, row, text);
+      fillText(doc, row, text, names);
     }
   }
 
-  function build(doc, kind, lines) {
+  function build(doc, kind, lines, names) {
     const node = doc.createElement('div');
     node.setAttribute('data-nx', kind);
-    node.setAttribute('data-nx-text', lines.join('\n'));
+    node.setAttribute('data-nx-text', stamp(lines, names));
     node.setAttribute('style', kind === 'seen' ? BOX.seen : BOX.top);
     for (const l of lines) {
       const row = doc.createElement('div');
       if (l.startsWith('⚠')) row.setAttribute('style', WARN);
-      fillLine(doc, row, l, kind);
+      fillLine(doc, row, l, kind, names);
       node.append(row);
     }
     return node;
@@ -502,12 +508,17 @@ const Labels = (function () {
     return art.previousElementSibling === node;
   }
 
-  function ensure(doc, art, kind, lines, dateRow) {
-    const text = lines.join('\n');
+  // Assinatura do conteúdo (texto + nomes): só reescreve o DOM quando algo mudou.
+  function stamp(lines, names) {
+    return lines.join('\n') + '\u0001' + JSON.stringify(names || {});
+  }
+
+  function ensure(doc, art, kind, lines, dateRow, names) {
+    const text = stamp(lines, names);
     let node = find(art, kind);
     if (node && node.getAttribute('data-nx-text') === text && placed(art, kind, node, dateRow)) return false;
     if (node) node.remove();
-    node = build(doc, kind, lines);
+    node = build(doc, kind, lines, names);
     if (kind === 'seen') dateRow.after(node);
     else art.parentNode.insertBefore(node, art);
     return true;
@@ -536,9 +547,9 @@ const Labels = (function () {
       if (a !== target || !dateRow) remove(a, 'seen');
       if (a !== first || a === target || !model.bannerText) remove(a, 'banner');
     }
-    if (target && topLines.length) ensure(doc, target, 'label', topLines);
-    if (target && dateRow) ensure(doc, target, 'seen', [model.seen], dateRow);
-    if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText]);
+    if (target && topLines.length) ensure(doc, target, 'label', topLines, null, model.names);
+    if (target && dateRow) ensure(doc, target, 'seen', [model.seen], dateRow, model.names);
+    if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText], null, model.names);
     return {
       label: !!(target && topLines.length),
       seen: !!(target && dateRow),
@@ -1011,7 +1022,13 @@ function startApp() {
   function setLabels(entry) {
     if (!entry) { labelModel = null; Labels.clear(document); return; }
     const parts = Core.buildLabelParts(entry);
-    labelModel = { tweetId: entry.open_id || entry.tweet_id, lines: parts.top, seen: parts.seen, bannerText: Core.buildBannerText(entry) };
+    labelModel = {
+      tweetId: entry.open_id || entry.tweet_id,
+      lines: parts.top,
+      seen: parts.seen,
+      bannerText: Core.buildBannerText(entry),
+      names: entry.all_reposter_names || entry.reposter_names || {},
+    };
     syncLabels();
   }
   // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).

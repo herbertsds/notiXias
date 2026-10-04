@@ -22,7 +22,8 @@ const Xdom = (function () {
     return null;
   }
 
-  // Quem repostou: link de perfil dentro do contexto social. Lido pelo href, não pelo texto.
+  // Quem repostou: link de perfil dentro do contexto social. O @ vem do href (não do texto); o NOME de exibição
+  // vem do elemento com `dir` dentro do contexto ("<span dir=ltr>Nome</span> repostou"), então independe do idioma.
   function reposterOf(art, author) {
     const cell = art.closest('[data-testid="cellInnerDiv"]');
     const sc =
@@ -33,17 +34,21 @@ const Xdom = (function () {
     if (!a) return null;
     const handle = C().parseProfileHref(a.getAttribute('href'), ORIGIN);
     if (!handle || handle.toLowerCase() === author.toLowerCase()) return null;
-    return handle;
+    const nameEl = sc.querySelector('[dir]');
+    const name = nameEl ? nameEl.textContent.trim() : '';
+    return { handle, name: name || null };
   }
 
   function parseArticle(art) {
     const st = primaryStatus(art);
     if (!st) return null; // anúncios e cartões sem link de post caem aqui
-    const reposter = reposterOf(art, st.author);
+    const rp = reposterOf(art, st.author);
+    const reposter = rp ? rp.handle : null;
     return {
       id: st.id,
       author: st.author,
       reposter,
+      reposterName: rp ? rp.name : null,
       key: C().appearanceKey(st.id, reposter),
       url: ORIGIN + '/' + st.author + '/status/' + st.id,
     };

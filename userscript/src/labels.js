@@ -27,13 +27,13 @@ const Labels = (function () {
   }
 
   // "@fulano" vira link para o perfil; o resto é texto puro (nunca HTML).
-  function fillText(doc, parent, text) {
+  function fillText(doc, parent, text, names) {
     for (const part of text.split(HANDLE_SPLIT)) {
       if (!part) continue;
       if (part.startsWith('@') && HANDLE_SPLIT.test(part)) {
         const a = doc.createElement('a');
         a.href = 'https://x.com/' + part.slice(1);
-        a.textContent = part;
+        a.textContent = (names && names[part.slice(1).toLowerCase()]) || part; // nome de exibição, se conhecido
         a.setAttribute('style', LINK);
         a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
         a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
@@ -45,28 +45,28 @@ const Labels = (function () {
   }
 
   // Ícone numa coluna própria, com o texto um pouco mais à direita.
-  function fillLine(doc, row, text, kind) {
+  function fillLine(doc, row, text, kind, names) {
     const m = ICON_SPLIT.exec(text);
     if (m) {
       const icon = doc.createElement('span');
       icon.setAttribute('style', kind === 'seen' ? ICON_SEEN : ICON);
       icon.textContent = m[1];
       row.append(icon);
-      fillText(doc, row, m[2]);
+      fillText(doc, row, m[2], names);
     } else {
-      fillText(doc, row, text);
+      fillText(doc, row, text, names);
     }
   }
 
-  function build(doc, kind, lines) {
+  function build(doc, kind, lines, names) {
     const node = doc.createElement('div');
     node.setAttribute('data-nx', kind);
-    node.setAttribute('data-nx-text', lines.join('\n'));
+    node.setAttribute('data-nx-text', stamp(lines, names));
     node.setAttribute('style', kind === 'seen' ? BOX.seen : BOX.top);
     for (const l of lines) {
       const row = doc.createElement('div');
       if (l.startsWith('⚠')) row.setAttribute('style', WARN);
-      fillLine(doc, row, l, kind);
+      fillLine(doc, row, l, kind, names);
       node.append(row);
     }
     return node;
@@ -78,12 +78,17 @@ const Labels = (function () {
     return art.previousElementSibling === node;
   }
 
-  function ensure(doc, art, kind, lines, dateRow) {
-    const text = lines.join('\n');
+  // Assinatura do conteúdo (texto + nomes): só reescreve o DOM quando algo mudou.
+  function stamp(lines, names) {
+    return lines.join('\n') + '\u0001' + JSON.stringify(names || {});
+  }
+
+  function ensure(doc, art, kind, lines, dateRow, names) {
+    const text = stamp(lines, names);
     let node = find(art, kind);
     if (node && node.getAttribute('data-nx-text') === text && placed(art, kind, node, dateRow)) return false;
     if (node) node.remove();
-    node = build(doc, kind, lines);
+    node = build(doc, kind, lines, names);
     if (kind === 'seen') dateRow.after(node);
     else art.parentNode.insertBefore(node, art);
     return true;
@@ -112,9 +117,9 @@ const Labels = (function () {
       if (a !== target || !dateRow) remove(a, 'seen');
       if (a !== first || a === target || !model.bannerText) remove(a, 'banner');
     }
-    if (target && topLines.length) ensure(doc, target, 'label', topLines);
-    if (target && dateRow) ensure(doc, target, 'seen', [model.seen], dateRow);
-    if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText]);
+    if (target && topLines.length) ensure(doc, target, 'label', topLines, null, model.names);
+    if (target && dateRow) ensure(doc, target, 'seen', [model.seen], dateRow, model.names);
+    if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText], null, model.names);
     return {
       label: !!(target && topLines.length),
       seen: !!(target && dateRow),

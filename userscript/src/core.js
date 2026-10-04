@@ -175,6 +175,7 @@ const Core = (function () {
       reposter: item.reposter || null,
       kind: item.reposter ? 'repost' : 'post',
     };
+    if (item.reposter && item.reposterName) o.reposter_name = item.reposterName;
     if (item.cluster) o.cluster = item.cluster;
     return o;
   }

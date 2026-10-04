@@ -179,3 +179,31 @@ test('"já visto" abaixo da data: ícone colado ao texto (sem a coluna larga da 
   const topIcon = d.querySelector('[data-nx="label"] div > span');
   assert.match(topIcon.getAttribute('style'), /width:34px/); // a faixa de cima não mudou
 });
+
+// ---- nome em vez de @ ----
+test('exibe o NOME de quem repostou (com link para o perfil) quando conhecido; senão o @', () => {
+  const d = dom(page(article({ id: '3', author: 'a', detail: true })));
+  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @dryzinho, @beto'], names: { dryzinho: 'Dryzinho' } });
+  const links = [...d.querySelectorAll('[data-nx="label"] a')];
+  assert.deepEqual(links.map((a) => a.textContent), ['Dryzinho', '@beto']);
+  assert.deepEqual(links.map((a) => a.getAttribute('href')), ['https://x.com/dryzinho', 'https://x.com/beto']);
+});
+
+test('o aviso do topo da tela também usa o nome', () => {
+  const d = dom(page(article({ id: '1', author: 'a' }), article({ id: '3', author: 'a' })));
+  Labels.sync(d, { ...MODEL, bannerText: '↻ uma mensagem dessa thread foi repostada por @ana', names: { ana: 'Ana Souza' } });
+  assert.match(arts(d)[0].previousElementSibling.textContent, /repostada por Ana Souza/);
+});
+
+test('nome que chega depois atualiza a faixa (idempotente quando nada muda)', async () => {
+  const d = dom(page(article({ id: '3', author: 'a', detail: true })));
+  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: {} });
+  assert.match(d.querySelector('[data-nx="label"]').textContent, /@ana/);
+  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: { ana: 'Ana Souza' } });
+  assert.match(d.querySelector('[data-nx="label"]').textContent, /Ana Souza/);
+  let mutations = 0;
+  new d.defaultView.MutationObserver(() => { mutations++; }).observe(d.body, { childList: true, subtree: true, characterData: true, attributes: true });
+  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: { ana: 'Ana Souza' } });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(mutations, 0);
+});

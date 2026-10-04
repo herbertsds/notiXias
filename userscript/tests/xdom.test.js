@@ -9,7 +9,7 @@ const dom = (html) => new JSDOM(html, { url: 'https://x.com/home' }).window.docu
 test('parseArticle: post comum', () => {
   const d = dom(page(article({ id: '100', author: 'conta_a' })));
   const [it] = Xdom.readItems(d);
-  assert.deepEqual(it, { id: '100', author: 'conta_a', reposter: null, key: '100|', url: 'https://x.com/conta_a/status/100' });
+  assert.deepEqual(it, { id: '100', author: 'conta_a', reposter: null, reposterName: null, key: '100|', url: 'https://x.com/conta_a/status/100' });
 });
 
 test('repost: reposter lido pelo href do perfil (os dois formatos de markup)', () => {
@@ -208,4 +208,21 @@ test('a sequência da recomendação nunca vira alvo de thread (fluxo completo)'
   const Core = require('../src/core.js');
   const d = dom(convPage(article({ id: '2106660288065843460', author: 'geglobo', detail: true }), SECTION, article({ id: '2106692885886144656', author: 'geglobo' })));
   assert.equal(Core.pickThreadTarget(Xdom.pageItems(d), '2106660288065843460', 'geglobo'), null);
+});
+
+test('nome de exibição de quem repostou: lido do elemento com dir (independe do idioma do verbo)', () => {
+  const d = dom(page(article({ id: '1', author: 'orig', reposter: 'dryzinho', reposterName: 'Dryzinho' })));
+  const [it] = Xdom.readItems(d);
+  assert.equal(it.reposter, 'dryzinho');
+  assert.equal(it.reposterName, 'Dryzinho');
+  // outro idioma/verbo: o nome continua o mesmo
+  const html = page(article({ id: '2', author: 'orig', reposter: 'ana' })).replace('repostou', 'reposted');
+  assert.equal(Xdom.readItems(dom(html))[0].reposterName, 'ana Silva');
+});
+
+test('sem elemento com dir, o nome é nulo (a etiqueta cai para o @)', () => {
+  const d = dom(page(article({ id: '3', author: 'orig', reposter: 'beto', repostStyle: 'div-contains-anchor' })));
+  const [it] = Xdom.readItems(d);
+  assert.equal(it.reposter, 'beto');
+  assert.equal(it.reposterName, null);
 });

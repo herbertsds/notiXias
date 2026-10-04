@@ -79,7 +79,7 @@ Recebe um lote de aparições em **ordem do feed** (mais nova primeiro), exatame
 {
   "items": [
     { "tweet_id": "1840000000000000009", "author": "conta_a", "reposter": null,    "kind": "post" },
-    { "tweet_id": "1840000000000000004", "author": "conta_b", "reposter": "conta_c", "kind": "repost" },
+    { "tweet_id": "1840000000000000004", "author": "conta_b", "reposter": "conta_c", "reposter_name": "Nome de Exibição", "kind": "repost" },
     { "tweet_id": "1840000000000000011", "author": "conta_d", "cluster": 1 },
     { "tweet_id": "1840000000000000012", "author": "conta_e", "cluster": 1 }
   ],
@@ -104,6 +104,8 @@ Resposta:
 { "created": 12, "merged": 2, "absorbed": 1, "updated": 1, "skipped": 3, "first_new_seq": 119, "gap": false }
 ```
 
+**Posição na fila (`ord`).** `seq` é a identidade da entrada e nunca muda; a ordem de leitura é `ord`. Uma entrada **nova** entra **entre as não lidas depois do cursor, pelo horário do tweet** (o ID do X cresce com o tempo): antes da primeira não lida mais nova que ela; se não houver, no fim. Nunca entra antes do cursor nem entre as já lidas. Repost entra pelo horário do tweet **original**. `after`/`before` de `/queue` continuam sendo `seq`, mas a navegação segue `ord`. **Horário da conversa:** o do post mais ao topo que seja de conta **seguida** e **novo** (contas seguidas são aprendidas pelo próprio Seguindo: quem tem post próprio, quem reposta e quem responde dentro de uma conversa; a raiz de uma conversa não conta). Raiz de conta não seguida ou já lida não define o horário.
+
 **Regra de ordem (padrão).** Uma conversa que já tem algum membro **na fila e não lido** NÃO muda de posição quando ganha respostas: o registro continua no `seq` do membro não lido mais antigo e só muda o link a abrir (`open_id`/`url` passam a ser os da resposta mais recente; nunca volta a uma mais antiga). Resposta: `updated` = registros que só trocaram o link. **Exceção:** se os membros conhecidos já foram **lidos**, a conversa volta ao fim da fila como registro novo (para ver a resposta), com o "Visto em" dos que já tinham sido vistos.
 
 **Conversas (`cluster`).** O feed mostra uma conversa como raiz, resposta 1, resposta 2..., com IDs *crescentes* de cima para baixo (o contrário do normal). O cliente numera esses itens consecutivos com o mesmo `cluster`. Para cada conversa o servidor cria **um registro**, tendo a **última resposta** (maior ID) como **referência**; os demais membros ainda não lidos ficam **cobertos de forma provisória** (`cover_tentative`) e a página da referência os confirma ou solta (`POST /entries/settle`). Membros que já estavam lidos não são cobertos; seus "Visto em" aparecem na referência (`members`). Os itens enviados incluem também os já conhecidos (contexto da conversa); os conhecidos fora de conversa são ignorados. Resposta: `linked` = membros ligados à referência.
@@ -124,7 +126,9 @@ Entrada com suas visualizações anteriores.
   "url": "https://x.com/conta_b/status/1840000000000000004",
   "author": "conta_b",
   "reposters": ["conta_c"],
+  "reposter_names": {"conta_c": "Nome de Exibição"},
   "all_reposters": ["conta_c"],
+  "all_reposter_names": {"conta_c": "Nome de Exibição"},
   "members": [],
   "kind": "repost",
   "captured_at": "2026-10-04T12:00:00Z",

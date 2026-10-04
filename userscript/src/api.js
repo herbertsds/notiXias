@@ -47,6 +47,10 @@ const Api = (function () {
       uncover: (body) => call('POST', '/entries/uncover', { body }),
       settle: (body) => call('POST', '/entries/settle', { body }),
       views: (body) => call('POST', '/views', { body }),
+      following: (include) => call('GET', '/accounts/following', { params: { include: include ? 'true' : undefined } }),
+      putFollowing: (body) => call('PUT', '/accounts/following', { body }),
+      followAdd: (body) => call('POST', '/accounts/following/add', { body }),
+      followRemove: (body) => call('POST', '/accounts/following/remove', { body }),
       skeleton: (body) => call('POST', '/health/skeleton', { body }),
       exportAll: () => call('GET', '/export'),
     };

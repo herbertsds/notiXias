@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.4.0
+// @version      0.5.0
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -565,6 +565,117 @@ const Labels = (function () {
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Labels;
 
+// ---- following.js ----
+// following: lista de contas que você segue. (1) leitura completa da página de Seguindo; (2) reconhecimento dos
+// botões de seguir/deixar de seguir para manter a lista atualizada ao vivo. Só lê a página: nunca clica em nada.
+//
+// Estrutura do X usada (conferida na página real): botões `data-testid="<idNumérico>-follow|unfollow"`, dentro de
+// `[data-testid="UserCell"]` com o link do perfil; meu perfil em `a[data-testid="AppTabBar_Profile_Link"]`.
+const Following = (function () {
+  const C = () => (typeof Core !== 'undefined' ? Core : require('./core.js'));
+  const ORIGIN = 'https://x.com';
+  const BTN_RE = /^(\d+)-(follow|unfollow)$/;
+
+  // Meu @, lido do link do perfil na navegação do X.
+  function ownHandle(root) {
+    const a = root.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+    return a ? C().parseProfileHref(a.getAttribute('href'), ORIGIN) : null;
+  }
+
+  // Botão de seguir/deixar de seguir a partir do elemento clicado (o clique costuma cair num span interno).
+  function buttonOf(target) {
+    let n = target;
+    for (let i = 0; n && i < 8; i++, n = n.parentElement) {
+      const t = n.getAttribute && n.getAttribute('data-testid');
+      if (t && BTN_RE.test(t)) return n;
+    }
+    return null;
+  }
+
+  function profileLinkIn(container) {
+    for (const a of container.querySelectorAll('a[href^="/"]')) {
+      const h = C().parseProfileHref(a.getAttribute('href'), ORIGIN);
+      if (h) return h;
+    }
+    return null;
+  }
+
+  // Nome de exibição: primeiro texto dentro de um elemento com `dir` (o @ vem depois e começa com "@").
+  function nameIn(container) {
+    for (const el of container.querySelectorAll('[dir="ltr"] span')) {
+      const t = el.textContent.trim();
+      if (t && !t.startsWith('@')) return t;
+    }
+    return null;
+  }
+
+  // { id, kind: 'follow'|'unfollow', handle|null, name|null }
+  function infoFor(btn, pathname) {
+    const m = BTN_RE.exec(btn.getAttribute('data-testid'));
+    const container = btn.closest('[data-testid="UserCell"]') || btn.closest('[data-testid="HoverCard"]');
+    let handle = container ? profileLinkIn(container) : null;
+    if (!handle) handle = C().parseProfileHref(pathname || '', ORIGIN); // cabeçalho da página de perfil
+    return { id: m[1], kind: m[2], handle, name: container ? nameIn(container) : null };
+  }
+
+  // Seletor do botão que aparece DEPOIS de a ação dar certo (seguir -> "seguindo" e vice-versa).
+  function oppositeSelector(id, kind) {
+    return '[data-testid="' + id + '-' + (kind === 'follow' ? 'unfollow' : 'follow') + '"]';
+  }
+
+  // Contas listadas na página de Seguindo, em ordem de DOM.
+  function readCells(root) {
+    const out = [];
+    for (const c of root.querySelectorAll('[data-testid="UserCell"]')) {
+      const handle = profileLinkIn(c);
+      if (handle) out.push({ handle, name: nameIn(c) });
+    }
+    return out;
+  }
+
+  // env: { readCells(), scrollToTop(), scrollBy(px), viewportHeight(), atBottom(), sleep(ms), rand(a,b),
+  //        onProgress(n, steps), isCancelled() }
+  // Devolve { accounts, complete, reason }. Só é "completa" ao chegar ao fim da lista (estável por 3 passos).
+  async function collect(env, options) {
+    const o = Object.assign(
+      { maxSteps: 150, stepFraction: 0.8, stepDelayMs: [700, 1300], settleMs: 1000, stagnantLimit: 3, settlePolls: 4, pollMs: 500 },
+      options || {}
+    );
+    const seen = new Map();
+    let stagnant = 0;
+    let steps = 0;
+    env.scrollToTop();
+    await env.sleep(o.settleMs);
+    for (;;) {
+      const before = seen.size;
+      for (const c of env.readCells()) if (!seen.has(c.handle.toLowerCase())) seen.set(c.handle.toLowerCase(), c);
+      env.onProgress(seen.size, steps);
+      const accounts = () => Array.from(seen.values());
+      if (env.isCancelled()) return { accounts: accounts(), complete: false, reason: 'cancelled' };
+      if (steps >= o.maxSteps) return { accounts: accounts(), complete: false, reason: 'max_steps' };
+
+      env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
+      await env.sleep(env.rand(o.stepDelayMs[0], o.stepDelayMs[1]));
+      // Espera o X desenhar/carregar mais, inclusive no fim da página (rolagem infinita: é quando ele carrega).
+      for (let p = 0; p < o.settlePolls; p++) {
+        if (env.readCells().some((c) => !seen.has(c.handle.toLowerCase()))) break;
+        await env.sleep(o.pollMs);
+      }
+      steps++;
+      if (seen.size === before && env.atBottom()) {
+        // lê mais uma vez antes de contar como parado (o X pode ter desenhado agora)
+        for (const c of env.readCells()) if (!seen.has(c.handle.toLowerCase())) seen.set(c.handle.toLowerCase(), c);
+        if (seen.size === before && ++stagnant >= o.stagnantLimit) return { accounts: accounts(), complete: true, reason: 'end' };
+      } else if (seen.size !== before) {
+        stagnant = 0;
+      }
+    }
+  }
+
+  return { ownHandle, buttonOf, infoFor, oppositeSelector, readCells, collect };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = Following;
+
 // ---- scanner.js ----
 // scanner: rola o feed e coleta aparições até reencontrar uma âncora. Todo efeito colateral passa por `env`
 // (rolagem, leitura do DOM, tempo), o que permite simular um feed nos testes.
@@ -639,8 +750,8 @@ const Scanner = (function () {
       env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
       await env.sleep(env.rand(o.stepDelayMs[0], o.stepDelayMs[1]));
       // O X às vezes demora a desenhar: espera um pouco antes de seguir (não pula posts sem ler).
+      // (inclusive no fim da página: é quando a rolagem infinita carrega mais)
       for (let p = 0; p < o.settlePolls; p++) {
-        if (env.atBottom()) break;
         if (env.readItems().some((it) => !seen.has(it.key))) break;
         await env.sleep(o.pollMs);
       }
@@ -708,6 +819,10 @@ const Api = (function () {
       uncover: (body) => call('POST', '/entries/uncover', { body }),
       settle: (body) => call('POST', '/entries/settle', { body }),
       views: (body) => call('POST', '/views', { body }),
+      following: (include) => call('GET', '/accounts/following', { params: { include: include ? 'true' : undefined } }),
+      putFollowing: (body) => call('PUT', '/accounts/following', { body }),
+      followAdd: (body) => call('POST', '/accounts/following/add', { body }),
+      followRemove: (body) => call('POST', '/accounts/following/remove', { body }),
       skeleton: (body) => call('POST', '/health/skeleton', { body }),
       exportAll: () => call('GET', '/export'),
     };
@@ -1003,6 +1118,7 @@ function startApp() {
     const age = Date.now() - (p.at || 0);
     if (p.name === 'fetching' && age > FETCH_STALE_MS) return { name: 'idle' };
     if (p.name === 'error' && age > ERROR_STALE_MS) return { name: 'idle' };
+    if (p.name === 'following' && age > FETCH_STALE_MS) return { name: 'idle' };
     return p;
   };
   const setPhase = (name, extra) => gm.set('nx_phase', Object.assign({ name, at: Date.now() }, extra || {}));
@@ -1093,6 +1209,7 @@ function startApp() {
     return [
       { label: 'Buscar novas agora', onClick: () => startFetch() },
       { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
+      { label: followingLabel(st), onClick: () => startFollowingRefresh() },
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
       { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
@@ -1155,8 +1272,16 @@ function startApp() {
     }
   }
 
+  // Lembrete discreto quando a lista de contas seguidas nunca foi lida ou está velha.
+  function followingHint(st) {
+    const f = st && st.following;
+    if (!f || !f.last_full_at) return 'Contas seguidas ainda não lidas — menu ⋯';
+    const days = Math.floor((Date.now() - new Date(f.last_full_at).getTime()) / 86400000);
+    return days >= 30 ? 'Lista de contas seguidas com mais de 30 dias — menu ⋯' : null;
+  }
+
   function renderEntryBar(st, notice) {
-    showBar({ st, notice: notice || null });
+    showBar({ st, notice: notice || followingHint(st) });
     setLabels(st.current);
   }
 
@@ -1260,7 +1385,13 @@ function startApp() {
   }
 
   // ---------- busca de novas ----------
-  function startFetch(deep) {
+  async function startFetch(deep) {
+    // Sem a lista de contas seguidas (nunca lida), lê primeiro; se falhou há pouco, segue sem ela.
+    try {
+      const f = await api.following();
+      const failedRecently = Date.now() - gm.get('nx_follow_fail_at', 0) < 24 * 3600 * 1000;
+      if (!f.last_full_at && !failedRecently) return startFollowingRefresh({ then: 'fetch', deep: !!deep });
+    } catch (e) { /* sem a lista, a busca ainda funciona (usa o aprendido do feed) */ }
     setPhase('fetching', { deep: !!deep });
     if (Core.isFeedPath(feed.url, location.pathname)) onRoute();
     else go(feed.url);
@@ -1358,6 +1489,156 @@ function startApp() {
     ui.showOverlay({ title: 'Nada para ler', detail: 'O feed não trouxe posts.', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
   }
 
+  // ---------- contas seguidas ----------
+  function followingLabel(st) {
+    const f = st && st.following;
+    const dirty = gm.get('nx_follow_dirty', false);
+    if (!f || !f.last_full_at) return 'Ler contas seguidas (ainda não lidas)';
+    const days = Math.floor((Date.now() - new Date(f.last_full_at).getTime()) / 86400000);
+    return 'Atualizar contas seguidas (' + f.count + (dirty ? ' · ⚠ pode estar desatualizada' : days >= 30 ? ' · há ' + days + ' dias' : '') + ')';
+  }
+
+  function myHandle() {
+    // Lê do próprio X (muda se você trocar de conta); o guardado só vale se a página não mostrar o perfil.
+    let h = Following.ownHandle(document) || cfg.myHandle;
+    if (!h) {
+      const v = prompt('Seu usuário no X (sem @), para abrir a lista de quem você segue');
+      h = v ? v.trim().replace(/^@/, '') : null;
+    }
+    if (h && h !== cfg.myHandle) { cfg.myHandle = h; saveCfg(); }
+    return h || null;
+  }
+
+  function startFollowingRefresh(opts) {
+    const h = myHandle();
+    if (!h) return;
+    setPhase('following', { handle: h, then: opts && opts.then ? opts.then : null, deep: !!(opts && opts.deep), returnTo: location.href });
+    if (location.pathname.toLowerCase() === '/' + h.toLowerCase() + '/following') onRoute();
+    else go('https://x.com/' + h + '/following');
+  }
+
+  function leaveFollowing(phase) {
+    if (phase.then === 'fetch') return startFetch(!!phase.deep);
+    return go(phase.returnTo && phase.returnTo.indexOf('/following') < 0 ? phase.returnTo : 'https://x.com/home');
+  }
+
+  async function failFollowing(message, art) {
+    setPhase('error');
+    gm.set('nx_follow_fail_at', Date.now());
+    const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
+    gm.set('nx_skeleton', sk);
+    try {
+      await api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: sk, note: ('following: ' + message).slice(0, 500) });
+    } catch (e) { /* o esqueleto local já foi guardado */ }
+    ui.showOverlay({
+      title: '⚠ Não consegui ler as contas seguidas',
+      detail: message + ' Copie o esqueleto (sem texto) para eu ajustar. A busca continua funcionando sem a lista.',
+      error: true,
+      buttons: [
+        { label: 'Copiar esqueleto', onClick: copySkeleton },
+        { label: 'Voltar', onClick: () => { setPhase('idle'); ui.hideOverlay(); go('https://x.com/home'); } },
+      ],
+    });
+  }
+
+  async function runFollowingScan(token, phase) {
+    cancelled = false;
+    ui.hideBar();
+    const progress = (n) => ui.showOverlay({
+      title: 'Atualizando contas seguidas…',
+      detail: n + ' contas lidas',
+      buttons: [{ label: 'Cancelar', onClick: () => { cancelled = true; } }],
+    });
+    progress(0);
+    const first = await waitFor(() => document.querySelector('[data-testid="UserCell"]'), 15000);
+    if (token !== routeToken) return;
+    if (!first) return failFollowing('Nenhuma conta apareceu na página de Seguindo.');
+    const env = {
+      readCells: () => Following.readCells(document),
+      scrollToTop: () => window.scrollTo(0, 0),
+      scrollBy: (px) => window.scrollBy(0, px),
+      viewportHeight: () => window.innerHeight,
+      atBottom: () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4,
+      sleep, rand,
+      onProgress: progress,
+      isCancelled: () => cancelled || token !== routeToken,
+    };
+    const res = await Following.collect(env);
+    if (token !== routeToken) return;
+    if (!res.complete) {
+      gm.set('nx_follow_fail_at', Date.now());
+      setPhase('idle');
+      ui.hideOverlay();
+      gm.set('nx_notice', res.reason === 'cancelled' ? 'Leitura das contas seguidas cancelada' : 'A leitura das contas seguidas não terminou');
+      return leaveFollowing(Object.assign({}, phase, { then: null }));
+    }
+    const sum = await api.putFollowing({ accounts: res.accounts.map((a) => ({ handle: a.handle, name: a.name || null })) });
+    setPhase('idle');
+    gm.set('nx_follow_dirty', false);
+    gm.set('nx_follow_fail_at', 0);
+    gm.set('nx_notice', sum.count + ' contas seguidas atualizadas');
+    ui.hideOverlay();
+    return leaveFollowing(phase);
+  }
+
+  // --- atualização ao vivo: observa o RESULTADO do clique (o botão muda de "seguir" para "seguindo" e vice-versa) ---
+  let pendingUnfollow = null;
+
+  function flashNotice(text) {
+    if (barState) { barState.notice = text; drawBar(); setTimeout(() => { if (barState && barState.notice === text) { barState.notice = null; drawBar(); } }, NOTICE_MS); }
+  }
+
+  async function flushFollowOps() {
+    const q = gm.get('nx_follow_ops', []);
+    while (q.length) {
+      const op = q[0];
+      try {
+        if (op.op === 'add') await api.followAdd({ handle: op.handle, name: op.name || null });
+        else await api.followRemove({ handle: op.handle });
+      } catch (e) {
+        gm.set('nx_follow_ops', q);
+        return;
+      }
+      q.shift();
+    }
+    gm.set('nx_follow_ops', q);
+  }
+
+  async function queueFollowOp(op) {
+    const q = gm.get('nx_follow_ops', []);
+    q.push(op);
+    gm.set('nx_follow_ops', q.slice(-300));
+    await flushFollowOps();
+    flashNotice((op.op === 'add' ? 'Seguindo @' : 'Deixou de seguir @') + op.handle + ' (lista atualizada)');
+  }
+
+  async function watchFollowChange(info) {
+    const changed = await waitFor(() => document.querySelector(Following.oppositeSelector(info.id, info.kind)), 8000, 400);
+    if (!changed) return; // confirmação cancelada, erro do X...
+    if (!info.handle) {
+      gm.set('nx_follow_dirty', true);
+      flashNotice('Não identifiquei quem foi (de)seguido — atualize as contas seguidas no menu ⋯');
+      return;
+    }
+    queueFollowOp({ op: info.kind === 'follow' ? 'add' : 'remove', handle: info.handle, name: info.name });
+  }
+
+  document.addEventListener('click', (e) => {
+    try {
+      const btn = Following.buttonOf(e.target);
+      if (btn) {
+        const info = Following.infoFor(btn, location.pathname);
+        if (info.kind === 'unfollow') pendingUnfollow = { info, t: Date.now() };
+        watchFollowChange(info);
+        return;
+      }
+      if (e.target.closest && e.target.closest('[data-testid="confirmationSheetConfirm"]') && pendingUnfollow && Date.now() - pendingUnfollow.t < 60000) {
+        watchFollowChange(pendingUnfollow.info);
+        pendingUnfollow = null;
+      }
+    } catch (err) { /* nunca atrapalha o clique do X */ }
+  }, true);
+
   // ---------- menu ----------
   function promptConfig() {
     const url = prompt('URL da API do notiXias', cfg.apiBaseUrl);
@@ -1421,12 +1702,17 @@ function startApp() {
       const st = await api.state();
       if (token !== routeToken) return;
       feed = st.feed;
+      flushFollowOps();
       const phase = getPhase();
       const feedHere = Core.isFeedPath(feed.url, location.pathname);
 
       if (phase.name === 'fetching') {
         if (feedHere) return await runFetch(token);
         return renderSideBar('Busca em andamento', st);
+      }
+      if (phase.name === 'following') {
+        if (location.pathname.toLowerCase() === '/' + String(phase.handle).toLowerCase() + '/following') return await runFollowingScan(token, phase);
+        return renderSideBar('Atualização das contas seguidas em andamento', st);
       }
       if (phase.name === 'error') return renderSideBar('Última busca falhou — veja o menu ⋯', st);
 

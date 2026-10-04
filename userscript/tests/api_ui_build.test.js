@@ -47,9 +47,11 @@ test('Api: rotas usadas pelo script', async () => {
   await api.anchor(10); await api.append({}); await api.views({ seqs: [1] });
   await api.cover({}); await api.uncover({}); await api.settle({}); await api.skeleton({}); await api.entry(7); await api.exportAll();
   await api.patchEntry(2, { removed: true });
+  await api.following(); await api.following(true); await api.putFollowing({ accounts: [] }); await api.followAdd({ handle: 'a' }); await api.followRemove({ handle: 'a' });
   assert.deepEqual(calls.map((c) => c.method + ' ' + c.url.replace('http://localhost:8010/api/v1', '')), [
     'GET /queue/anchor?depth=10', 'POST /queue/append', 'POST /views', 'POST /entries/cover',
     'POST /entries/uncover', 'POST /entries/settle', 'POST /health/skeleton', 'GET /entries/7', 'GET /export', 'PATCH /entries/2',
+    'GET /accounts/following', 'GET /accounts/following?include=true', 'PUT /accounts/following', 'POST /accounts/following/add', 'POST /accounts/following/remove',
   ]);
 });
 

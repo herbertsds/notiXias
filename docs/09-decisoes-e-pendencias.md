@@ -39,6 +39,7 @@
 | D34 | Ordem padrão: respostas a um post **não lido** não mudam a posição na fila, só o link a abrir (a resposta mais recente); se o post já foi **lido**, a conversa volta ao fim da fila com a resposta nova. | Pedido do dono (0.3.1): não seguir o reagrupamento do algoritmo do X para o que ainda não foi lido. |
 | D35 | Quem repostou aparece pelo **nome de exibição** (link para o perfil); sem nome, o @. | Pedido do dono (0.4.0). |
 | D36 | Novas entradas entram **entre as não lidas, pelo horário do tweet original**; conversas pelo horário do 1º post novo de conta seguida (raiz não seguida/lida não conta). `ord` separa posição de identidade (`seq`). | Pedido do dono (0.4.0). |
+| D37 | A lista exata de contas seguidas é lida da página de Seguindo (uma vez, e por botão no menu) e mantida ao vivo observando os botões seguir/deixar de seguir (pelo resultado, não só pelo clique). | Pedido do dono (0.5.0): saber exatamente quem ele segue, em vez de inferir pelo feed. |
 | D30 | "Sempre abrir a versão mobile" **não é viável** por userscript (layout depende da largura da janela). | Limitação do X/navegador. |
 
 ## Pendências (resolver na prática, durante o desenvolvimento)

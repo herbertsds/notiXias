@@ -71,8 +71,8 @@ const Scanner = (function () {
       env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
       await env.sleep(env.rand(o.stepDelayMs[0], o.stepDelayMs[1]));
       // O X às vezes demora a desenhar: espera um pouco antes de seguir (não pula posts sem ler).
+      // (inclusive no fim da página: é quando a rolagem infinita carrega mais)
       for (let p = 0; p < o.settlePolls; p++) {
-        if (env.atBottom()) break;
         if (env.readItems().some((it) => !seen.has(it.key))) break;
         await env.sleep(o.pollMs);
       }

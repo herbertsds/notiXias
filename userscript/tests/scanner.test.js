@@ -18,7 +18,7 @@ function fakeEnv(feed, { win = 5, itemPx = 100, viewport = 500, cancelAt = Infin
       return feed.slice(start, start + win);
     },
     scrollToTop: () => { scroll = 0; shown = 0; },
-    scrollBy: (px) => { scroll = Math.min(scroll + px, Math.max(0, total() - viewport)); env.log.steps++; stale = lag; },
+    scrollBy: (px) => { const prev = scroll; scroll = Math.min(scroll + px, Math.max(0, total() - viewport)); env.log.steps++; if (scroll !== prev) stale = lag; },
     scrollHeight: () => total(),
     viewportHeight: () => viewport,
     atBottom: () => scroll + viewport >= total() - 4,
@@ -154,4 +154,18 @@ test('varredura profunda: minKnown alto continua além dos primeiros conhecidos'
   const known = keys(feed.slice(0, 40));
   const r = await Scanner.run(fakeEnv(feed), { ...OPTS, minKnown: 40 }, known);
   assert.equal(r.seq.length, 40);
+});
+
+test('rolagem infinita: no fim da página o X carrega mais posts; o scanner espera em vez de encerrar', async () => {
+  const feed = mk(20);
+  let waits = 0;
+  const env = fakeEnv(feed, { win: 6 });
+  const baseSleep = env.sleep;
+  env.sleep = async (ms) => {
+    await baseSleep(ms);
+    if (env.atBottom() && ++waits === 3 && feed.length === 20) feed.push(...mk(40).slice(20));
+  };
+  const r = await Scanner.run(env, { ...OPTS, settlePolls: 4 }, ['1|']);   // âncora inexistente: lê tudo
+  assert.equal(fresh(r).length, 40);
+  assert.equal(r.reason, 'end');
 });

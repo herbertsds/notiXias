@@ -30,8 +30,15 @@ function article({ id, author, reposter, reposterName, repostStyle = 'anchor-wra
   </article></div>`;
 }
 
+// Célula da página de Seguindo / sugestões, como no X: botão <id>-follow|unfollow, link do perfil e nome.
+function userCell({ handle, name, id = '123', following = true }) {
+  return `<div data-testid="UserCell"><a href="/${handle}" role="link"><div dir="ltr"><span>${name}</span></div></a>
+    <a href="/${handle}"><div dir="ltr"><span>@${handle}</span></div></a>
+    <button data-testid="${id}-${following ? 'unfollow' : 'follow'}"><span><span>${following ? 'Seguindo' : 'Seguir'}</span></span></button></div>`;
+}
+
 function page(...articles) {
   return `<!doctype html><html><body><main><div role="tablist"><div role="tab" aria-selected="true">Para você</div><div role="tab" aria-selected="false">Seguindo</div></div>${articles.join('\n')}</main></body></html>`;
 }
 
-module.exports = { article, page, SECRET };
+module.exports = { article, page, userCell, SECRET };

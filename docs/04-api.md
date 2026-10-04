@@ -63,6 +63,14 @@ Atualiza cursor e/ou feed. Concorrência otimista pela `version`.
 - `feed.url` só aceita `https://x.com/...` ou `https://twitter.com/...`.
 - `cursor_seq` deve existir; caso contrário `422`.
 
+### Contas seguidas — `/api/v1/accounts/following`
+
+A lista exata de quem você segue; é ela que diz quem conta como "seguido" no horário de uma conversa (ver "Posição na fila"). Enquanto a leitura completa nunca foi feita, vale o que foi aprendido pelo feed.
+
+- `GET ?include=true` → `{ count, last_full_at, updated_at, accounts?: [{handle, name}] }`. O `/state` traz o mesmo resumo em `following`.
+- `PUT` `{ accounts: [{handle, name?}] }` → **substitui** a lista pela lida na página de Seguindo e grava `last_full_at`.
+- `POST /add` `{ handle, name? }` e `POST /remove` `{ handle }` → atualização ao vivo, idempotentes (um `add` repetido sem nome não apaga o nome).
+
 ### `GET /api/v1/queue/anchor?depth=10`
 
 Chaves de aparição das últimas `depth` entradas (por `seq` decrescente, incluindo cobertas).

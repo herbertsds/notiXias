@@ -68,6 +68,17 @@ class CoverIn(BaseModel):
         return self
 
 
+class FollowAccount(BaseModel):
+    handle: Handle
+    name: str | None = Field(default=None, max_length=100)
+
+
+class FollowingPut(BaseModel):
+    """Lista COMPLETA de contas que você segue (lida da página de Seguindo): substitui a lista guardada."""
+
+    accounts: list[FollowAccount] = Field(max_length=10000)
+
+
 class SettleIn(BaseModel):
     """Confirma/solta a cobertura provisória de `covered_by` conforme o que a página mostra."""
 

@@ -8,6 +8,8 @@ from .models import (
     AppendIn,
     CoverIn,
     EntryPatch,
+    FollowAccount,
+    FollowingPut,
     SettleIn,
     SkeletonIn,
     StateIn,
@@ -42,6 +44,27 @@ def put_state(body: StateIn, request: Request):
         )
     except svc.InvalidCursor:
         raise HTTPException(status_code=422, detail="cursor_seq inexistente")
+
+
+# ---------- contas seguidas ----------
+@router.get("/accounts/following")
+def get_following(request: Request, include: bool = False):
+    return svc.following_summary(_db(request), include)
+
+
+@router.put("/accounts/following")
+def put_following(body: FollowingPut, request: Request):
+    return svc.put_following(_db(request), body.accounts)
+
+
+@router.post("/accounts/following/add")
+def post_follow_add(body: FollowAccount, request: Request):
+    return svc.follow_add(_db(request), body.handle, body.name)
+
+
+@router.post("/accounts/following/remove")
+def post_follow_remove(body: FollowAccount, request: Request):
+    return svc.follow_remove(_db(request), body.handle)
 
 
 # ---------- fila ----------
@@ -139,4 +162,5 @@ def export(request: Request):
     entries = [{k: v for k, v in d.items() if k not in ("_id", "author_lc")} for d in db.entries.find().sort("seq", 1)]
     views = [{k: v for k, v in d.items() if k != "_id"} for d in db.views.find().sort("viewed_at", 1)]
     state = {k: v for k, v in (db.state.find_one({"_id": "main"}) or {}).items() if k != "_id"}
-    return {"state": state, "entries": entries, "views": views}
+    following = svc.following_summary(db, include=True)
+    return {"state": state, "entries": entries, "views": views, "following": following}

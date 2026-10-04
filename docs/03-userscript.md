@@ -254,3 +254,12 @@ O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no f
 
 - A etiqueta mostra o **nome de exibição** de quem repostou (link para o perfil). O nome é lido do elemento com `dir` dentro do contexto social do post (`<span dir="ltr">Nome</span> repostou`), então independe do idioma; sem ele, aparece o `@`.
 - Novas entradas entram **entre as não lidas, pelo horário do tweet original** (ver `04-api.md`, "Posição na fila"). O script só pergunta "qual é a próxima" e abre a primeira não lida depois do cursor.
+
+
+## 0.5.0: contas seguidas
+
+- **Leitura completa (uma vez):** o script abre `x.com/<seu usuário>/following`, rola até o fim da lista (esperando a rolagem infinita carregar) e envia a lista para a API. Dispara sozinho na primeira busca, se a lista nunca foi lida e não falhou nas últimas 24 h, e a qualquer hora pelo menu **Atualizar contas seguidas**. A lista só substitui a anterior se a leitura **terminou**; cancelar ou estourar o limite não sobrescreve nada. Seu @ vem do link do perfil na navegação do X (`AppTabBar_Profile_Link`); o guardado só vale se a página não o mostrar.
+- **Ao vivo:** o script observa os botões `data-testid="<id>-follow|unfollow"`. Depois de um clique (e, para deixar de seguir, depois de confirmar na janela do X), espera o **resultado** (o botão trocar de "seguir" para "seguindo" ou o contrário) e só então envia `add`/`remove` para a API. Cancelar a confirmação não registra nada. O @ vem do cartão do usuário, do cartão que aparece ao passar o mouse ou da URL do perfil; se não der para saber, marca a lista como possivelmente desatualizada (⚠ no menu) em vez de adivinhar. Operações que falham ficam numa fila local e são reenviadas depois.
+- **Lembretes:** a barra avisa quando a lista nunca foi lida ou tem mais de 30 dias.
+- Mudanças feitas **fora** do script (app do X no celular, outro navegador) não são vistas: use o botão do menu.
+- Nunca clica em nada: só lê a página e escuta os cliques seus.

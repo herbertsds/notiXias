@@ -262,8 +262,59 @@ def _learn_accounts(db, items) -> None:
 
 
 def _followed(db, handles) -> set[str]:
+    """Contas seguidas entre `handles`. Com a lista completa já lida (página de Seguindo), vale só ela (mais as
+    mudanças ao vivo); antes disso, soma o que foi aprendido pelo próprio feed."""
     hs = list({h.lower() for h in handles})
-    return {d["_id"] for d in db.accounts.find({"_id": {"$in": hs}})}
+    explicit = {d["_id"] for d in db.following.find({"_id": {"$in": hs}})}
+    meta = db.meta.find_one({"_id": "following"})
+    if meta and meta.get("last_full_at"):
+        return explicit
+    return explicit | {d["_id"] for d in db.accounts.find({"_id": {"$in": hs}})}
+
+
+# ---------- contas seguidas ----------
+def following_summary(db, include: bool = False) -> dict:
+    meta = db.meta.find_one({"_id": "following"}) or {}
+    out = {
+        "count": db.following.count_documents({}),
+        "last_full_at": meta.get("last_full_at"),
+        "updated_at": meta.get("updated_at"),
+    }
+    if include:
+        out["accounts"] = [{"handle": d["handle"], "name": d.get("name")} for d in db.following.find().sort("_id", ASCENDING)]
+    return out
+
+
+def put_following(db, accounts: list) -> dict:
+    """Substitui a lista pela lida na página de Seguindo (leitura completa)."""
+    uniq = {}
+    for a in accounts:
+        uniq[a.handle.lower()] = a
+    ops = [
+        UpdateOne({"_id": k}, {"$set": {"handle": a.handle, "name": a.name}, "$setOnInsert": {"added_at": now()}}, upsert=True)
+        for k, a in uniq.items()
+    ]
+    if ops:
+        db.following.bulk_write(ops, ordered=False)
+    db.following.delete_many({"_id": {"$nin": list(uniq)}})
+    t = now()
+    db.meta.update_one({"_id": "following"}, {"$set": {"last_full_at": t, "updated_at": t}}, upsert=True)
+    return following_summary(db)
+
+
+def follow_add(db, handle: str, name: str | None) -> dict:
+    sets = {"handle": handle}
+    if name:  # um "seguir" repetido sem nome não apaga o nome já guardado
+        sets["name"] = name
+    db.following.update_one({"_id": handle.lower()}, {"$set": sets, "$setOnInsert": {"added_at": now()}}, upsert=True)
+    db.meta.update_one({"_id": "following"}, {"$set": {"updated_at": now()}}, upsert=True)
+    return following_summary(db)
+
+
+def follow_remove(db, handle: str) -> dict:
+    db.following.delete_one({"_id": handle.lower()})
+    db.meta.update_one({"_id": "following"}, {"$set": {"updated_at": now()}}, upsert=True)
+    return following_summary(db)
 
 
 def _place_cluster(db, group, cutoff, stats):
@@ -454,6 +505,7 @@ def state_view(db) -> dict:
         "unread_after": unread_after,
         "total_visible": total,
         "feed": st["feed"],
+        "following": following_summary(db),
         "version": st["version"],
         "updated_at": st["updated_at"],
     }

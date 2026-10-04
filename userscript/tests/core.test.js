@@ -117,3 +117,15 @@ test('buildLabelParts: topo (repost, thread, lacuna) separado do "já visto"', (
   assert.deepEqual(Core.buildLabelParts({ reposters: [], view_count: 0, views: [] }, fmt), { top: [], seen: null });
   assert.deepEqual(Core.buildLabelParts(null), { top: [], seen: null });
 });
+
+test('repost aparece também em entrada já vista: usa all_reposters (de outras entradas do mesmo tweet)', () => {
+  const fmt = () => 'D';
+  const lida = { reposters: [], all_reposters: ['ana'], view_count: 1, views: [{ viewed_at: 'x' }], covered_count: 0 };
+  assert.deepEqual(Core.buildLabelParts(lida, fmt), { top: ['↻ repostado por @ana'], seen: '👁 Visto em D' });
+  assert.deepEqual(Core.buildBadges(lida, fmt)[0], '↻ repostado por @ana');
+  assert.equal(Core.buildBannerText(lida), '↻ uma mensagem dessa thread foi repostada por @ana');
+  // sem all_reposters (API antiga) cai para reposters da entrada
+  assert.deepEqual(Core.buildLabelParts({ reposters: ['zeca'], view_count: 0, views: [] }).top, ['↻ repostado por @zeca']);
+  // all_reposters vazio e reposters vazio: nada
+  assert.deepEqual(Core.buildLabelParts({ reposters: [], all_reposters: [] }), { top: [], seen: null });
+});

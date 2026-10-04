@@ -76,13 +76,21 @@ const Core = (function () {
     return { target: chain[chain.length - 1], chain };
   }
 
+  // Quem repostou o tweet em qualquer entrada (lida ou não); cai para os reposters da própria entrada.
+  function repostersOf(entry) {
+    if (!entry) return [];
+    if (entry.all_reposters && entry.all_reposters.length) return entry.all_reposters;
+    return entry.reposters || [];
+  }
+
   // Etiquetas exibidas na barra para uma entrada (formato da API).
   function buildBadges(entry, fmt) {
     const f = fmt || formatDateBR;
     const out = [];
     if (!entry) return out;
-    if (entry.reposters && entry.reposters.length) {
-      out.push('↻ repostado por ' + entry.reposters.map((r) => '@' + r).join(', '));
+    const reps = repostersOf(entry);
+    if (reps.length) {
+      out.push('↻ repostado por ' + reps.map((r) => '@' + r).join(', '));
     }
     if (entry.view_count > 0 && entry.views && entry.views.length) {
       let t = '👁 Visto em ' + f(entry.views[0].viewed_at);
@@ -101,8 +109,9 @@ const Core = (function () {
     const f = fmt || formatDateBR;
     const parts = { top: [], seen: null };
     if (!entry) return parts;
-    if (entry.reposters && entry.reposters.length) {
-      parts.top.push('↻ repostado por ' + entry.reposters.map((r) => '@' + r).join(', '));
+    const reps = repostersOf(entry);
+    if (reps.length) {
+      parts.top.push('↻ repostado por ' + reps.map((r) => '@' + r).join(', '));
     }
     if (entry.covered_count > 0) {
       parts.top.push('⛓ inclui ' + entry.covered_count + (entry.covered_count === 1 ? ' post' : ' posts') + ' desta thread');
@@ -116,8 +125,9 @@ const Core = (function () {
 
   // Aviso no topo da página, quando o post repostado não é o primeiro da tela.
   function buildBannerText(entry) {
-    if (!entry || !entry.reposters || !entry.reposters.length) return null;
-    return '↻ uma mensagem dessa thread foi repostada por ' + entry.reposters.map((r) => '@' + r).join(', ');
+    const reps = repostersOf(entry);
+    if (!reps.length) return null;
+    return '↻ uma mensagem dessa thread foi repostada por ' + reps.map((r) => '@' + r).join(', ');
   }
 
   function normPath(p) {

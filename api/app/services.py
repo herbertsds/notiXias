@@ -62,6 +62,15 @@ def entry_detail(db, doc: dict) -> dict:
     out["views"] = [{"viewed_at": v["viewed_at"], "entry_seq": v["entry_seq"]} for v in views]
     out["view_count"] = len(views)
     out["covered_count"] = db.entries.count_documents({"covered_by": doc["seq"], "removed": False})
+    # Quem repostou este tweet em QUALQUER entrada (lida ou não): a etiqueta aparece também nas já vistas.
+    seen: set[str] = set()
+    all_reposters: list[str] = []
+    for d in db.entries.find({"tweet_id": doc["tweet_id"], "removed": False}, {"reposters": 1}).sort("seq", ASCENDING):
+        for r in d["reposters"]:
+            if r.lower() not in seen:
+                seen.add(r.lower())
+                all_reposters.append(r)
+    out["all_reposters"] = all_reposters
     return out
 
 

@@ -112,6 +112,7 @@ Entrada com suas visualizações anteriores.
   "url": "https://x.com/conta_b/status/1840000000000000004",
   "author": "conta_b",
   "reposters": ["conta_c"],
+  "all_reposters": ["conta_c"],
   "kind": "repost",
   "captured_at": "2026-10-04T12:00:00Z",
   "covered": false,
@@ -124,7 +125,7 @@ Entrada com suas visualizações anteriores.
 }
 ```
 
-`views` = visualizações do **mesmo `tweet_id`** (inclui outras entradas, ex.: repost anterior).
+`all_reposters` = quem repostou este tweet em **qualquer** entrada não removida (lida ou não), sem repetir; é o que a etiqueta "repostado por" mostra, inclusive em entradas já vistas. `views` = visualizações do **mesmo `tweet_id`** (inclui outras entradas, ex.: repost anterior).
 
 ### `GET /api/v1/queue?after=118&limit=20`
 

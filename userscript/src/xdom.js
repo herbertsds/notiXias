@@ -71,6 +71,21 @@ const Xdom = (function () {
     return out;
   }
 
+  // Linha da data do post na página de detalhe ("11:50 PM · 3 de out de 2026 · 60 mil Visualizações").
+  // Reconhecida pelo <time> do link do post com horário (contém ":"); o layout compacto da timeline
+  // mostra só "11 h" e devolve null. Sobe enquanto o pai só tem esse filho, para pegar a linha inteira.
+  function findDateRow(art) {
+    for (const a of art.querySelectorAll('a[href*="/status/"]')) {
+      const t = a.querySelector('time');
+      if (!t || !C().parseStatusHref(a.getAttribute('href'), ORIGIN)) continue;
+      if (!/\d:\d/.test(t.textContent || '')) return null;
+      let node = a.parentElement;
+      while (node && node !== art && node.children.length === 1) node = node.parentElement;
+      return node && node !== art ? node : null;
+    }
+    return null;
+  }
+
   function hasStatus(root, id) {
     return readItems(root).some((i) => i.id === id);
   }
@@ -177,7 +192,7 @@ const Xdom = (function () {
   }
 
   return {
-    articles, parseArticle, readItems, pageItems, hasStatus, hasArticles,
+    articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
     selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden,
   };
 })();

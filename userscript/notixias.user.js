@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.2.1
+// @version      0.2.2
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -115,6 +115,24 @@ const Core = (function () {
     return out;
   }
 
+  // Divide as etiquetas: `top` fica acima do post; `seen` ("já visto") vai logo abaixo da data do post.
+  function buildLabelParts(entry, fmt) {
+    const f = fmt || formatDateBR;
+    const parts = { top: [], seen: null };
+    if (!entry) return parts;
+    if (entry.reposters && entry.reposters.length) {
+      parts.top.push('↻ repostado por ' + entry.reposters.map((r) => '@' + r).join(', '));
+    }
+    if (entry.covered_count > 0) {
+      parts.top.push('⛓ inclui ' + entry.covered_count + (entry.covered_count === 1 ? ' post' : ' posts') + ' desta thread');
+    }
+    if (entry.gap_before) parts.top.push('⚠ pode haver posts não capturados antes deste');
+    if (entry.view_count > 0 && entry.views && entry.views.length) {
+      parts.seen = '👁 já visto em ' + f(entry.views[0].viewed_at) + (entry.view_count > 1 ? ' (' + entry.view_count + ' vezes)' : '');
+    }
+    return parts;
+  }
+
   // Aviso no topo da página, quando o post repostado não é o primeiro da tela.
   function buildBannerText(entry) {
     if (!entry || !entry.reposters || !entry.reposters.length) return null;
@@ -145,7 +163,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -222,6 +240,21 @@ const Xdom = (function () {
       out.push({ id: it.id, author: it.author });
     }
     return out;
+  }
+
+  // Linha da data do post na página de detalhe ("11:50 PM · 3 de out de 2026 · 60 mil Visualizações").
+  // Reconhecida pelo <time> do link do post com horário (contém ":"); o layout compacto da timeline
+  // mostra só "11 h" e devolve null. Sobe enquanto o pai só tem esse filho, para pegar a linha inteira.
+  function findDateRow(art) {
+    for (const a of art.querySelectorAll('a[href*="/status/"]')) {
+      const t = a.querySelector('time');
+      if (!t || !C().parseStatusHref(a.getAttribute('href'), ORIGIN)) continue;
+      if (!/\d:\d/.test(t.textContent || '')) return null;
+      let node = a.parentElement;
+      while (node && node !== art && node.children.length === 1) node = node.parentElement;
+      return node && node !== art ? node : null;
+    }
+    return null;
   }
 
   function hasStatus(root, id) {
@@ -330,7 +363,7 @@ const Xdom = (function () {
   }
 
   return {
-    articles, parseArticle, readItems, pageItems, hasStatus, hasArticles,
+    articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
     selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden,
   };
 })();
@@ -338,59 +371,92 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
 
 // ---- labels.js ----
 // labels: linhas de contexto injetadas NA página do X, no estilo do "fulano repostou" nativo
-// (texto cinza, discreto, largura inteira, acima do avatar e do nome).
-//  - "label": acima do post da fila;
-//  - "banner": acima do primeiro post da tela, quando ele NÃO é o post da fila e este foi repostado.
-// A faixa é IRMÃ imediatamente anterior ao <article> (os filhos do article do X ficam lado a lado, então
-// um filho novo viraria uma coluna). `sync` é idempotente: só escreve no DOM se algo mudou.
+// (texto cinza, largura inteira), em três posições:
+//  - "label":  acima do post da fila (repostado por, thread, lacuna);
+//  - "banner": acima do primeiro post da tela, quando ele NÃO é o post da fila e este foi repostado;
+//  - "seen":   ("já visto") logo ABAIXO da linha da data do post da fila. Se a página não mostra essa linha
+//              (layout compacto), a informação cai para o fim do "label", para nunca se perder.
+// "label" e "banner" são IRMÃS imediatamente anteriores ao <article> (os filhos do article do X ficam lado a
+// lado, então um filho novo viraria uma coluna). `sync` é idempotente: só escreve no DOM se algo mudou.
 const Labels = (function () {
   const X = () => (typeof Xdom !== 'undefined' ? Xdom : require('./xdom.js'));
   const HANDLE_SPLIT = /(@[A-Za-z0-9_]{1,15})/;
-  const BOX = 'box-sizing:border-box;width:100%;flex:0 0 100%;padding:6px 16px 0;margin:0;' +
-    'font:700 13px/1.4 -apple-system,system-ui,"Segoe UI",sans-serif;color:#71767b;';
+  const ICON_SPLIT = /^([^\p{L}\p{N}\s]+)\s+([\s\S]*)$/u;
+  const FONT = 'font:600 16px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif;color:#71767b;';
+  const BOX = {
+    top: 'box-sizing:border-box;width:100%;flex:0 0 100%;padding:12px 16px 14px;margin:0;' + FONT,
+    seen: 'box-sizing:border-box;width:100%;padding:8px 0 4px;margin:0;' + FONT,
+  };
+  const ICON = 'display:inline-block;width:34px;';
   const LINK = 'color:inherit;text-decoration:none;';
   const WARN = 'color:#f0b429;';
 
-  // A faixa fica logo antes do article.
   function find(art, kind) {
+    if (kind === 'seen') return art.querySelector('[data-nx="seen"]');
     const p = art.previousElementSibling;
     return p && p.getAttribute('data-nx') === kind ? p : null;
   }
 
   // "@fulano" vira link para o perfil; o resto é texto puro (nunca HTML).
-  function fillLine(doc, row, text) {
+  function fillText(doc, parent, text) {
     for (const part of text.split(HANDLE_SPLIT)) {
       if (!part) continue;
-      if (HANDLE_SPLIT.test(part) && part.startsWith('@')) {
+      if (part.startsWith('@') && HANDLE_SPLIT.test(part)) {
         const a = doc.createElement('a');
         a.href = 'https://x.com/' + part.slice(1);
         a.textContent = part;
         a.setAttribute('style', LINK);
         a.addEventListener('mouseenter', () => { a.style.textDecoration = 'underline'; });
         a.addEventListener('mouseleave', () => { a.style.textDecoration = 'none'; });
-        row.append(a);
+        parent.append(a);
       } else {
-        row.append(doc.createTextNode(part));
+        parent.append(doc.createTextNode(part));
       }
     }
   }
 
-  function ensure(doc, art, kind, lines) {
-    const text = lines.join('\n');
-    let node = find(art, kind);
-    if (node && node.getAttribute('data-nx-text') === text) return false;
-    if (node) node.remove();
-    node = doc.createElement('div');
+  // Ícone numa coluna própria, com o texto um pouco mais à direita.
+  function fillLine(doc, row, text) {
+    const m = ICON_SPLIT.exec(text);
+    if (m) {
+      const icon = doc.createElement('span');
+      icon.setAttribute('style', ICON);
+      icon.textContent = m[1];
+      row.append(icon);
+      fillText(doc, row, m[2]);
+    } else {
+      fillText(doc, row, text);
+    }
+  }
+
+  function build(doc, kind, lines) {
+    const node = doc.createElement('div');
     node.setAttribute('data-nx', kind);
-    node.setAttribute('data-nx-text', text);
-    node.setAttribute('style', BOX);
+    node.setAttribute('data-nx-text', lines.join('\n'));
+    node.setAttribute('style', kind === 'seen' ? BOX.seen : BOX.top);
     for (const l of lines) {
       const row = doc.createElement('div');
       if (l.startsWith('⚠')) row.setAttribute('style', WARN);
       fillLine(doc, row, l);
       node.append(row);
     }
-    art.parentNode.insertBefore(node, art);
+    return node;
+  }
+
+  // Posição correta de cada tipo em relação ao article.
+  function placed(art, kind, node, dateRow) {
+    if (kind === 'seen') return !!dateRow && dateRow.nextElementSibling === node;
+    return art.previousElementSibling === node;
+  }
+
+  function ensure(doc, art, kind, lines, dateRow) {
+    const text = lines.join('\n');
+    let node = find(art, kind);
+    if (node && node.getAttribute('data-nx-text') === text && placed(art, kind, node, dateRow)) return false;
+    if (node) node.remove();
+    node = build(doc, kind, lines);
+    if (kind === 'seen') dateRow.after(node);
+    else art.parentNode.insertBefore(node, art);
     return true;
   }
 
@@ -399,7 +465,7 @@ const Labels = (function () {
     if (node) node.remove();
   }
 
-  // model: { tweetId, lines: string[], bannerText: string|null }
+  // model: { tweetId, lines: string[] (topo), seen: string|null, bannerText: string|null }
   function sync(root, model) {
     const doc = root.ownerDocument || root;
     const arts = X().articles(root).filter((a) => a.parentNode);
@@ -408,14 +474,23 @@ const Labels = (function () {
       const p = X().parseArticle(a);
       return p && p.id === model.tweetId;
     }) || null;
+    const dateRow = target && model.seen ? X().findDateRow(target) : null;
+    const topLines = model.lines.slice();
+    if (model.seen && !dateRow) topLines.push(model.seen); // sem linha de data: não perde a informação
 
     for (const a of arts) {
-      if (a !== target || !model.lines.length) remove(a, 'label');
+      if (a !== target || !topLines.length) remove(a, 'label');
+      if (a !== target || !dateRow) remove(a, 'seen');
       if (a !== first || a === target || !model.bannerText) remove(a, 'banner');
     }
-    if (target && model.lines.length) ensure(doc, target, 'label', model.lines);
+    if (target && topLines.length) ensure(doc, target, 'label', topLines);
+    if (target && dateRow) ensure(doc, target, 'seen', [model.seen], dateRow);
     if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText]);
-    return { label: !!(target && model.lines.length), banner: !!(first && first !== target && model.bannerText) };
+    return {
+      label: !!(target && topLines.length),
+      seen: !!(target && dateRow),
+      banner: !!(first && first !== target && model.bannerText),
+    };
   }
 
   function clear(root) {
@@ -852,7 +927,8 @@ function startApp() {
   }
   function setLabels(entry) {
     if (!entry) { labelModel = null; Labels.clear(document); return; }
-    labelModel = { tweetId: entry.tweet_id, lines: Core.buildBadges(entry), bannerText: Core.buildBannerText(entry) };
+    const parts = Core.buildLabelParts(entry);
+    labelModel = { tweetId: entry.tweet_id, lines: parts.top, seen: parts.seen, bannerText: Core.buildBannerText(entry) };
     syncLabels();
   }
   // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).

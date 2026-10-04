@@ -96,6 +96,24 @@ const Core = (function () {
     return out;
   }
 
+  // Divide as etiquetas: `top` fica acima do post; `seen` ("já visto") vai logo abaixo da data do post.
+  function buildLabelParts(entry, fmt) {
+    const f = fmt || formatDateBR;
+    const parts = { top: [], seen: null };
+    if (!entry) return parts;
+    if (entry.reposters && entry.reposters.length) {
+      parts.top.push('↻ repostado por ' + entry.reposters.map((r) => '@' + r).join(', '));
+    }
+    if (entry.covered_count > 0) {
+      parts.top.push('⛓ inclui ' + entry.covered_count + (entry.covered_count === 1 ? ' post' : ' posts') + ' desta thread');
+    }
+    if (entry.gap_before) parts.top.push('⚠ pode haver posts não capturados antes deste');
+    if (entry.view_count > 0 && entry.views && entry.views.length) {
+      parts.seen = '👁 já visto em ' + f(entry.views[0].viewed_at) + (entry.view_count > 1 ? ' (' + entry.view_count + ' vezes)' : '');
+    }
+    return parts;
+  }
+
   // Aviso no topo da página, quando o post repostado não é o primeiro da tela.
   function buildBannerText(entry) {
     if (!entry || !entry.reposters || !entry.reposters.length) return null;
@@ -126,7 +144,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

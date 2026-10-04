@@ -106,3 +106,14 @@ test('buildBannerText: só quando há repost', () => {
   assert.equal(Core.buildBannerText({ reposters: [] }), null);
   assert.equal(Core.buildBannerText(null), null);
 });
+
+test('buildLabelParts: topo (repost, thread, lacuna) separado do "já visto"', () => {
+  const fmt = () => '03/10/2026 às 21:14';
+  const e = { reposters: ['ana'], view_count: 2, views: [{ viewed_at: 'x' }, { viewed_at: 'y' }], covered_count: 2, gap_before: true };
+  assert.deepEqual(Core.buildLabelParts(e, fmt), {
+    top: ['↻ repostado por @ana', '⛓ inclui 2 posts desta thread', '⚠ pode haver posts não capturados antes deste'],
+    seen: '👁 já visto em 03/10/2026 às 21:14 (2 vezes)',
+  });
+  assert.deepEqual(Core.buildLabelParts({ reposters: [], view_count: 0, views: [] }, fmt), { top: [], seen: null });
+  assert.deepEqual(Core.buildLabelParts(null), { top: [], seen: null });
+});

@@ -164,3 +164,18 @@ test('a barra do próprio notiXias nunca é escondida', () => {
   Xdom.setBottomBarsHidden(w.document, w, true);
   assert.equal(host.hasAttribute('data-nx-hidden'), false);
 });
+
+test('findDateRow: no layout de detalhe devolve a linha inteira (data + visualizações)', () => {
+  const d = dom(page(article({ id: '5', author: 'a', detail: true })));
+  const row = Xdom.findDateRow(Xdom.articles(d)[0]);
+  assert.equal(row.getAttribute('data-testid'), 'dateRow');
+  assert.match(row.textContent, /3 de out de 2026/);
+  assert.match(row.textContent, /Visualizações/);
+});
+
+test('findDateRow: layout compacto (hora relativa) ou sem contêiner de linha -> null', () => {
+  const compact = '<main><article data-testid="tweet"><div><div><a href="/a/status/9"><time datetime="x">11 h</time></a></div></div></article></main>';
+  assert.equal(Xdom.findDateRow(Xdom.articles(dom(compact))[0]), null);
+  const d = dom(page(article({ id: '5', author: 'a' }))); // time direto no article
+  assert.equal(Xdom.findDateRow(Xdom.articles(d)[0]), null);
+});

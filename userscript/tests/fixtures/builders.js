@@ -2,7 +2,7 @@
 // Deve ser substituído/complementado por fixtures reais anonimizadas quando houver acesso ao X.
 const SECRET = 'TEXTO-SECRETO-DO-POST';
 
-function article({ id, author, reposter, repostStyle = 'anchor-wraps', quoted, ad = false, pinned = false, text = SECRET }) {
+function article({ id, author, reposter, repostStyle = 'anchor-wraps', quoted, ad = false, pinned = false, detail = false, text = SECRET }) {
   let ctx = '';
   if (reposter) {
     ctx =
@@ -14,6 +14,8 @@ function article({ id, author, reposter, repostStyle = 'anchor-wraps', quoted, a
   }
   const time = ad
     ? `<span>Ad</span>`
+    : detail
+    ? `<div><div data-testid="dateRow"><a href="/${author}/status/${id}" role="link"><time datetime="2026-10-03T21:00:00.000Z">11:50 PM · 3 de out de 2026</time></a><span>·</span><a href="/${author}/status/${id}/analytics">60,2 mil Visualizações</a></div></div>`
     : `<a href="/${author}/status/${id}" role="link"><time datetime="2026-10-03T21:00:00.000Z">21:00</time></a>`;
   const q = quoted
     ? `<div role="link"><a href="/${quoted.author}/status/${quoted.id}"><time datetime="2026-10-01T10:00:00.000Z">1 out</time></a></div>`

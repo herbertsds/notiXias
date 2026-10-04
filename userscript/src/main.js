@@ -92,7 +92,8 @@ function startApp() {
   }
   function setLabels(entry) {
     if (!entry) { labelModel = null; Labels.clear(document); return; }
-    labelModel = { tweetId: entry.tweet_id, lines: Core.buildBadges(entry), bannerText: Core.buildBannerText(entry) };
+    const parts = Core.buildLabelParts(entry);
+    labelModel = { tweetId: entry.tweet_id, lines: parts.top, seen: parts.seen, bannerText: Core.buildBannerText(entry) };
     syncLabels();
   }
   // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).

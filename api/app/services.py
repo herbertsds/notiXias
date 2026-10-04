@@ -47,6 +47,8 @@ def entry_summary(doc: dict) -> dict:
     return {
         "seq": doc["seq"],
         "tweet_id": doc["tweet_id"],
+        # tweet cuja página deve ser aberta: a resposta mais recente da conversa (ou o próprio tweet)
+        "open_id": doc.get("open_id", doc["tweet_id"]),
         "url": doc["url"],
         "author": doc["author"],
         "reposters": doc["reposters"],
@@ -152,8 +154,39 @@ def _place(db, it, cutoff, stats):
 
 def _place_cluster(db, group, cutoff, stats):
     """Conversa vista no feed (raiz, respostas...), em ordem de baixo para cima: group[0] é a ÚLTIMA resposta.
-    Ela é a referência (um único registro de leitura). Os demais membros não lidos ficam cobertos de forma
-    provisória: a página da referência confirma o que realmente mostra (`settle_cover`)."""
+
+    1) Se algum membro já está na fila e NÃO foi lido: o registro continua onde estava (mesma posição `seq`);
+       só muda o link a abrir (a resposta mais recente) e os outros membros não lidos são cobertos.
+    2) Senão (tudo novo, ou os conhecidos já foram lidos): um registro novo, com a última resposta como
+       referência, no fim da fila. Os membros ainda não lidos ficam cobertos de forma provisória; a página da
+       referência confirma o que realmente mostra (`settle_cover`)."""
+    keys = [appearance_key(g.tweet_id, g.reposter) for g in group]
+    known = list(db.entries.find({"appearance_keys": {"$in": keys}, "removed": False}))
+    unread = sorted((d for d in known if d["read_at"] is None and not d["covered"]), key=lambda d: d["seq"])
+
+    if unread:
+        rec = unread[0]  # a que estava primeiro na fila: é ela que mantém o lugar
+        ref = group[0]
+        upd: dict = {"$addToSet": {"members": {"$each": [g.tweet_id for g in group if g.tweet_id != rec["tweet_id"]]}}}
+        new_keys = [k for k in keys if not any(k in d["appearance_keys"] for d in known)]
+        if new_keys:
+            upd["$addToSet"]["appearance_keys"] = {"$each": new_keys}
+        current_open = int(rec.get("open_id", rec["tweet_id"]))
+        if int(ref.tweet_id) > current_open:  # nunca volta para uma resposta mais antiga
+            upd["$set"] = {"open_id": ref.tweet_id, "url": f"https://x.com/{ref.author}/status/{ref.tweet_id}"}
+            stats["updated"] += 1
+        try:
+            db.entries.update_one({"_id": rec["_id"]}, upd)
+        except DuplicateKeyError:
+            stats["skipped"] += 1
+        for other in unread[1:]:
+            r = db.entries.update_one(
+                {"_id": other["_id"], "covered": False, "read_at": None},
+                {"$set": {"covered": True, "covered_by": rec["seq"], "cover_tentative": True}},
+            )
+            stats["linked"] += r.modified_count
+        return
+
     ref_doc, _ = _place(db, group[0], cutoff, stats)
     if ref_doc is None:
         return
@@ -162,13 +195,7 @@ def _place_cluster(db, group, cutoff, stats):
         key = appearance_key(m.tweet_id, m.reposter)
         ex = db.entries.find_one({"appearance_keys": key})
         if ex:
-            if ex["seq"] != ref_doc["seq"] and ex["read_at"] is None and not ex["covered"] and not ex["removed"]:
-                r = db.entries.update_one(
-                    {"_id": ex["_id"], "covered": False, "read_at": None},
-                    {"$set": {"covered": True, "covered_by": ref_doc["seq"], "cover_tentative": True}},
-                )
-                stats["linked"] += r.modified_count
-            continue
+            continue  # já conhecido e lido (ou coberto): não mexe
         doc = _new_doc(m, next_seq(db))  # seq maior que o da referência: se for solto depois, vem após ela
         doc.update(covered=True, covered_by=ref_doc["seq"], cover_tentative=True)
         try:
@@ -190,7 +217,7 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
             return prev["result"]
 
     had_entries = db.entries.find_one({}, {"_id": 1}) is not None
-    stats = {"created": 0, "merged": 0, "absorbed": 0, "skipped": 0, "linked": 0, "first_new_seq": None}
+    stats = {"created": 0, "merged": 0, "absorbed": 0, "skipped": 0, "linked": 0, "updated": 0, "first_new_seq": None}
     cutoff = now() - revisit_after
 
     rev = list(reversed(items))
@@ -216,6 +243,7 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
         "merged": stats["merged"],
         "absorbed": stats["absorbed"],
         "linked": stats["linked"],
+        "updated": stats["updated"],
         "skipped": stats["skipped"],
         "first_new_seq": stats["first_new_seq"],
         "gap": gap,

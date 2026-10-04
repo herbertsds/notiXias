@@ -241,3 +241,10 @@ O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no f
 ### Conversas no feed
 
 `Core.clusterize`: corrida de itens **consecutivos, sem reposts, com ID crescente de cima para baixo** = conversa (raiz, respostas). Verificado com o Seguindo real: `[703, RicardoPF, venecasagrande]` e `[militaofernand, flamengomeumund, flamengomeumund]` aparecem assim. Cada conversa vira **um registro** com a última resposta como referência; ao abrir a página da referência o script cobre os posts acima dela (`ancestor_ids`) e chama `settle` para confirmar o que a página mostra e soltar o resto.
+
+
+## Ordem padrão da fila (0.3.1)
+
+- A fila **não segue o reagrupamento do X** para o que você ainda não leu: se o post do João (10h) não foi lido e o José responde às 12h, o registro continua na posição das 10h; só o **link** passa a abrir a resposta do José (a conversa inteira aparece, de cima para baixo).
+- **Exceção:** se o post do João **já foi lido**, a resposta do José entra como registro novo no fim da fila (com o "Visto em" do que você já tinha visto).
+- O script abre a página de `open_id` (a resposta mais recente), reconhece essa página como "da fila" e rotula/cobre a partir dela.

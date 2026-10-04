@@ -23,6 +23,7 @@ Uma entrada por post original (com possíveis reposters). A ordem de leitura é 
 | `read_at` | date \| null | Preenchido ao sair com "próxima" (primeira vez). |
 | `covered` | bool | Parte de outra entrada (thread). |
 | `covered_by` | int \| null | `seq` da entrada que a cobre. |
+| `open_id` | string | Tweet cuja página abrir: a resposta mais recente da conversa (padrão: o próprio `tweet_id`). `url` aponta para ele. |
 | `members` | array\<string\> | Só na referência de uma conversa: `tweet_id` dos demais membros (inclusive já lidos); alimenta o "Visto em". |
 | `cover_tentative` | bool | Cobertura ainda não confirmada pela página da referência (`settle`). |
 | `gap_before` | bool | Pode haver posts não capturados antes desta. |
@@ -113,6 +114,11 @@ Para cada aparição nova (processada do mais antigo ao mais novo):
 - `covered = true` só para entradas **não lidas**, do mesmo autor da entrada de destino, cujo `tweet_id` foi reportado como **presente no DOM** da página de destino.
 - Reabrir: `covered = false` e `covered_by = null`.
 - Entradas cobertas são ignoradas por `unread_after`, pela navegação e pelo total exibido.
+
+### Ordem de leitura e respostas (regra padrão)
+
+- Conversa com algum membro **não lido** na fila: **mantém a posição** (`seq` do não lido mais antigo); respostas novas só atualizam `open_id`/`url` e `members`. Os outros não lidos da conversa ficam cobertos (provisório) por esse registro.
+- Conversa cujos membros conhecidos já foram **lidos**: a resposta nova entra como **registro novo no fim** (referência = última resposta); os lidos não são cobertos e o "Visto em" aparece na referência.
 
 ### Lacunas
 

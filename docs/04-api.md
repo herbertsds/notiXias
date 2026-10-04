@@ -101,8 +101,10 @@ Comportamento (todas as regras em `05-modelo-de-dados.md`):
 Resposta:
 
 ```json
-{ "created": 12, "merged": 2, "absorbed": 1, "skipped": 3, "first_new_seq": 119, "gap": false }
+{ "created": 12, "merged": 2, "absorbed": 1, "updated": 1, "skipped": 3, "first_new_seq": 119, "gap": false }
 ```
+
+**Regra de ordem (padrão).** Uma conversa que já tem algum membro **na fila e não lido** NÃO muda de posição quando ganha respostas: o registro continua no `seq` do membro não lido mais antigo e só muda o link a abrir (`open_id`/`url` passam a ser os da resposta mais recente; nunca volta a uma mais antiga). Resposta: `updated` = registros que só trocaram o link. **Exceção:** se os membros conhecidos já foram **lidos**, a conversa volta ao fim da fila como registro novo (para ver a resposta), com o "Visto em" dos que já tinham sido vistos.
 
 **Conversas (`cluster`).** O feed mostra uma conversa como raiz, resposta 1, resposta 2..., com IDs *crescentes* de cima para baixo (o contrário do normal). O cliente numera esses itens consecutivos com o mesmo `cluster`. Para cada conversa o servidor cria **um registro**, tendo a **última resposta** (maior ID) como **referência**; os demais membros ainda não lidos ficam **cobertos de forma provisória** (`cover_tentative`) e a página da referência os confirma ou solta (`POST /entries/settle`). Membros que já estavam lidos não são cobertos; seus "Visto em" aparecem na referência (`members`). Os itens enviados incluem também os já conhecidos (contexto da conversa); os conhecidos fora de conversa são ignorados. Resposta: `linked` = membros ligados à referência.
 
@@ -118,6 +120,7 @@ Entrada com suas visualizações anteriores.
 {
   "seq": 119,
   "tweet_id": "1840000000000000004",
+  "open_id": "1840000000000000004",
   "url": "https://x.com/conta_b/status/1840000000000000004",
   "author": "conta_b",
   "reposters": ["conta_c"],

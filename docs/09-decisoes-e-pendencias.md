@@ -36,6 +36,7 @@
 | D31 | Thread/cobertura só consideram a conversa: posts antes do primeiro título de seção ("Descubra mais") dentro de `primaryColumn`. | Bug 0.2.2: recomendação do mesmo autor era tratada como thread (saltava de post e cobria entradas de outra conversa). |
 | D32 | A busca não para no primeiro item conhecido: exige 5 conhecidos seguidos e 25 no total; âncoras = últimas 100 entradas; varredura profunda no menu. | Bug 0.2.x: o X sobe conversas com respostas novas acima de posts novos; 6 posts reais ficaram ausentes. |
 | D33 | Conversas do feed (IDs crescentes de cima para baixo, sem reposts) = um registro, com a última resposta como referência; membros ficam cobertos provisoriamente até a página da referência confirmar (`settle`). | Pedido do dono (userscript 0.3.0). |
+| D34 | Ordem padrão: respostas a um post **não lido** não mudam a posição na fila, só o link a abrir (a resposta mais recente); se o post já foi **lido**, a conversa volta ao fim da fila com a resposta nova. | Pedido do dono (0.3.1): não seguir o reagrupamento do algoritmo do X para o que ainda não foi lido. |
 | D30 | "Sempre abrir a versão mobile" **não é viável** por userscript (layout depende da largura da janela). | Limitação do X/navegador. |
 
 ## Pendências (resolver na prática, durante o desenvolvimento)

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.3.0
+// @version      0.3.1
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -1011,7 +1011,7 @@ function startApp() {
   function setLabels(entry) {
     if (!entry) { labelModel = null; Labels.clear(document); return; }
     const parts = Core.buildLabelParts(entry);
-    labelModel = { tweetId: entry.tweet_id, lines: parts.top, seen: parts.seen, bannerText: Core.buildBannerText(entry) };
+    labelModel = { tweetId: entry.open_id || entry.tweet_id, lines: parts.top, seen: parts.seen, bannerText: Core.buildBannerText(entry) };
     syncLabels();
   }
   // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).
@@ -1151,7 +1151,7 @@ function startApp() {
   // ---------- leitura ----------
   async function openEntry(entry) {
     await api.putState({ cursor_seq: entry.seq });
-    gm.set('nx_view', { seq: entry.seq, tweetId: entry.tweet_id, targetId: null });
+    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null });
     gm.set('nx_mode', 'read');
     go(entry.url);
   }
@@ -1194,7 +1194,8 @@ function startApp() {
   async function onStatusPage(token, status, st) {
     const cur = st.current;
     const view = gm.get('nx_view', null);
-    const inQueue = cur && view && view.seq === cur.seq && (status.id === cur.tweet_id || status.id === view.targetId);
+    const openId = cur && (cur.open_id || cur.tweet_id);
+    const inQueue = cur && view && view.seq === cur.seq && (status.id === cur.tweet_id || status.id === openId || status.id === view.targetId);
     if (!inQueue) { renderSideBar('Fora da fila', st); return; }
 
     const notice = gm.get('nx_notice', null);
@@ -1210,7 +1211,9 @@ function startApp() {
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
     if (!view.targetId) {
-      const pick = Core.pickThreadTarget(Xdom.pageItems(document), cur.tweet_id, cur.author);
+      const pageItems = Xdom.pageItems(document);
+      const focal = pageItems.find((i) => i.id === status.id);
+      const pick = Core.pickThreadTarget(pageItems, status.id, focal ? focal.author : cur.author);
       if (pick && pick.target.id !== status.id) {
         view.targetId = pick.target.id;
         gm.set('nx_view', view);
@@ -1224,8 +1227,9 @@ function startApp() {
     //  - TODOS os posts acima do post aberto (resposta -> original), de qualquer autor: um único registro.
     const items = Xdom.pageItems(document);
     const split = Core.splitConversation(items, status.id);
-    const ancestorIds = split.before.map((i) => i.id).filter((id) => id !== cur.tweet_id);
-    const sameAuthorIds = items.map((i) => i.id).filter((id) => id !== cur.tweet_id);
+    const own = new Set([cur.tweet_id, openId]);
+    const ancestorIds = split.before.map((i) => i.id).filter((id) => !own.has(id));
+    const sameAuthorIds = items.map((i) => i.id).filter((id) => !own.has(id));
     if (ancestorIds.length || sameAuthorIds.length) {
       const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
       if (token !== routeToken) return;
@@ -1320,10 +1324,13 @@ function startApp() {
     setPhase('idle');
 
     const st = await api.state();
-    if (res.created > 0) {
+    if (res.created > 0 || res.updated > 0) {
       const q = await api.queue({ after: st.cursor_seq || 0, limit: 1 });
       if (q.items.length) {
-        gm.set('nx_notice', res.created + ' novos' + (res.gap ? ' · ⚠ pode haver lacuna' : ''));
+        const parts = [];
+        if (res.created > 0) parts.push(res.created + ' novos');
+        if (res.updated > 0) parts.push(res.updated + ' com resposta nova');
+        gm.set('nx_notice', parts.join(' · ') + (res.gap ? ' · ⚠ pode haver lacuna' : ''));
         ui.hideOverlay();
         return openEntry(q.items[0]);
       }

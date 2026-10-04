@@ -27,13 +27,68 @@ def test_conversa_ocupa_o_lugar_dela_entre_os_outros_posts(client):
     assert tweet_ids(queue(client)) == ["5", "12", "30"]
 
 
-def test_raiz_ja_na_fila_nao_lida_e_coberta_provisoriamente_pela_nova_resposta(client):
-    append(client, [item(10, "x")])                     # raiz sozinha, seq 1, não lida
-    r = append(client, [citem(10, "x", 1), citem(11, "y", 1)])
-    assert r["created"] == 1 and r["linked"] == 1 and r["skipped"] == 0 or r["skipped"] >= 0
-    assert tweet_ids(queue(client)) == ["11"]
+def test_raiz_nao_lida_mantem_a_posicao_e_so_troca_o_link_para_a_nova_resposta(client):
+    # João (10h) não lido; às 12h José responde. O registro continua onde estava, abrindo a resposta do José.
+    append(client, [item(10, "joao")])
+    r = append(client, [citem(10, "joao", 1), citem(11, "jose", 1)])
+    assert r["created"] == 0 and r["updated"] == 1
+    assert tweet_ids(queue(client)) == ["10"]            # nenhuma entrada nova: a do João é o registro
+    e = entry(client, 10)
+    assert e["seq"] == 1 and e["open_id"] == "11" and e["url"] == "https://x.com/jose/status/11"
+    assert entry(client, 11) is None                      # a resposta não virou entrada própria
+    # reenviar não duplica nem recria
+    r2 = append(client, [citem(10, "joao", 1), citem(11, "jose", 1)])
+    assert r2["created"] == 0 and len(queue(client, include_covered="true")) == 1
+
+
+def test_posicao_na_fila_nao_muda_com_respostas_novas(client):
+    append(client, [item(30, "z"), item(20, "joao"), item(10, "x")])    # leitura: 10, 20 (joão), 30
+    append(client, [citem(20, "joao", 1), citem(21, "jose", 1)])         # José responde ao João
+    assert tweet_ids(queue(client)) == ["10", "20", "30"]
+    assert entry(client, 20)["open_id"] == "21"
+
+
+def test_varias_respostas_seguidas_so_atualizam_o_link(client):
+    append(client, [item(10, "joao")])
+    append(client, [citem(10, "joao", 1), citem(11, "jose", 1)])
+    append(client, [citem(10, "joao", 1), citem(11, "jose", 1), citem(12, "ana", 1)])
+    e = entry(client, 10)
+    assert e["open_id"] == "12" and e["url"] == "https://x.com/ana/status/12"
+    det = client.get(f"/api/v1/entries/{e['seq']}").json()
+    assert sorted(det["members"]) == ["11", "12"]
+    assert tweet_ids(queue(client)) == ["10"]
+
+
+def test_link_nunca_volta_para_uma_resposta_mais_antiga(client):
+    append(client, [item(10, "joao")])
+    append(client, [citem(10, "joao", 1), citem(11, "jose", 1), citem(12, "ana", 1)])
+    append(client, [citem(10, "joao", 1), citem(11, "jose", 1)])         # feed momentaneamente sem a última
+    assert entry(client, 10)["open_id"] == "12"
+
+
+def test_dois_registros_nao_lidos_da_mesma_conversa_ficam_no_mais_antigo(client):
+    append(client, [item(20, "b")])                       # entrada 1
+    append(client, [item(21, "c"), item(10, "a")])        # leitura: 10 (seq 2)... ordem: a, depois c
+    # o registro da conversa [10, 20, 21] fica no de menor seq e cobre os outros
+    r = append(client, [citem(10, "a", 1), citem(20, "b", 1), citem(21, "c", 1)])
+    assert r["created"] == 0 and r["updated"] == 1 and r["linked"] == 2
+    visiveis = queue(client)
+    assert len(visiveis) == 1 and visiveis[0]["seq"] == 1
+    assert visiveis[0]["open_id"] == "21"
+
+
+def test_post_ja_lido_volta_ao_topo_com_a_resposta_nova(client):
+    # exceção da regra: lido às 10h; às 12h José responde -> volta para o fim da fila (para ver a resposta)
+    append(client, [item(10, "joao"), item(5, "w")])
+    client.post("/api/v1/views", json={"seqs": [1, 2]})
+    r = append(client, [citem(10, "joao", 1), citem(11, "jose", 1)])
+    assert r["created"] == 1 and r["updated"] == 0
+    nova = entry(client, 11)
+    assert nova["seq"] == 3 and nova["open_id"] == "11" and nova["read_at"] is None   # nova entrada, no fim
     raiz = entry(client, 10)
-    assert raiz["covered"] is True and raiz["covered_by"] == entry(client, 11)["seq"]
+    assert raiz["read_at"] is not None and raiz["covered"] is False and raiz["open_id"] == "10"   # histórico intacto
+    # a resposta mostra o "Visto em" da raiz já lida
+    assert client.get(f"/api/v1/entries/{nova['seq']}").json()["view_count"] == 1
 
 
 def test_raiz_ja_lida_nao_e_coberta_mas_o_visto_aparece_na_resposta(client):
@@ -46,11 +101,12 @@ def test_raiz_ja_lida_nao_e_coberta_mas_o_visto_aparece_na_resposta(client):
     assert ref["view_count"] == 1 and ref["views"][0]["viewed_at"].startswith("2026-10-03T10:00")
 
 
-def test_nova_resposta_numa_conversa_antiga_assume_a_referencia(client):
-    conversa(client)                                    # referência = 12 (seq 1), não lida
+def test_nova_resposta_numa_conversa_nao_lida_mantem_o_registro_e_aponta_para_ela(client):
+    conversa(client)                                    # registro = 12 (seq 1), não lido
     append(client, [citem(10, "x", 1), citem(11, "y", 1), citem(12, "z", 1), citem(13, "x", 1)])
-    assert tweet_ids(queue(client)) == ["13"]           # a nova resposta é a referência
-    assert entry(client, 12)["covered"] is True and entry(client, 12)["covered_by"] == entry(client, 13)["seq"]
+    assert tweet_ids(queue(client)) == ["12"]           # mesma posição; sem entrada nova
+    e = entry(client, 12)
+    assert e["seq"] == 1 and e["open_id"] == "13"
 
 
 def test_reenvio_da_mesma_conversa_nao_duplica(client):
@@ -149,3 +205,9 @@ def test_cenario_real_703_reagrupado_com_respostas_e_posts_que_estavam_ausentes(
     # ordem de leitura: do mais antigo ao mais novo do feed, com a conversa no lugar dela
     visiveis = tweet_ids(queue(client))
     assert visiveis.index(LU) < visiveis.index(CA) < visiveis.index(FL) < visiveis.index(FI) < visiveis.index(VE2) < visiveis.index("2106722693630345290")
+
+
+def test_open_id_padrao_e_o_proprio_tweet(client):
+    append(client, [item(7, "a")])
+    e = client.get("/api/v1/entries/1").json()
+    assert e["open_id"] == "7"

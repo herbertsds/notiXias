@@ -18,7 +18,8 @@ Um **userscript** no navegador (que roda dentro do x.com, na sessão logada do d
 |---|---|
 | Descoberta e decisões | Concluída (ver `docs/09-decisoes-e-pendencias.md`) |
 | Documentação | Esta pasta |
-| Implementação | **Não iniciada.** Só começa quando o dono pedir explicitamente |
+| Implementação (Fases 0–4, local) | **Feita**; ver [docs/STATUS.md](docs/STATUS.md) para o que foi testado e o que falta validar no X |
+| Deploy no servidor / iPhone | Não iniciados |
 
 ## Documentos
 
@@ -33,6 +34,7 @@ Um **userscript** no navegador (que roda dentro do x.com, na sessão logada do d
 | [docs/07-ambiente-e-infra.md](docs/07-ambiente-e-infra.md) | Docker local, servidor Oracle, deploy |
 | [docs/08-roteiro.md](docs/08-roteiro.md) | Fases de desenvolvimento e critérios de aceite |
 | [docs/09-decisoes-e-pendencias.md](docs/09-decisoes-e-pendencias.md) | Registro de decisões, pendências e riscos |
+| [docs/STATUS.md](docs/STATUS.md) | Situação atual, como rodar, checklist de validação no X |
 
 ## Estrutura planejada do repositório
 

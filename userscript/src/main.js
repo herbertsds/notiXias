@@ -392,15 +392,15 @@ function startApp() {
       const feedHere = Core.isFeedPath(feed.url, location.pathname);
 
       if (phase.name === 'fetching') {
-        if (feedHere) return runFetch(token);
+        if (feedHere) return await runFetch(token);
         return renderSideBar('Busca de novas em andamento', st);
       }
       if (phase.name === 'error') return renderSideBar('A última busca falhou — veja o menu', st);
 
-      if (feedHere && cfg.autoResume) return resumeReading();
+      if (feedHere && cfg.autoResume) return await resumeReading();
 
       const status = Core.parseStatusPath(location.pathname);
-      if (status) return onStatusPage(token, status, st);
+      if (status) return await onStatusPage(token, status, st);
       return renderSideBar('Notixias pronto', st);
     } catch (e) {
       handleError(e);

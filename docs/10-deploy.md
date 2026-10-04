@@ -37,6 +37,12 @@ docker exec notixias-api-1 python -c "import urllib.request;print(urllib.request
 3. Opcional, no mesmo host: limitar tentativas (aba Advanced) para barrar quem tentar adivinhar a chave.
 4. No userscript (menu ⋯ → Configurar API): URL `https://<subdomínio>` e a chave. No cabeçalho do script, `@connect <subdomínio>`.
 
+## Endereço público
+
+`https://notixias.163.176.176.10.nip.io` (nip.io resolve o IP embutido no nome; Nginx Proxy Manager com certificado Let's Encrypt, encaminhando para `notixias-api:8000`). Verificado de fora: sem chave 401, chave errada 401, chave certa 200. **Recomendado:** ligar *Force SSL* no proxy host (hoje `http://` também responde 200; o script usa `https://`).
+
+O cabeçalho do userscript precisa listar o domínio em `@connect` (feito na 0.6.1); sem isso o Tampermonkey bloqueia/pede aprovação e o script mostra "Sem conexão com a API". Depois de atualizar o script, reabra o X.
+
 ## Estado inicial (2026-10-04)
 
 Subido a partir do commit do GitHub; banco de produção = cópia do de desenvolvimento no ponto em que parou (32 entradas, 32 visualizações, cursor na entrada 32, último tweet `2106698041478484278`). Backup inicial em `~/backups/notixias/inicial-copia-do-dev.archive.gz`. Restauração do backup testada num banco temporário (contagens iguais).

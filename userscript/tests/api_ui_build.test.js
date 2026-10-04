@@ -196,6 +196,7 @@ test('bundle: compila, tem cabeçalho correto e nenhum segredo/armazenamento ind
   for (const g of ['GM_xmlhttpRequest', 'GM_getValue', 'GM_setValue']) assert.match(src, new RegExp('@grant\\s+' + g));
   assert.match(src, /@match\s+https:\/\/x\.com\/\*/);
   assert.match(src, /@connect\s+localhost/);
+  assert.match(src, /@connect\s+notixias\.163\.176\.176\.10\.nip\.io/);   // API de produção
   assert.ok(!/localStorage|sessionStorage/.test(src), 'não deve usar o armazenamento do x.com');
   assert.ok(!/apiKey:\s*['"][^'"]+['"]/.test(src), 'chave de API não pode estar escrita no código');
   assert.ok(!/Bearer\s+[A-Za-z0-9_-]{20,}/.test(src));

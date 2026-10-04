@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.6.0
+// @version      0.6.1
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @connect      localhost
 // @connect      127.0.0.1
+// @connect      notixias.163.176.176.10.nip.io
 // ==/UserScript==
 
 (function () {

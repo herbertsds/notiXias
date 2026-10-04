@@ -12,7 +12,7 @@
 | D6 | Ordem = sequência de captura (`seq`), não ID do post. | Reposts têm ID original antigo. |
 | D7 | A fila só cresce ao acabar ou quando o dono pedir. | Evita ficar "puxando" o feed a cada passo. |
 | D8 | Etiqueta "repostado por @conta", lida pelo href do perfil. | Independe de idioma. |
-| D9 | Posts já vistos recebem etiqueta com data/hora; repost de lido volta como nova entrada. | Pedido do dono. |
+| D9 | Posts já vistos recebem etiqueta "Visto em" com data/hora. Repost de post visto há **mais de 2 h** volta como nova entrada; se visto há menos, não volta e o repost fica registrado na entrada já vista. | Pedido do dono. |
 | D10 | Reposts do mesmo post antes da leitura viram uma entrada só. | Evita ler repetido. |
 | D11 | Threads: abrir o **último** post da cadeia; verificação na hora da leitura, por DOM e URL. | Preferência do dono; evita JSON interno do X. |
 | D12 | Nunca agrupar por vizinhança na lista; só o que aparece encadeado na página; só cobrir o que está no DOM. | Evitar pular posts independentes seguidos. |

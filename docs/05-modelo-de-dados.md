@@ -95,7 +95,9 @@ Para cada aparição nova (processada do mais antigo ao mais novo):
 2. Se existe: `$addToSet` da chave em `appearance_keys` e do reposter em `reposters`. Não cria entrada.
 3. Se não existe (ou a existente já foi lida): cria nova entrada, com `reposters = [reposter]` se houver.
 
-Consequência: um post lido e depois repostado volta como **nova entrada**; a etiqueta "Visto em…" vem das `views` do `tweet_id`.
+**Repost de post já visto (regra das 2 horas):** se não há entrada não lida do tweet, olha-se a **última visualização** do `tweet_id`:
+- há **mais de 2 h** (`REVISIT_AFTER_MINUTES`, padrão 120): o tweet volta como **nova entrada**; a etiqueta "Visto em…" vem das `views` do `tweet_id`;
+- há **menos de 2 h**: **não** volta à fila. A aparição (`appearance_key`) e o reposter são registrados na entrada **mais recente** do tweet (`absorbed` na resposta), e a etiqueta "repostado por" os mostra (`all_reposters`).
 
 ### Visualizações
 

@@ -1,9 +1,12 @@
 """Regras de negócio da fila. Funções recebem o `db` (pymongo) e são independentes do FastAPI."""
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+# Um repost de um tweet já visto só volta como entrada nova se a última visualização foi há mais que isto.
+REVISIT_AFTER = timedelta(minutes=int(os.environ.get("REVISIT_AFTER_MINUTES", "120")))
 DEFAULT_FEED = {"url": "https://x.com/home", "tab_index": 1}
 VISIBLE = {"removed": False, "covered": False}
 
@@ -75,16 +78,18 @@ def entry_detail(db, doc: dict) -> dict:
 
 
 # ---------- fila ----------
-def append_items(db, items: list, anchor_found: bool, batch_id: str | None) -> dict:
+def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None) -> dict:
     """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
+    revisit_after = REVISIT_AFTER if revisit_after is None else revisit_after
     if batch_id:
         prev = db.batches.find_one({"_id": batch_id})
         if prev:
             return prev["result"]
 
     had_entries = db.entries.find_one({}, {"_id": 1}) is not None
-    created = merged = skipped = 0
+    created = merged = absorbed = skipped = 0
     first_new_seq = None
+    cutoff = now() - revisit_after
 
     for it in reversed(items):
         key = appearance_key(it.tweet_id, it.reposter)
@@ -106,6 +111,22 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None) -> d
             except DuplicateKeyError:
                 skipped += 1
             continue
+
+        # Tweet visto há pouco: o repost não volta à fila; fica registrado na entrada mais recente do tweet
+        # (a etiqueta "repostado por" a mostra, inclusive nas já vistas).
+        last_view = db.views.find_one({"tweet_id": it.tweet_id}, sort=[("viewed_at", DESCENDING)])
+        if last_view and last_view["viewed_at"] > cutoff:
+            recent = db.entries.find_one({"tweet_id": it.tweet_id, "removed": False}, sort=[("seq", DESCENDING)])
+            if recent:
+                upd = {"$addToSet": {"appearance_keys": key}}
+                if it.reposter:
+                    upd["$addToSet"]["reposters"] = it.reposter
+                try:
+                    db.entries.update_one({"_id": recent["_id"]}, upd)
+                    absorbed += 1
+                except DuplicateKeyError:
+                    skipped += 1
+                continue
 
         seq = next_seq(db)
         doc = {
@@ -140,6 +161,7 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None) -> d
     result = {
         "created": created,
         "merged": merged,
+        "absorbed": absorbed,
         "skipped": skipped,
         "first_new_seq": first_new_seq,
         "gap": gap,

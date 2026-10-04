@@ -122,9 +122,9 @@ def test_navegacao_ignora_cobertas_e_removidas(client):
 
 
 def test_all_reposters_inclui_reposts_em_outras_entradas_do_mesmo_tweet(client):
-    # post lido e depois repostado: o repost vira nova entrada, mas a entrada antiga também mostra quem repostou
+    # post lido há > 2h e depois repostado: o repost vira nova entrada, mas a entrada antiga também mostra quem repostou
     append(client, [item(10, "b")])
-    client.post("/api/v1/views", json={"seqs": [1]})
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
     append(client, [item(10, "b", reposter="ana")])
     antiga = client.get("/api/v1/entries/1").json()
     nova = client.get("/api/v1/entries/2").json()
@@ -135,7 +135,7 @@ def test_all_reposters_inclui_reposts_em_outras_entradas_do_mesmo_tweet(client):
 
 def test_all_reposters_sem_repetir_e_na_ordem(client):
     append(client, [item(10, "b", reposter="Ana")])
-    client.post("/api/v1/views", json={"seqs": [1]})
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
     append(client, [item(10, "b", reposter="beto"), item(10, "b", reposter="ana")])
     e = client.get("/api/v1/entries/1").json()
     assert e["all_reposters"] == ["Ana", "beto"]
@@ -144,7 +144,7 @@ def test_all_reposters_sem_repetir_e_na_ordem(client):
 def test_all_reposters_ignora_removidas_e_outros_tweets(client):
     # tweet 10 lido, depois repostado por ana (entrada 2); tweet 11 repostado por zeca (entrada 3)
     append(client, [item(10, "b")])
-    client.post("/api/v1/views", json={"seqs": [1]})
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
     append(client, [item(11, "b", reposter="zeca"), item(10, "b", reposter="ana")])
     assert client.get("/api/v1/entries/1").json()["all_reposters"] == ["ana"]  # não mistura o repost do tweet 11
     ana = [e for e in client.get("/api/v1/queue", params={"after": 0}).json()["items"] if e["reposters"] == ["ana"]][0]
@@ -154,7 +154,7 @@ def test_all_reposters_ignora_removidas_e_outros_tweets(client):
 
 def test_state_current_traz_all_reposters(client):
     append(client, [item(10, "b")])
-    client.post("/api/v1/views", json={"seqs": [1]})
+    client.post("/api/v1/views", json={"seqs": [1], "viewed_at": "2026-10-01T10:00:00Z"})
     append(client, [item(10, "b", reposter="ana")])
     client.put("/api/v1/state", json={"cursor_seq": 1})
     assert client.get("/api/v1/state").json()["current"]["all_reposters"] == ["ana"]

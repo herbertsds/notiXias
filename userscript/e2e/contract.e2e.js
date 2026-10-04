@@ -25,7 +25,7 @@ const feedItem = (id, author, reposter) => ({ id: String(id), author, reposter: 
   await api.putState({ cursor_seq: q.items[0].seq });
   st = await api.state();
   assert.equal(st.current.tweet_id, '20'); assert.equal(st.position, 1); assert.equal(st.unread_after, 3);
-  await api.views({ seqs: [st.current.seq] });
+  await api.views({ seqs: [st.current.seq], viewed_at: new Date(Date.now() - 3 * 3600e3).toISOString() }); // visto há 3h
   q = await api.queue({ after: st.current.seq, limit: 1 });
   assert.equal(q.items[0].tweet_id, '30');
   await api.putState({ cursor_seq: q.items[0].seq });
@@ -40,8 +40,13 @@ const feedItem = (id, author, reposter) => ({ id: String(id), author, reposter: 
   assert.equal(r.created, 2); assert.equal(r.gap, false);
   const repost = (await api.queue({ after: 0, limit: 10 })).items.find((e) => e.tweet_id === '20' && e.reposters.length);
   const det = await api.entry(repost.seq);
-  assert.equal(det.view_count, 1);                                // "já visto" do repost
-  assert.match(Core.buildBadges(det).join(' | '), /repostado por @zeca.*já visto em \d\d\/\d\d\/\d{4} às \d\d:\d\d/);
+  assert.equal(det.view_count, 1);                                // "Visto em" do repost (visto há > 2h: volta à fila)
+  // visto há < 2h: o repost não volta, mas fica registrado na entrada
+  await api.views({ seqs: [repost.seq] });
+  r = await api.append({ items: [feedItem(20, 'c', 'beto')].map(Core.toApiItem), anchor_found: true, batch_id: Core.newBatchId() });
+  assert.equal(r.created, 0); assert.equal(r.absorbed, 1);
+  assert.deepEqual((await api.entry(repost.seq)).all_reposters, ['zeca', 'beto']);
+  assert.match(Core.buildBadges(det).join(' | '), /repostado por @zeca.*Visto em \d\d\/\d\d\/\d{4} às \d\d:\d\d/);
   // 401 vira ApiError
   const bad = Api.create({ getConfig: () => ({ apiBaseUrl: 'http://nx-e2e-api:8000', apiKey: 'errada' }), request: async ({ method, url, headers }) => { const r = await fetch(url, { method, headers }); return { status: r.status, json: await r.json() }; } });
   await assert.rejects(bad.state(), (e) => e.status === 401);

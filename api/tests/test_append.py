@@ -50,17 +50,77 @@ def test_merge_post_original_e_repost_posterior(client):
     assert len(q) == 1 and q[0]["reposters"] == ["ana"]
 
 
-def test_repost_de_post_ja_lido_cria_nova_entrada(client):
+def _visto_ha(client, seq, horas):
+    from datetime import datetime, timedelta, timezone
+
+    quando = (datetime.now(timezone.utc) - timedelta(hours=horas)).isoformat()
+    assert client.post("/api/v1/views", json={"seqs": [seq], "viewed_at": quando}).status_code == 200
+
+
+def test_repost_de_post_visto_ha_mais_de_2h_volta_como_nova_entrada(client):
     append(client, [item(10, "conta_b")])
-    assert client.post("/api/v1/views", json={"seqs": [1]}).status_code == 200
+    _visto_ha(client, 1, 3)
     r = append(client, [item(10, "conta_b", reposter="ana")])
-    assert r["created"] == 1 and r["merged"] == 0
+    assert r["created"] == 1 and r["merged"] == 0 and r["absorbed"] == 0
     q = queue(client)
     assert [e["seq"] for e in q] == [1, 2]
     assert q[1]["reposters"] == ["ana"]
     # a etiqueta de "já visto" vem do histórico do mesmo tweet_id
     e2 = client.get("/api/v1/entries/2").json()
-    assert e2["view_count"] == 1
+    assert e2["view_count"] == 1 and e2["read_at"] is None
+
+
+def test_repost_de_post_visto_ha_menos_de_2h_nao_volta_mas_fica_registrado(client):
+    append(client, [item(10, "conta_b")])
+    _visto_ha(client, 1, 1)
+    r = append(client, [item(10, "conta_b", reposter="ana")])
+    assert r["created"] == 0 and r["absorbed"] == 1
+    assert len(queue(client)) == 1
+    e1 = client.get("/api/v1/entries/1").json()
+    assert e1["all_reposters"] == ["ana"] and e1["reposters"] == ["ana"]
+    # reenvio da mesma aparição não duplica nem recria
+    assert append(client, [item(10, "conta_b", reposter="ana")])["skipped"] == 1
+
+
+def test_repost_absorvido_nao_volta_depois_que_passam_as_2h(client, db):
+    # a aparição foi registrada; uma busca futura não a trata de novo como nova
+    append(client, [item(10, "conta_b")])
+    _visto_ha(client, 1, 1)
+    append(client, [item(10, "conta_b", reposter="ana")])
+    from datetime import datetime, timedelta, timezone
+
+    db.views.update_many({}, {"$set": {"viewed_at": datetime.now(timezone.utc) - timedelta(hours=5)}})
+    r = append(client, [item(10, "conta_b", reposter="ana")])
+    assert r["created"] == 0 and r["skipped"] == 1
+
+
+def test_outro_reposter_depois_de_2h_cria_entrada_nova(client, db):
+    append(client, [item(10, "conta_b")])
+    _visto_ha(client, 1, 1)
+    append(client, [item(10, "conta_b", reposter="ana")])  # absorvido
+    from datetime import datetime, timedelta, timezone
+
+    db.views.update_many({}, {"$set": {"viewed_at": datetime.now(timezone.utc) - timedelta(hours=3)}})
+    r = append(client, [item(10, "conta_b", reposter="beto")])
+    assert r["created"] == 1
+    assert queue(client)[-1]["reposters"] == ["beto"]
+    assert client.get("/api/v1/entries/1").json()["all_reposters"] == ["ana", "beto"]
+
+
+def test_limite_de_2h_usa_a_ultima_visualizacao_do_tweet(client):
+    # visto há 5h na 1ª entrada e há 30min numa 2ª: vale a mais recente -> não volta
+    append(client, [item(10, "conta_b")])
+    _visto_ha(client, 1, 5)
+    append(client, [item(10, "conta_b", reposter="ana")])
+    _visto_ha(client, 2, 0.5)
+    r = append(client, [item(10, "conta_b", reposter="beto")])
+    assert r["created"] == 0 and r["absorbed"] == 1
+
+
+def test_repost_de_nao_lido_continua_juntando_na_mesma_entrada(client):
+    append(client, [item(10, "b")])
+    r = append(client, [item(10, "b", reposter="ana")])
+    assert r["merged"] == 1 and r["created"] == 0 and r["absorbed"] == 0
 
 
 def test_chave_de_reposter_ignora_maiusculas(client):

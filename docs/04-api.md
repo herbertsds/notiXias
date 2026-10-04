@@ -90,6 +90,7 @@ Comportamento (todas as regras em `05-modelo-de-dados.md`):
 
 1. Inverte a ordem (processa do mais antigo ao mais novo).
 2. Descarta aparições cuja `appearance_key` já existe em alguma entrada.
+3. Se o tweet foi visto **há menos de 2 h** (`REVISIT_AFTER_MINUTES`) e não há entrada não lida: a aparição e o reposter são registrados na entrada mais recente do tweet e **não** se cria entrada (`absorbed`). Só quando a última visualização é mais antiga que isso o repost volta à fila (item 4).
 3. Se existe entrada **não lida** (e não removida) com o mesmo `tweet_id`: acrescenta a chave e o reposter a ela (merge) e não cria nova.
 4. Caso contrário cria nova entrada com `seq` do contador atômico.
 5. Se `anchor_found = false` e a fila já tinha entradas, marca `gap_before = true` na primeira entrada criada.
@@ -98,7 +99,7 @@ Comportamento (todas as regras em `05-modelo-de-dados.md`):
 Resposta:
 
 ```json
-{ "created": 12, "merged": 2, "skipped": 3, "first_new_seq": 119, "gap": false }
+{ "created": 12, "merged": 2, "absorbed": 1, "skipped": 3, "first_new_seq": 119, "gap": false }
 ```
 
 ### `GET /api/v1/entries/{seq}`

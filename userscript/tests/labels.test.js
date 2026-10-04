@@ -6,18 +6,38 @@ const { article, page } = require('./fixtures/builders.js');
 
 const dom = (html) => new JSDOM(html, { url: 'https://x.com/ana/status/3' }).window.document;
 const arts = (d) => Array.from(d.querySelectorAll('article'));
-const nx = (art, kind) => Array.from(art.children).filter((c) => c.getAttribute('data-nx') === kind);
+const nx = (art, kind) => (art.previousElementSibling && art.previousElementSibling.getAttribute('data-nx') === kind ? [art.previousElementSibling] : []);
 const MODEL = { tweetId: '3', lines: ['↻ repostado por @ana', '👁 já visto em 03/10/2026 às 21:14'], bannerText: '↻ uma mensagem dessa thread foi repostada por @ana' };
 
-test('etiqueta vai como PRIMEIRO filho do post da fila, antes do perfil e da mídia', () => {
+test('a faixa é IRMÃ imediatamente antes do article (não filha: os filhos do X ficam lado a lado)', () => {
   const d = dom(page(article({ id: '3', author: 'a' })));
   const r = Labels.sync(d, MODEL);
   const [art] = arts(d);
   assert.deepEqual(r, { label: true, banner: false });
-  assert.equal(art.firstChild.getAttribute('data-nx'), 'label');
-  assert.match(art.firstChild.textContent, /repostado por @ana/);
-  assert.match(art.firstChild.textContent, /já visto em 03\/10\/2026/);
-  assert.ok(art.firstChild.compareDocumentPosition(art.querySelector('[data-testid="User-Name"]')) & 4, 'perfil vem depois');
+  assert.equal(art.previousElementSibling.getAttribute('data-nx'), 'label');
+  assert.equal(art.querySelectorAll('[data-nx]').length, 0, 'nada injetado dentro do article');
+  assert.match(art.previousElementSibling.textContent, /repostado por @ana/);
+  assert.match(art.previousElementSibling.textContent, /já visto em 03\/10\/2026/);
+  const st = art.previousElementSibling.getAttribute('style');
+  assert.match(st, /width:100%/);
+  assert.match(st, /color:#71767b/); // cinza discreto, sem fundo colorido
+  assert.ok(!/background/.test(st));
+});
+
+test('@handle vira link para o perfil; o resto é texto', () => {
+  const d = dom(page(article({ id: '3', author: 'a' })));
+  Labels.sync(d, MODEL);
+  const links = [...d.querySelectorAll('[data-nx="label"] a')];
+  assert.deepEqual(links.map((a) => a.getAttribute('href')), ['https://x.com/ana']);
+  assert.equal(links[0].textContent, '@ana');
+  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana, @beto_2'] });
+  assert.deepEqual([...d.querySelectorAll('[data-nx="label"] a')].map((a) => a.textContent), ['@ana', '@beto_2']);
+});
+
+test('linha de aviso (⚠) recebe cor de alerta', () => {
+  const d = dom(page(article({ id: '3', author: 'a' })));
+  Labels.sync(d, { ...MODEL, lines: ['⚠ pode haver posts não capturados antes deste'] });
+  assert.match(d.querySelector('[data-nx="label"] div').getAttribute('style'), /#f0b429/);
 });
 
 test('sem aviso quando o primeiro post da tela já é o da fila', () => {
@@ -32,7 +52,7 @@ test('aviso de repost no primeiro post da tela quando o repostado vem depois (ca
   const [first, second] = arts(d);
   assert.deepEqual(r, { label: true, banner: true });
   assert.equal(nx(first, 'banner').length, 1);
-  assert.match(first.firstChild.textContent, /uma mensagem dessa thread foi repostada por @ana/);
+  assert.match(first.previousElementSibling.textContent, /uma mensagem dessa thread foi repostada por @ana/);
   assert.equal(nx(first, 'label').length, 0);
   assert.equal(nx(second, 'label').length, 1);
 });

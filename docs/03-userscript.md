@@ -187,8 +187,8 @@ Se a página for de login (`/i/flow/login`, `/login`), o script não age.
 
 Estilo do "fulano repostou" nativo do X: **texto cinza discreto, largura inteira, acima do avatar e do nome**, sem fundo colorido; `@fulano` é link para o perfil.
 
-- **Faixa do post da fila:** "↻ repostado por @…", "👁 Visto em…", "⛓ inclui N posts desta thread", "⚠ pode haver posts não capturados…" (esta em âmbar).
-- **Aviso de repost no topo da tela:** se o post repostado **não** é o primeiro da página (há cadeia acima), o primeiro post ganha "↻ uma mensagem dessa thread foi repostada por @fulano". Se o primeiro já é o repostado, só a faixa dele aparece.
+- **Faixa do post da fila:** "↻ @fulano repostou", "👁 Visto em…", "⛓ inclui N posts desta thread", "⚠ pode haver posts não capturados…" (esta em âmbar).
+- **Aviso de repost no topo da tela:** se o post repostado **não** é o primeiro da página (há cadeia acima), o primeiro post ganha "↻ Fulano repostou uma mensagem dessa thread". Se o primeiro já é o repostado, só a faixa dele aparece.
 - **Posição no DOM:** a faixa é **irmã imediatamente anterior ao `<article>`**, e não filha. Os filhos do `article` do X ficam lado a lado, então um filho novo virava uma coluna estreita (defeito visto na 0.2.0 e corrigido na 0.2.1).
 - O X redesenha posts o tempo todo: um `MutationObserver` reexecuta `Labels.sync`, que é **idempotente** (só escreve no DOM se algo mudou), então não há laço de mutação.
 - A página sempre abre e rola ao topo (`pinTop`).
@@ -297,3 +297,8 @@ Valores desconhecidos são ignorados (e removidos da URL). Todos só fazem o que
 Por que `x-safari-https://` e não `https://`: um link `https://x.com/...` aberto de outro app costuma ir para o **app do X** (links universais), onde o script não roda. O esquema `x-safari-https://` força o **Safari**. Se o iOS não aceitar, alternativas: um favorito do Safari com a URL (abre direto no Safari) ou colar a URL no Safari.
 
 O script só roda no Safari (extensão Userscripts), não no app do X nem em aplicativos "adicionados à Tela de Início" como web app.
+
+
+## 0.6.2: texto do repost
+
+A etiqueta diz **"↻ Fulano repostou"** (nome de exibição; sem nome, o @), e no plural **"↻ Ana e Beto repostaram"** / **"↻ Ana, Beto e Caio repostaram"**. O aviso no topo da tela fica **"↻ Fulano repostou uma mensagem dessa thread"**.

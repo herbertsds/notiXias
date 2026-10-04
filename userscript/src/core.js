@@ -76,6 +76,13 @@ const Core = (function () {
     return { target: chain[chain.length - 1], chain };
   }
 
+  // "@ana repostou" / "@ana e @beto repostaram" / "@ana, @beto e @caio repostaram". O @ vira o nome de exibição na tela.
+  function repostPhrase(reps) {
+    const h = reps.map((r) => '@' + r);
+    const who = h.length === 1 ? h[0] : h.slice(0, -1).join(', ') + ' e ' + h[h.length - 1];
+    return who + (h.length === 1 ? ' repostou' : ' repostaram');
+  }
+
   // Quem repostou o tweet em qualquer entrada (lida ou não); cai para os reposters da própria entrada.
   function repostersOf(entry) {
     if (!entry) return [];
@@ -98,7 +105,7 @@ const Core = (function () {
     if (!entry) return out;
     const reps = repostersOf(entry);
     if (reps.length) {
-      out.push('↻ repostado por ' + reps.map((r) => '@' + r).join(', '));
+      out.push('↻ ' + repostPhrase(reps));
     }
     if (entry.view_count > 0 && entry.views && entry.views.length) {
       let t = '👁 Visto em ' + f(entry.views[0].viewed_at);
@@ -119,7 +126,7 @@ const Core = (function () {
     if (!entry) return parts;
     const reps = repostersOf(entry);
     if (reps.length) {
-      parts.top.push('↻ repostado por ' + reps.map((r) => '@' + r).join(', '));
+      parts.top.push('↻ ' + repostPhrase(reps));
     }
     if (entry.covered_count > 0) {
       parts.top.push('⛓ inclui ' + entry.covered_count + (entry.covered_count === 1 ? ' post' : ' posts') + ' desta thread');
@@ -135,7 +142,7 @@ const Core = (function () {
   function buildBannerText(entry) {
     const reps = repostersOf(entry);
     if (!reps.length) return null;
-    return '↻ uma mensagem dessa thread foi repostada por ' + reps.map((r) => '@' + r).join(', ');
+    return '↻ ' + repostPhrase(reps) + ' uma mensagem dessa thread';
   }
 
   // Comando de abertura pela URL (atalho do iPhone, favorito...): `https://x.com/home?nx=update`.

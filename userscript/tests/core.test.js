@@ -74,7 +74,7 @@ test('buildBadges: repost, já visto (com contagem), thread e lacuna', () => {
     gap_before: true,
   };
   assert.deepEqual(Core.buildBadges(e, fmt), [
-    '↻ repostado por @ana, @beto',
+    '↻ @ana e @beto repostaram',
     '👁 Visto em 03/10/2026 às 21:14 (2 vezes)',
     '⛓ inclui 3 posts desta thread',
     '⚠ pode haver posts não capturados antes deste',
@@ -102,7 +102,7 @@ test('toApiItem e newBatchId', () => {
 });
 
 test('buildBannerText: só quando há repost', () => {
-  assert.equal(Core.buildBannerText({ reposters: ['ana', 'beto'] }), '↻ uma mensagem dessa thread foi repostada por @ana, @beto');
+  assert.equal(Core.buildBannerText({ reposters: ['ana', 'beto'] }), '↻ @ana e @beto repostaram uma mensagem dessa thread');
   assert.equal(Core.buildBannerText({ reposters: [] }), null);
   assert.equal(Core.buildBannerText(null), null);
 });
@@ -111,7 +111,7 @@ test('buildLabelParts: topo (repost, thread, lacuna) separado do "já visto"', (
   const fmt = () => '03/10/2026 às 21:14';
   const e = { reposters: ['ana'], view_count: 2, views: [{ viewed_at: 'x' }, { viewed_at: 'y' }], covered_count: 2, gap_before: true };
   assert.deepEqual(Core.buildLabelParts(e, fmt), {
-    top: ['↻ repostado por @ana', '⛓ inclui 2 posts desta thread', '⚠ pode haver posts não capturados antes deste'],
+    top: ['↻ @ana repostou', '⛓ inclui 2 posts desta thread', '⚠ pode haver posts não capturados antes deste'],
     seen: '👁 Visto em 03/10/2026 às 21:14 (2 vezes)',
   });
   assert.deepEqual(Core.buildLabelParts({ reposters: [], view_count: 0, views: [] }, fmt), { top: [], seen: null });
@@ -121,11 +121,11 @@ test('buildLabelParts: topo (repost, thread, lacuna) separado do "já visto"', (
 test('repost aparece também em entrada já vista: usa all_reposters (de outras entradas do mesmo tweet)', () => {
   const fmt = () => 'D';
   const lida = { reposters: [], all_reposters: ['ana'], view_count: 1, views: [{ viewed_at: 'x' }], covered_count: 0 };
-  assert.deepEqual(Core.buildLabelParts(lida, fmt), { top: ['↻ repostado por @ana'], seen: '👁 Visto em D' });
-  assert.deepEqual(Core.buildBadges(lida, fmt)[0], '↻ repostado por @ana');
-  assert.equal(Core.buildBannerText(lida), '↻ uma mensagem dessa thread foi repostada por @ana');
+  assert.deepEqual(Core.buildLabelParts(lida, fmt), { top: ['↻ @ana repostou'], seen: '👁 Visto em D' });
+  assert.deepEqual(Core.buildBadges(lida, fmt)[0], '↻ @ana repostou');
+  assert.equal(Core.buildBannerText(lida), '↻ @ana repostou uma mensagem dessa thread');
   // sem all_reposters (API antiga) cai para reposters da entrada
-  assert.deepEqual(Core.buildLabelParts({ reposters: ['zeca'], view_count: 0, views: [] }).top, ['↻ repostado por @zeca']);
+  assert.deepEqual(Core.buildLabelParts({ reposters: ['zeca'], view_count: 0, views: [] }).top, ['↻ @zeca repostou']);
   // all_reposters vazio e reposters vazio: nada
   assert.deepEqual(Core.buildLabelParts({ reposters: [], all_reposters: [] }), { top: [], seen: null });
 });
@@ -187,4 +187,12 @@ test('parseLaunch: comando pela URL (atalho do iPhone) e limpeza do parâmetro',
   assert.deepEqual(Core.parseLaunch(''), { cmd: null, search: '' });
   assert.deepEqual(Core.parseLaunch('?q=x'), { cmd: null, search: '?q=x' });
   assert.deepEqual(Core.parseLaunch(undefined), { cmd: null, search: '' });
+});
+
+test('texto do repost: "Fulano repostou" no singular, lista com "e" no plural', () => {
+  const t = (reposters) => Core.buildLabelParts({ reposters }).top[0];
+  assert.equal(t(['ana']), '↻ @ana repostou');
+  assert.equal(t(['ana', 'beto']), '↻ @ana e @beto repostaram');
+  assert.equal(t(['ana', 'beto', 'caio']), '↻ @ana, @beto e @caio repostaram');
+  assert.equal(Core.buildBannerText({ reposters: ['ana', 'beto', 'caio'] }), '↻ @ana, @beto e @caio repostaram uma mensagem dessa thread');
 });

@@ -46,7 +46,7 @@ const feedItem = (id, author, reposter) => ({ id: String(id), author, reposter: 
   r = await api.append({ items: [feedItem(20, 'c', 'beto')].map(Core.toApiItem), anchor_found: true, batch_id: Core.newBatchId() });
   assert.equal(r.created, 0); assert.equal(r.absorbed, 1);
   assert.deepEqual((await api.entry(repost.seq)).all_reposters, ['zeca', 'beto']);
-  assert.match(Core.buildBadges(det).join(' | '), /repostado por @zeca.*Visto em \d\d\/\d\d\/\d{4} às \d\d:\d\d/);
+  assert.match(Core.buildBadges(det).join(' | '), /@zeca repostou.*Visto em \d\d\/\d\d\/\d{4} às \d\d:\d\d/);
   // 401 vira ApiError
   const bad = Api.create({ getConfig: () => ({ apiBaseUrl: 'http://nx-e2e-api:8000', apiKey: 'errada' }), request: async ({ method, url, headers }) => { const r = await fetch(url, { method, headers }); return { status: r.status, json: await r.json() }; } });
   await assert.rejects(bad.state(), (e) => e.status === 401);

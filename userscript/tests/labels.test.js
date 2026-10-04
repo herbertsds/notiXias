@@ -7,7 +7,7 @@ const { article, page } = require('./fixtures/builders.js');
 const dom = (html) => new JSDOM(html, { url: 'https://x.com/ana/status/3' }).window.document;
 const arts = (d) => Array.from(d.querySelectorAll('article'));
 const nx = (art, kind) => (art.previousElementSibling && art.previousElementSibling.getAttribute('data-nx') === kind ? [art.previousElementSibling] : []);
-const MODEL = { tweetId: '3', lines: ['↻ repostado por @ana'], seen: '👁 Visto em 03/10/2026 às 21:14', bannerText: '↻ uma mensagem dessa thread foi repostada por @ana' };
+const MODEL = { tweetId: '3', lines: ['↻ @ana repostou'], seen: '👁 Visto em 03/10/2026 às 21:14', bannerText: '↻ @ana repostou uma mensagem dessa thread' };
 
 test('a faixa é IRMÃ imediatamente antes do article (não filha: os filhos do X ficam lado a lado)', () => {
   const d = dom(page(article({ id: '3', author: 'a' })));
@@ -16,7 +16,7 @@ test('a faixa é IRMÃ imediatamente antes do article (não filha: os filhos do 
   assert.deepEqual(r, { label: true, seen: false, banner: false });
   assert.equal(art.previousElementSibling.getAttribute('data-nx'), 'label');
   assert.equal(art.querySelectorAll('[data-nx]').length, 0, 'nada injetado dentro do article');
-  assert.match(art.previousElementSibling.textContent, /repostado por @ana/);
+  assert.match(art.previousElementSibling.textContent, /@ana repostou/);
   assert.match(art.previousElementSibling.textContent, /Visto em 03\/10\/2026/);
   const st = art.previousElementSibling.getAttribute('style');
   assert.match(st, /width:100%/);
@@ -30,7 +30,7 @@ test('@handle vira link para o perfil; o resto é texto', () => {
   const links = [...d.querySelectorAll('[data-nx="label"] a')];
   assert.deepEqual(links.map((a) => a.getAttribute('href')), ['https://x.com/ana']);
   assert.equal(links[0].textContent, '@ana');
-  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana, @beto_2'] });
+  Labels.sync(d, { ...MODEL, lines: ['↻ @ana e @beto_2 repostaram'] });
   assert.deepEqual([...d.querySelectorAll('[data-nx="label"] a')].map((a) => a.textContent), ['@ana', '@beto_2']);
 });
 
@@ -52,7 +52,7 @@ test('aviso de repost no primeiro post da tela quando o repostado vem depois (ca
   const [first, second] = arts(d);
   assert.deepEqual(r, { label: true, seen: false, banner: true });
   assert.equal(nx(first, 'banner').length, 1);
-  assert.match(first.previousElementSibling.textContent, /uma mensagem dessa thread foi repostada por @ana/);
+  assert.match(first.previousElementSibling.textContent, /@ana repostou uma mensagem dessa thread/);
   assert.equal(nx(first, 'label').length, 0);
   assert.equal(nx(second, 'label').length, 1);
 });
@@ -119,7 +119,7 @@ test('"já visto" vai logo ABAIXO da linha da data; "repostado" continua acima d
   assert.equal(row.nextElementSibling.textContent.replace(/\s+/g, ''), SEEN.replace(/\s+/g, ''));
   assert.equal(art.previousElementSibling.getAttribute('data-nx'), 'label');
   assert.ok(!/Visto em/.test(art.previousElementSibling.textContent), 'o topo não repete o "já visto"');
-  assert.match(art.previousElementSibling.textContent, /repostado por @ana/);
+  assert.match(art.previousElementSibling.textContent, /@ana repostou/);
 });
 
 test('sem linha de data (layout compacto): "já visto" cai para o fim da faixa de cima', () => {
@@ -166,7 +166,7 @@ test('visual: fonte maior, mais espaço abaixo do texto, ícone em coluna própr
   const icon = top.querySelector('div > span');
   assert.equal(icon.textContent, '↻');
   assert.match(icon.getAttribute('style'), /display:inline-block;width:34px/);
-  assert.match(top.textContent, /^↻repostado por @ana$/);
+  assert.match(top.textContent, /^↻@ana repostou$/);
 });
 
 test('"já visto" abaixo da data: ícone colado ao texto (sem a coluna larga da faixa de cima)', () => {
@@ -183,7 +183,7 @@ test('"já visto" abaixo da data: ícone colado ao texto (sem a coluna larga da 
 // ---- nome em vez de @ ----
 test('exibe o NOME de quem repostou (com link para o perfil) quando conhecido; senão o @', () => {
   const d = dom(page(article({ id: '3', author: 'a', detail: true })));
-  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @dryzinho, @beto'], names: { dryzinho: 'Dryzinho' } });
+  Labels.sync(d, { ...MODEL, lines: ['↻ @dryzinho e @beto repostaram'], names: { dryzinho: 'Dryzinho' } });
   const links = [...d.querySelectorAll('[data-nx="label"] a')];
   assert.deepEqual(links.map((a) => a.textContent), ['Dryzinho', '@beto']);
   assert.deepEqual(links.map((a) => a.getAttribute('href')), ['https://x.com/dryzinho', 'https://x.com/beto']);
@@ -191,19 +191,19 @@ test('exibe o NOME de quem repostou (com link para o perfil) quando conhecido; s
 
 test('o aviso do topo da tela também usa o nome', () => {
   const d = dom(page(article({ id: '1', author: 'a' }), article({ id: '3', author: 'a' })));
-  Labels.sync(d, { ...MODEL, bannerText: '↻ uma mensagem dessa thread foi repostada por @ana', names: { ana: 'Ana Souza' } });
-  assert.match(arts(d)[0].previousElementSibling.textContent, /repostada por Ana Souza/);
+  Labels.sync(d, { ...MODEL, bannerText: '↻ @ana repostou uma mensagem dessa thread', names: { ana: 'Ana Souza' } });
+  assert.match(arts(d)[0].previousElementSibling.textContent, /Ana Souza repostou uma mensagem/);
 });
 
 test('nome que chega depois atualiza a faixa (idempotente quando nada muda)', async () => {
   const d = dom(page(article({ id: '3', author: 'a', detail: true })));
-  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: {} });
+  Labels.sync(d, { ...MODEL, lines: ['↻ @ana repostou'], names: {} });
   assert.match(d.querySelector('[data-nx="label"]').textContent, /@ana/);
-  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: { ana: 'Ana Souza' } });
+  Labels.sync(d, { ...MODEL, lines: ['↻ @ana repostou'], names: { ana: 'Ana Souza' } });
   assert.match(d.querySelector('[data-nx="label"]').textContent, /Ana Souza/);
   let mutations = 0;
   new d.defaultView.MutationObserver(() => { mutations++; }).observe(d.body, { childList: true, subtree: true, characterData: true, attributes: true });
-  Labels.sync(d, { ...MODEL, lines: ['↻ repostado por @ana'], names: { ana: 'Ana Souza' } });
+  Labels.sync(d, { ...MODEL, lines: ['↻ @ana repostou'], names: { ana: 'Ana Souza' } });
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(mutations, 0);
 });

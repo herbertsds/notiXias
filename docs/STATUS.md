@@ -74,7 +74,7 @@ Tudo abaixo depende do X real. As fixtures dos testes são HTML **sintético** q
 - [ ] **Selecionar "Seguindo":** em `/home` o script clica a 2ª aba por posição. Confirmar que é "Seguindo" (se a ordem das abas for outra, ajustar `tab_index` pelo menu "Trocar feed…").
 - [ ] **Primeira busca** (fila vazia): a tela escura cobre tudo, o contador sobe, termina em ~40 posts e abre o mais antigo. Você não rola nada.
 - [ ] **Reconhecimento de posts:** os posts capturados correspondem ao que aparece no feed (conferir 5 ao acaso pelo link).
-- [ ] **Repost:** a etiqueta "↻ repostado por @conta" aparece e a conta é a certa.
+- [ ] **Repost:** a etiqueta "↻ @conta repostou" aparece e a conta é a certa.
 - [ ] **Navegação interna** (`go()`): "Próxima" troca de post sem recarregar? Se a página recarregar ou travar, desligar em menu → "Navegação interna: não" e me avisar.
 - [ ] **Rolagem ao topo** da página do post: revela o post respondido/a cadeia acima; para de rolar quando você mexe.
 - [ ] **Próxima/Anterior:** posição "n / total" correta; fechar e reabrir o navegador retoma no mesmo post (abrindo `x.com/home`).

@@ -150,7 +150,7 @@ Entrada com suas visualizações anteriores.
 }
 ```
 
-`all_reposters` = quem repostou este tweet em **qualquer** entrada não removida (lida ou não), sem repetir; é o que a etiqueta "repostado por" mostra, inclusive em entradas já vistas. `views` = visualizações do **mesmo `tweet_id`** (inclui outras entradas, ex.: repost anterior).
+`all_reposters` = quem repostou este tweet em **qualquer** entrada não removida (lida ou não), sem repetir; é o que a etiqueta "Fulano repostou" mostra, inclusive em entradas já vistas. `views` = visualizações do **mesmo `tweet_id`** (inclui outras entradas, ex.: repost anterior).
 
 ### `GET /api/v1/queue?after=118&limit=20`
 

@@ -59,14 +59,25 @@ const Xdom = (function () {
     return out;
   }
 
-  // Posts de uma página de post (cadeia acima, focal, respostas), únicos por ID, em ordem de DOM.
+  // Posts da CONVERSA de uma página de post (cadeia acima, focal, respostas), únicos por ID, em ordem de DOM.
+  // Só conta o que vem antes do primeiro título de seção depois do primeiro post ("Descubra mais", etc.):
+  // tudo que está depois é recomendação do X, mesmo que seja do mesmo autor. A coluna lateral fica de fora.
   function pageItems(root) {
+    const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
     const seen = new Set();
     const out = [];
-    for (const it of readItems(root)) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      out.push({ id: it.id, author: it.author });
+    let started = false;
+    for (const n of scope.querySelectorAll('article, [role="heading"], h2')) {
+      if (n.tagName === 'ARTICLE') {
+        const it = parseArticle(n);
+        if (!it) continue;
+        started = true;
+        if (seen.has(it.id)) continue;
+        seen.add(it.id);
+        out.push({ id: it.id, author: it.author });
+      } else if (started && !n.closest('article')) {
+        break;
+      }
     }
     return out;
   }

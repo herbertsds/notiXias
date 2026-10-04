@@ -33,6 +33,7 @@
 | D27 | Centro da barra: posição + avisos; toque alterna leitura/navegação; pressão longa abre o menu. | Pedido do dono. |
 | D28 | Modo uma mão (esquerda/direita, ~65%) e escolha de botões (ambos/só avançar/só voltar), salvos nas configurações. | Pedido do dono. |
 | D29 | Etiquetas dentro do post da fila (primeiro filho) + aviso de repost no primeiro post da tela quando o repostado vem depois. | Pedido do dono. |
+| D31 | Thread/cobertura só consideram a conversa: posts antes do primeiro título de seção ("Descubra mais") dentro de `primaryColumn`. | Bug 0.2.2: recomendação do mesmo autor era tratada como thread (saltava de post e cobria entradas de outra conversa). |
 | D30 | "Sempre abrir a versão mobile" **não é viável** por userscript (layout depende da largura da janela). | Limitação do X/navegador. |
 
 ## Pendências (resolver na prática, durante o desenvolvimento)

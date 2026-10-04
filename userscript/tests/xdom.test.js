@@ -179,3 +179,33 @@ test('findDateRow: layout compacto (hora relativa) ou sem contêiner de linha ->
   const d = dom(page(article({ id: '5', author: 'a' }))); // time direto no article
   assert.equal(Xdom.findDateRow(Xdom.articles(d)[0]), null);
 });
+
+// Regressão: recomendação do mesmo autor em "Descubra mais" era tratada como continuação de thread.
+const convPage = (...parts) => `<!doctype html><html><body><main><div data-testid="primaryColumn"><h2 role="heading">Post</h2>${parts.join('\n')}</div><div data-testid="sidebarColumn"><h2 role="heading">O que está acontecendo</h2></div></main></body></html>`;
+const SECTION = '<div><h2 role="heading" aria-level="2">Descubra mais</h2></div>';
+
+test('pageItems: para no título de seção; recomendação do mesmo autor NÃO entra', () => {
+  const d = dom(convPage(article({ id: '660', author: 'geglobo', detail: true }), '<div data-testid="composer">Poste sua resposta</div>', SECTION, article({ id: '692', author: 'geglobo' })));
+  assert.deepEqual(Xdom.pageItems(d), [{ id: '660', author: 'geglobo' }]);
+});
+
+test('pageItems: respostas ANTES do título contam (thread legítima do mesmo autor)', () => {
+  const d = dom(convPage(article({ id: '1', author: 'a' }), article({ id: '2', author: 'a' }), article({ id: '3', author: 'a' }), SECTION, article({ id: '9', author: 'a' })));
+  assert.deepEqual(Xdom.pageItems(d).map((i) => i.id), ['1', '2', '3']);
+});
+
+test('pageItems: cadeia acima do focal vem antes e não é cortada pelo cabeçalho "Post"', () => {
+  const d = dom(convPage(article({ id: '1', author: 'pai' }), article({ id: '2', author: 'a' }), SECTION, article({ id: '5', author: 'a' })));
+  assert.deepEqual(Xdom.pageItems(d).map((i) => i.id), ['1', '2']);
+});
+
+test('pageItems: sem título de seção, considera todos; sem primaryColumn usa a página inteira', () => {
+  assert.deepEqual(Xdom.pageItems(dom(convPage(article({ id: '1', author: 'a' }), article({ id: '2', author: 'a' })))).map((i) => i.id), ['1', '2']);
+  assert.deepEqual(Xdom.pageItems(dom(page(article({ id: '1', author: 'a' }), article({ id: '2', author: 'b' })))).map((i) => i.id), ['1', '2']);
+});
+
+test('a sequência da recomendação nunca vira alvo de thread (fluxo completo)', () => {
+  const Core = require('../src/core.js');
+  const d = dom(convPage(article({ id: '2106660288065843460', author: 'geglobo', detail: true }), SECTION, article({ id: '2106692885886144656', author: 'geglobo' })));
+  assert.equal(Core.pickThreadTarget(Xdom.pageItems(d), '2106660288065843460', 'geglobo'), null);
+});

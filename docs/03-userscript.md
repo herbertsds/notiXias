@@ -129,6 +129,8 @@ Verificação na hora de exibir a entrada `E`:
 
 Regras de segurança contra pular posts:
 
+- **Só a conversa conta.** `xdom.pageItems` lê apenas a coluna principal e **para no primeiro título de seção** depois do primeiro post ("Descubra mais"...). Tudo depois é recomendação do X, mesmo do mesmo autor e com ID maior (causa do bug visto em 2026-10-04: saltava para um post de outra conversa e o marcava como coberto/visto).
+
 - **Nunca** agrupar por vizinhança na lista (mesmo autor/horário). Só o que aparece encadeado na página.
 - Só marcar como coberto o que está **no DOM** da página final.
 - Pedaços escondidos por "mostrar mais" **não** são cobertos e permanecem na fila.

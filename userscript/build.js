@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ORDER = ['core.js', 'xdom.js', 'labels.js', 'scanner.js', 'api.js', 'ui.js', 'main.js'];
-const VERSION = '0.2.3';
+const VERSION = '0.2.4';
 
 const HEADER = `// ==UserScript==
 // @name         notiXias

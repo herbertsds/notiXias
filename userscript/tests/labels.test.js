@@ -168,3 +168,14 @@ test('visual: fonte maior, mais espaço abaixo do texto, ícone em coluna própr
   assert.match(icon.getAttribute('style'), /display:inline-block;width:34px/);
   assert.match(top.textContent, /^↻repostado por @ana$/);
 });
+
+test('"já visto" abaixo da data: ícone colado ao texto (sem a coluna larga da faixa de cima)', () => {
+  const d = dom(page(article({ id: '3', author: 'a', detail: true })));
+  Labels.sync(d, MODEL);
+  const seenIcon = d.querySelector('[data-nx="seen"] div > span');
+  assert.equal(seenIcon.textContent, '👁');
+  assert.match(seenIcon.getAttribute('style'), /margin-right:8px/);
+  assert.ok(!/width:34px/.test(seenIcon.getAttribute('style')));
+  const topIcon = d.querySelector('[data-nx="label"] div > span');
+  assert.match(topIcon.getAttribute('style'), /width:34px/); // a faixa de cima não mudou
+});

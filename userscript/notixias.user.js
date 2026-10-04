@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.2.3
+// @version      0.2.4
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -399,6 +399,7 @@ const Labels = (function () {
     seen: 'box-sizing:border-box;width:100%;padding:8px 0 4px;margin:0;' + FONT,
   };
   const ICON = 'display:inline-block;width:34px;';
+  const ICON_SEEN = 'display:inline-block;margin-right:8px;'; // linha abaixo da data: ícone colado ao texto
   const LINK = 'color:inherit;text-decoration:none;';
   const WARN = 'color:#f0b429;';
 
@@ -427,11 +428,11 @@ const Labels = (function () {
   }
 
   // Ícone numa coluna própria, com o texto um pouco mais à direita.
-  function fillLine(doc, row, text) {
+  function fillLine(doc, row, text, kind) {
     const m = ICON_SPLIT.exec(text);
     if (m) {
       const icon = doc.createElement('span');
-      icon.setAttribute('style', ICON);
+      icon.setAttribute('style', kind === 'seen' ? ICON_SEEN : ICON);
       icon.textContent = m[1];
       row.append(icon);
       fillText(doc, row, m[2]);
@@ -448,7 +449,7 @@ const Labels = (function () {
     for (const l of lines) {
       const row = doc.createElement('div');
       if (l.startsWith('⚠')) row.setAttribute('style', WARN);
-      fillLine(doc, row, l);
+      fillLine(doc, row, l, kind);
       node.append(row);
     }
     return node;

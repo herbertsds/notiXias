@@ -150,3 +150,8 @@ Ver `07-ambiente-e-infra.md` (dump diário). O conteúdo é pequeno e valioso (h
 
 - `following`: `{ _id: <handle em minúsculas>, handle, name, added_at }` — as contas que você segue (leitura completa + atualizações ao vivo).
 - `meta` (`_id: "following"`): `{ last_full_at, updated_at }`. Com `last_full_at` definido, só `following` decide quem é "seguido"; sem ele, soma-se o aprendido do feed (`accounts`).
+
+
+## Ordem dos reposts
+
+`sort_id` de um repost = ID do tweet comum vizinho mais antigo no lote (onde o X o mostra), não o ID do tweet original. Ver `04-api.md`, "Posição na fila".

@@ -384,6 +384,19 @@ def _place_cluster(db, group, cutoff, stats):
         db.entries.update_one({"_id": ref_doc["_id"]}, {"$addToSet": {"members": {"$each": ids}}})
 
 
+def _repost_anchor_id(rev, i):
+    """ID do tweet comum (sem repost) vizinho no feed que estima o horário do repost `rev[i]`.
+    `rev` está do mais antigo ao mais novo: o vizinho mais antigo vem antes do índice; o repost fica logo depois
+    dele. Sem vizinho mais antigo, usa o mais novo; sem nenhum, o próprio tweet."""
+    for k in range(i - 1, -1, -1):
+        if not rev[k].reposter:
+            return rev[k].tweet_id
+    for k in range(i + 1, len(rev)):
+        if not rev[k].reposter:
+            return rev[k].tweet_id
+    return rev[i].tweet_id
+
+
 def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None) -> dict:
     """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
     revisit_after = REVISIT_AFTER if revisit_after is None else revisit_after
@@ -402,7 +415,9 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
     while i < len(rev):
         it = rev[i]
         if it.cluster is None:
-            _place(db, it, cutoff, stats)
+            # Repost: a posição vem de QUANDO o repost aconteceu (onde ele está no feed), não do horário do tweet
+            # original (um repost de tweet antigo iria para o começo da fila, longe de onde o X o mostra).
+            _place(db, it, cutoff, stats, sort_id=_repost_anchor_id(rev, i) if it.reposter else None)
             i += 1
             continue
         j = i

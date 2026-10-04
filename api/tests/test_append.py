@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from app import services as svc
 from app.models import AppearanceIn
 
-from .helpers import append, item, queue, seed, tweet_ids
+from .helpers import append, entry, item, queue, seed, tweet_ids
 
 
 def test_ordem_de_leitura_mais_antigo_primeiro(client):
@@ -15,10 +15,39 @@ def test_ordem_de_leitura_mais_antigo_primeiro(client):
     assert [e["seq"] for e in q] == [1, 2, 3]
 
 
+def test_repost_de_tweet_antigo_segue_a_posicao_no_feed_e_nao_o_horario_original(client):
+    # feed (novo -> antigo): 900, repost do tweet antigo 100, 800, 700. O repost aconteceu entre 800 e 900.
+    append(client, [item(900, "a"), item(100, "velho", reposter="x"), item(800, "b"), item(700, "c")])
+    assert tweet_ids(queue(client)) == ["700", "800", "100", "900"]
+
+
+def test_repost_no_fim_do_lote_usa_o_vizinho_mais_novo(client):
+    append(client, [item(900, "a"), item(100, "velho", reposter="x")])
+    assert tweet_ids(queue(client)) == ["100", "900"]
+
+
+def test_repost_sem_nenhum_tweet_comum_no_lote_usa_o_proprio_tweet(client):
+    append(client, [item(300, "a", reposter="x"), item(100, "b", reposter="y")])
+    assert tweet_ids(queue(client)) == ["100", "300"]
+
+
+def test_reposts_antigos_nao_pulam_para_o_comeco_da_fila_nao_lida(client):
+    # situação real: cursor no último lido; reposts de tweets de ontem aparecem no meio do feed de hoje
+    append(client, [item(500, "a")])
+    client.post("/api/v1/views", json={"seqs": [1]})
+    client.put("/api/v1/state", json={"cursor_seq": 1})
+    novos = [item(900, "z"), item(10, "velho1", reposter="r1"), item(800, "y"), item(5, "velho2", reposter="r2"), item(700, "x"), item(600, "w")]
+    append(client, novos)
+    # leitura: 600, 700, [velho2], 800, [velho1], 900  (a ordem do feed, de baixo para cima)
+    assert tweet_ids(queue(client, after=1)) == ["600", "700", "5", "800", "10", "900"]
+    assert client.get("/api/v1/state").json()["next_seq"] == entry(client, 600)["seq"]
+
+
 def test_novos_entram_entre_os_nao_lidos_pelo_horario_do_tweet_original(client):
-    # repost de um tweet antigo (id menor): entra pelo horário do tweet ORIGINAL, não pela ordem do feed
-    append(client, [item(500), item(100, "conta_b", reposter="fulano"), item(400)])
-    assert tweet_ids(queue(client)) == ["100", "400", "500"]
+    # tweets comuns continuam entrando pelo horário (chegou depois, mas é de horário intermediário)
+    append(client, [item(30, "a"), item(10, "b")])
+    append(client, [item(20, "c")])
+    assert tweet_ids(queue(client)) == ["10", "20", "30"]
 
 
 def test_lotes_sucessivos_acrescentam_no_fim(client):

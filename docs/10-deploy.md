@@ -9,8 +9,8 @@ Procedimento executado em 2026-10-04. Nada do outro projeto do servidor (`contag
 | Pasta | `~/projetos/notixias` (clone de `git@github.com:herbertsds/notiXias.git`) |
 | Compose | `docker-compose.prod.yml` (projeto `notixias`) |
 | Containers | `notixias-mongo-1` (Mongo 7, autenticado, 1 GB), `notixias-api-1` (FastAPI, 512 MB) |
-| Volume | `notixias_mongo_data` (exclusivo) |
-| Redes | `notixias_net` (interna) e `infra_net` (a do Nginx Proxy Manager; a API entra com o alias `notixias-api`) |
+| Volume | `notixias_notixias_mongo_data` (exclusivo) |
+| Redes | `notixias_notixias_net` (interna) e `infra_net` (a do Nginx Proxy Manager; a API entra com o alias `notixias-api`) |
 | Portas no host | **nenhuma** publicada |
 | Segredos | `.env` do servidor (permissão 600, fora do Git) e `.secrets/api_key.txt` (a chave em claro) |
 | Backup | `scripts/backup.sh` + cron diário às 03:30; destino `~/backups/notixias`, retenção 14 |
@@ -36,6 +36,10 @@ docker exec notixias-api-1 python -c "import urllib.request;print(urllib.request
 2. NPM → *Proxy Hosts* → *Add*: domínio = o subdomínio; *Forward Hostname* = `notixias-api`; porta `8000`; esquema `http`; *Block Common Exploits* ligado; aba SSL: *Request a new certificate*, *Force SSL*.
 3. Opcional, no mesmo host: limitar tentativas (aba Advanced) para barrar quem tentar adivinhar a chave.
 4. No userscript (menu ⋯ → Configurar API): URL `https://<subdomínio>` e a chave. No cabeçalho do script, `@connect <subdomínio>`.
+
+## Estado inicial (2026-10-04)
+
+Subido a partir do commit do GitHub; banco de produção = cópia do de desenvolvimento no ponto em que parou (32 entradas, 32 visualizações, cursor na entrada 32, último tweet `2106698041478484278`). Backup inicial em `~/backups/notixias/inicial-copia-do-dev.archive.gz`. Restauração do backup testada num banco temporário (contagens iguais).
 
 ## Chave da API
 

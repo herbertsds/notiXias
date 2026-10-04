@@ -96,6 +96,12 @@ const Core = (function () {
     return out;
   }
 
+  // Aviso no topo da página, quando o post repostado não é o primeiro da tela.
+  function buildBannerText(entry) {
+    if (!entry || !entry.reposters || !entry.reposters.length) return null;
+    return '↻ uma mensagem dessa thread foi repostada por ' + entry.reposters.map((r) => '@' + r).join(', ');
+  }
+
   function normPath(p) {
     return (p || '').replace(/\/+$/, '') || '/';
   }
@@ -120,7 +126,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, buildBadges, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

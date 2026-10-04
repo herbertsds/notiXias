@@ -29,6 +29,11 @@
 | D23 | Sem Keycloak. | Pesado; usar o do outro projeto seria alterá-lo. |
 | D24 | Sem exclusão física; backup diário do Mongo. | Proteger o histórico. |
 | D25 | Guardar apenas IDs, links, autor, reposters e horários; sem texto nem mídia. | Mínimo de dados. |
+| D26 | Barra inferior própria 40/20/40, que substitui a do X (escondida) e reserva espaço na página. | Pedido do dono (uso principal no celular). |
+| D27 | Centro da barra: posição + avisos; toque alterna leitura/navegação; pressão longa abre o menu. | Pedido do dono. |
+| D28 | Modo uma mão (esquerda/direita, ~65%) e escolha de botões (ambos/só avançar/só voltar), salvos nas configurações. | Pedido do dono. |
+| D29 | Etiquetas dentro do post da fila (primeiro filho) + aviso de repost no primeiro post da tela quando o repostado vem depois. | Pedido do dono. |
+| D30 | "Sempre abrir a versão mobile" **não é viável** por userscript (layout depende da largura da janela). | Limitação do X/navegador. |
 
 ## Pendências (resolver na prática, durante o desenvolvimento)
 
@@ -44,6 +49,9 @@
 | P8 | Compatibilidade exata do app Userscripts (GM_*) no iPhone. | Fase 7. |
 | P9 | Idioma/estrutura das abas de `/home` para selecionar "Seguindo" por posição. | Fase 3. |
 | P10 | Refinar `kind` (`reply`, `quote`) e etiquetas correspondentes. | Se fizer falta. |
+| P11 | Esconder a barra do X por heurística (nav fixo embaixo) funciona no mobile real? | Testar em janela estreita e no iPhone. |
+| P12 | Etiquetas injetadas sobrevivem aos redesenhos do X? | Observar no uso; ajustar `labels.js`. |
+| P13 | Botão 🏠 reabre a leitura (retomada automática): é o desejado? | Decidir no uso. |
 
 ## Adiado (fora do escopo inicial)
 

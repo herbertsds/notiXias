@@ -123,13 +123,62 @@ const Xdom = (function () {
     return kids.length ? line + '\n' + kids.join('\n') : line;
   }
 
+
+  // ---- barra de navegação inferior do X (mobile) ----
+  // Reconhecida pelo comportamento, não por classe: um <nav> dentro de um contêiner position:fixed colado
+  // no rodapé e largo. Assim não depende de idioma nem de CSS gerado.
+  function fixedAncestor(el, win) {
+    const stop = win.document.body;
+    for (let n = el; n && n !== stop && n !== win.document.documentElement; n = n.parentElement) {
+      if (win.getComputedStyle(n).position === 'fixed') return n;
+    }
+    return null;
+  }
+
+  function findBottomBars(root, win) {
+    const out = [];
+    const vh = win.innerHeight;
+    const vw = win.innerWidth;
+    for (const nav of root.querySelectorAll('nav, [role="navigation"]')) {
+      if (nav.closest('[id^="notixias"]')) continue;
+      const box = fixedAncestor(nav, win);
+      if (!box || out.includes(box)) continue;
+      const r = box.getBoundingClientRect();
+      if (r.top >= vh * 0.6 && r.width >= vw * 0.6) out.push(box);
+    }
+    return out;
+  }
+
+  const HIDE_ATTR = 'data-nx-hidden';
+  const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}';
+
+  function ensureStyle(doc) {
+    if (doc.getElementById('nx-style')) return;
+    const st = doc.createElement('style');
+    st.id = 'nx-style';
+    st.textContent = HIDE_CSS;
+    (doc.head || doc.documentElement).append(st);
+  }
+
+  // enabled=true: marca as barras inferiores encontradas; false: desfaz tudo.
+  function setBottomBarsHidden(root, win, enabled) {
+    if (!enabled) {
+      root.querySelectorAll('[' + HIDE_ATTR + ']').forEach((n) => n.removeAttribute(HIDE_ATTR));
+      return 0;
+    }
+    ensureStyle(root.ownerDocument || root);
+    const bars = findBottomBars(root, win);
+    bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
+    return bars.length;
+  }
+
   function isLoginPath(pathname) {
     return /^\/(i\/flow\/login|login)(\/|$)/.test(pathname || '');
   }
 
   return {
     articles, parseArticle, readItems, pageItems, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath,
+    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

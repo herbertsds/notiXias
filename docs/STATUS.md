@@ -1,6 +1,6 @@
 # STATUS — o que foi feito, testado e o que falta validar
 
-Atualizado em 2026-10-04. Escopo executado: **Fases 0 a 4**, somente local. Nada foi feito no servidor Oracle, no Chrome ou no X.
+Atualizado em 2026-10-04. Escopo executado: **Fases 0 a 4** + **ajustes de layout mobile (userscript 0.2.0)**, somente local. Nada foi feito no servidor Oracle, no Chrome ou no X.
 
 ## Resumo
 
@@ -57,7 +57,7 @@ docker compose --profile test run --rm userscript-test sh -c "node build.js"
 ## O que foi testado
 
 - **API (59 testes, Mongo real em container):** autenticação; ordem de leitura; ordem por captura (não por ID); dedupe; merge de reposts; repost de lido vira nova entrada; "já visto" entre entradas do mesmo post; `gap_before`; idempotência; âncoras; paginação `after/before`; validação de entradas inválidas; estado com concorrência otimista; cursor inexistente; visualizações únicas e cobertura automática; cobertura (só não lidas, mesmo autor, sem maiúsculas); reabrir cobertas; remoção lógica; skeleton; export; healthz 503; `/docs` desligado em prod; escritas concorrentes (160 entradas em 8 threads sem colisão de `seq`; mesma aparição em 6 threads sem duplicar).
-- **Userscript (46 testes, jsdom/Node):** parse de URLs; reposter pelos dois formatos de markup; anúncio ignorado; citação; thread (cadeia contígua do mesmo autor, ID crescente, posts independentes não agrupados); etiquetas e formatação de data; scanner com feed virtualizado simulado (âncora, backfill, fim do feed, limites, cancelamento, sem duplicar); cliente da API; UI (botões, menu, overlays); esqueleto sem texto/ID/handle; bundle atualizado e sem segredos.
+- **Userscript (67 testes, jsdom/Node; os 46 iniciais + barra, etiquetas e detecção da barra do X):** parse de URLs; reposter pelos dois formatos de markup; anúncio ignorado; citação; thread (cadeia contígua do mesmo autor, ID crescente, posts independentes não agrupados); etiquetas e formatação de data; scanner com feed virtualizado simulado (âncora, backfill, fim do feed, limites, cancelamento, sem duplicar); cliente da API; UI (botões, menu, overlays); esqueleto sem texto/ID/handle; bundle atualizado e sem segredos.
 - **Contrato (`scripts/e2e.sh`):** o cliente JS conversando com a API real num fluxo completo (primeira busca, leitura, visualização, cobertura, segunda busca com âncora, repost de post lido com etiqueta, 401, export).
 
 ## O que NÃO foi testado (precisa de você, no X, com a sua conta)
@@ -103,6 +103,27 @@ Tudo abaixo depende do X real. As fixtures dos testes são HTML **sintético** q
 - **Atalhos:** Alt+→ (próxima) e Alt+← (anterior).
 - **Sem deslizar com o dedo** nesta versão (conflita com a rolagem).
 - Aviso do `httpx`/`starlette` nos testes ("use httpx2") é só deprecação de biblioteca, sem efeito.
+
+## Atualização 0.2.0: layout mobile (pedido do dono)
+
+Implementado e coberto por testes (jsdom), **não validado no X real**:
+
+- Barra inferior **40% / 20% / 40%** que substitui a do X, **reservando espaço** na página; barra do X escondida por heurística.
+- Centro com posição + avisos; **toque** alterna leitura/navegação (🏠 🔔 ✉️ e ⋯); **pressão longa** abre o menu.
+- **Mão** (ambas / esquerda / direita, ~65%) e **botões** (ambos / só avançar / só voltar) no menu ⋯.
+- **Etiquetas dentro do post** da fila (primeiro filho) e **aviso de repost** no topo do primeiro post da tela quando o repostado vem depois.
+- **Não feito (inviável):** "sempre redirecionar para a versão mobile". O X decide o layout pela largura da janela; no iPhone já é o padrão. Em `docs/03-userscript.md`.
+
+**Reinstalar o script:** `pbcopy < userscript/notixias.user.js`, abra o script no Tampermonkey, apague tudo, cole (versão 0.2.0) e salve. Suas configurações (API/chave) ficam guardadas.
+
+Checklist extra (janela estreita do Chrome, ~400px de largura, ou o iPhone depois):
+- [ ] A barra de navegação inferior do X **some** e a nossa aparece no lugar; o fim da página não fica escondido atrás dela.
+- [ ] Tocar no centro alterna entre ◀ ▶ e ⋯ 🏠 🔔 ✉️; pressão longa abre o menu.
+- [ ] Menu → "Mão": esquerda/direita deixa a barra com ~65% de largura colada ao lado; "Botões": só avançar / só voltar.
+- [ ] Avisos ("N novos", "Você está em dia") aparecem no centro e somem sozinhos.
+- [ ] A etiqueta aparece **dentro do post da fila**, antes do perfil/foto, e não some quando o X redesenha.
+- [ ] Post repostado com cadeia acima: o primeiro post da tela mostra "↻ uma mensagem dessa thread foi repostada por @…".
+- [ ] 🏠 volta ao feed (e a leitura retoma): é o comportamento que você quer?
 
 ## Pendências herdadas (ver `09-decisoes-e-pendencias.md`)
 

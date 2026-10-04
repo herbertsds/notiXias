@@ -2,8 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const ORDER = ['core.js', 'xdom.js', 'scanner.js', 'api.js', 'ui.js', 'main.js'];
-const VERSION = '0.1.0';
+const ORDER = ['core.js', 'xdom.js', 'labels.js', 'scanner.js', 'api.js', 'ui.js', 'main.js'];
+const VERSION = '0.2.0';
 
 const HEADER = `// ==UserScript==
 // @name         notiXias

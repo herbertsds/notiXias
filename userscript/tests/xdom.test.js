@@ -111,3 +111,56 @@ test('isLoginPath', () => {
   assert.equal(Xdom.isLoginPath('/login'), true);
   assert.equal(Xdom.isLoginPath('/home'), false);
 });
+
+// jsdom não calcula layout: simulamos a posição/tamanho dos elementos.
+function bottomBarDom({ position = 'fixed', top = 700, width = 400 } = {}) {
+  const w = new JSDOM(
+    `<body><div id="bar" style="position:${position}"><nav role="navigation" aria-label="Primary"><a href="/home">h</a></nav></div>` +
+    `<div id="side" style="position:fixed"><nav role="navigation"><a href="/home">h</a></nav></div></body>`,
+    { url: 'https://x.com/home' }
+  ).window;
+  Object.defineProperty(w, 'innerHeight', { value: 800 });
+  Object.defineProperty(w, 'innerWidth', { value: 400 });
+  const rect = (r) => () => Object.assign({ top: 0, left: 0, width: 0, height: 0 }, r);
+  w.document.getElementById('bar').getBoundingClientRect = rect({ top, width, height: 60 });
+  w.document.getElementById('side').getBoundingClientRect = rect({ top: 0, width: 80, height: 800 });
+  return w;
+}
+
+test('findBottomBars: acha o nav fixo colado embaixo e ignora a barra lateral', () => {
+  const w = bottomBarDom();
+  const bars = Xdom.findBottomBars(w.document, w);
+  assert.deepEqual(bars.map((b) => b.id), ['bar']);
+});
+
+test('findBottomBars: não é barra inferior se não for fixa, não estiver embaixo ou for estreita', () => {
+  for (const o of [{ position: 'static' }, { top: 100 }, { width: 100 }]) {
+    const w = bottomBarDom(o);
+    assert.deepEqual(Xdom.findBottomBars(w.document, w), [], JSON.stringify(o));
+  }
+});
+
+test('setBottomBarsHidden: esconde (atributo + CSS injetado) e desfaz', () => {
+  const w = bottomBarDom();
+  const d = w.document;
+  assert.equal(Xdom.setBottomBarsHidden(d, w, true), 1);
+  assert.equal(d.getElementById('bar').hasAttribute('data-nx-hidden'), true);
+  assert.equal(d.getElementById('side').hasAttribute('data-nx-hidden'), false);
+  assert.match(d.getElementById('nx-style').textContent, /display:none!important/);
+  Xdom.setBottomBarsHidden(d, w, true); // idempotente
+  assert.equal(d.querySelectorAll('#nx-style').length, 1);
+  Xdom.setBottomBarsHidden(d, w, false);
+  assert.equal(d.querySelectorAll('[data-nx-hidden]').length, 0);
+});
+
+test('a barra do próprio notiXias nunca é escondida', () => {
+  const w = bottomBarDom();
+  const host = w.document.createElement('div');
+  host.id = 'notixias-bar';
+  host.style.position = 'fixed';
+  host.innerHTML = '<nav></nav>';
+  host.getBoundingClientRect = () => ({ top: 740, width: 400, height: 60, left: 0 });
+  w.document.body.append(host);
+  Xdom.setBottomBarsHidden(w.document, w, true);
+  assert.equal(host.hasAttribute('data-nx-hidden'), false);
+});

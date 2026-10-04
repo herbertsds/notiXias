@@ -161,30 +161,40 @@ Transições: `idle → fetching` (fila acabou ou "Buscar novas"); `fetching →
 
 Se a página for de login (`/i/flow/login`, `/login`), o script não age.
 
-## UI
+## UI (versão 0.2)
 
-### Tela de busca (cobre a página inteira)
+### Barra inferior (substitui a barra de navegação do X)
 
-- Fundo escuro opaco; mensagem "Buscando novas…"; contador de posts lidos; botão "Cancelar".
-- Em falha: mensagem do erro, "Copiar esqueleto", "Voltar".
+- Fica fixa no rodapé e **reserva espaço** no fim da página (`padding-bottom` no `<html>`, medido por `ResizeObserver`), então não tapa conteúdo.
+- A barra de navegação inferior do X é **escondida** (menu "Barra do X"). Ela é reconhecida pelo comportamento, não por classe: um `<nav>` dentro de um contêiner `position: fixed`, colado embaixo e largo (`xdom.findBottomBars`).
+- **Modo leitura:** `◀` 40% · centro 20% · `▶` 40%. O centro mostra a posição ("4 / 9") e, acima dela, o aviso do momento ("12 novos · ⚠ pode haver lacuna", "Você está em dia"), que some em ~6 s.
+- **Modo navegação:** `⋯` · 🏠 · centro · 🔔 · ✉️ (cada 20%). 🏠 volta ao feed (e a retomada automática reabre a leitura).
+- **Alternar o modo:** tocar no centro. **Pressão longa** no centro abre o menu em qualquer modo.
+- Quando a fila acaba, `▶` vira `⟳` (buscar novas).
 
-### Barra flutuante (fixa embaixo; botões grandes para toque)
+### Configurações (salvas no gerenciador de scripts; menu `⋯`)
 
-- Linha de etiquetas (acima dos botões):
-  - `↻ repostado por @a, @b`
-  - `👁 já visto em 03/10/2026 às 21:14` (e `(N vezes)`)
-  - `⛓ inclui N posts desta thread`
-  - `⚠ pode haver posts não capturados antes deste` (lacuna)
-  - avisos curtos (ex.: "você está em dia", "N novas")
-- Linha de controles: `◀` · `posição/total` (cobertas excluídas) · `⋯` · `Próxima ▶`.
-- Atalhos de teclado: Alt+→ / Alt+← (a validar).
-- Menu `⋯`: Buscar novas agora · Trocar feed · Reabrir cobertos · Copiar esqueleto · Exportar dados · Configurar API.
+| Opção | Valores | Efeito |
+|---|---|---|
+| Mão | ambas (largura total) · esquerda · direita | Nas duas últimas a barra ocupa ~65% da largura, colada ao lado escolhido (uso com uma mão). |
+| Botões | ambos · só avançar · só voltar | Com um só botão: 80% / centro 20%. |
+| Barra do X | escondida · visível | |
+| Retomar automaticamente, Navegação interna | sim · não | |
 
-Deslizar com o dedo para o lado **não** entra na versão inicial (conflita com a rolagem da página do X); pode ser avaliado depois.
+### Etiquetas dentro da página (`src/labels.js`)
+
+- **Etiqueta do post da fila:** primeiro filho do `article` do post (antes do perfil e da mídia): "↻ repostado por…", "👁 já visto em…", "⛓ inclui N posts desta thread", "⚠ pode haver posts não capturados…".
+- **Aviso de repost no topo da tela:** se o post repostado **não** é o primeiro da página (há cadeia acima), o primeiro post ganha no topo "↻ uma mensagem dessa thread foi repostada por @fulano". Se o primeiro já é o repostado, só a etiqueta dele aparece.
+- O X redesenha posts o tempo todo: um `MutationObserver` reexecuta `Labels.sync`, que é **idempotente** (só escreve no DOM se algo mudou), então não há laço de mutação.
+- A página sempre abre e rola ao topo (`pinTop`).
 
 ### Datas
 
 Formato brasileiro: `dd/mm/aaaa às hh:mm`, fuso do aparelho. A API guarda em UTC.
+
+### Fora do escopo: "sempre abrir a versão mobile"
+
+O X escolhe o layout mobile pela **largura da janela**; um userscript não consegue alterar a largura nem o user-agent. No iPhone o layout mobile já é o padrão. No computador, é preciso uma janela estreita.
 
 ## Discrição e ritmo
 

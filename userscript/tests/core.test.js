@@ -100,3 +100,9 @@ test('toApiItem e newBatchId', () => {
   assert.notEqual(Core.newBatchId(), Core.newBatchId());
   assert.match(Core.newBatchId(), /^[\w.:-]+$/);
 });
+
+test('buildBannerText: só quando há repost', () => {
+  assert.equal(Core.buildBannerText({ reposters: ['ana', 'beto'] }), '↻ uma mensagem dessa thread foi repostada por @ana, @beto');
+  assert.equal(Core.buildBannerText({ reposters: [] }), null);
+  assert.equal(Core.buildBannerText(null), null);
+});

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.1.0
+// @version      0.2.0
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -115,6 +115,12 @@ const Core = (function () {
     return out;
   }
 
+  // Aviso no topo da página, quando o post repostado não é o primeiro da tela.
+  function buildBannerText(entry) {
+    if (!entry || !entry.reposters || !entry.reposters.length) return null;
+    return '↻ uma mensagem dessa thread foi repostada por ' + entry.reposters.map((r) => '@' + r).join(', ');
+  }
+
   function normPath(p) {
     return (p || '').replace(/\/+$/, '') || '/';
   }
@@ -139,7 +145,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, buildBadges, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, buildBadges, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -270,16 +276,131 @@ const Xdom = (function () {
     return kids.length ? line + '\n' + kids.join('\n') : line;
   }
 
+
+  // ---- barra de navegação inferior do X (mobile) ----
+  // Reconhecida pelo comportamento, não por classe: um <nav> dentro de um contêiner position:fixed colado
+  // no rodapé e largo. Assim não depende de idioma nem de CSS gerado.
+  function fixedAncestor(el, win) {
+    const stop = win.document.body;
+    for (let n = el; n && n !== stop && n !== win.document.documentElement; n = n.parentElement) {
+      if (win.getComputedStyle(n).position === 'fixed') return n;
+    }
+    return null;
+  }
+
+  function findBottomBars(root, win) {
+    const out = [];
+    const vh = win.innerHeight;
+    const vw = win.innerWidth;
+    for (const nav of root.querySelectorAll('nav, [role="navigation"]')) {
+      if (nav.closest('[id^="notixias"]')) continue;
+      const box = fixedAncestor(nav, win);
+      if (!box || out.includes(box)) continue;
+      const r = box.getBoundingClientRect();
+      if (r.top >= vh * 0.6 && r.width >= vw * 0.6) out.push(box);
+    }
+    return out;
+  }
+
+  const HIDE_ATTR = 'data-nx-hidden';
+  const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}';
+
+  function ensureStyle(doc) {
+    if (doc.getElementById('nx-style')) return;
+    const st = doc.createElement('style');
+    st.id = 'nx-style';
+    st.textContent = HIDE_CSS;
+    (doc.head || doc.documentElement).append(st);
+  }
+
+  // enabled=true: marca as barras inferiores encontradas; false: desfaz tudo.
+  function setBottomBarsHidden(root, win, enabled) {
+    if (!enabled) {
+      root.querySelectorAll('[' + HIDE_ATTR + ']').forEach((n) => n.removeAttribute(HIDE_ATTR));
+      return 0;
+    }
+    ensureStyle(root.ownerDocument || root);
+    const bars = findBottomBars(root, win);
+    bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
+    return bars.length;
+  }
+
   function isLoginPath(pathname) {
     return /^\/(i\/flow\/login|login)(\/|$)/.test(pathname || '');
   }
 
   return {
     articles, parseArticle, readItems, pageItems, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath,
+    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
+
+// ---- labels.js ----
+// labels: etiquetas injetadas NA página do X.
+//  - "label": primeiro filho do post da fila (antes do perfil e da mídia);
+//  - "banner": primeiro filho do primeiro post da tela, quando ele NÃO é o post da fila e este foi repostado.
+// `sync` é idempotente (só escreve no DOM se algo mudou), para poder rodar a cada mutação sem laços.
+const Labels = (function () {
+  const X = () => (typeof Xdom !== 'undefined' ? Xdom : require('./xdom.js'));
+  const STYLES = {
+    label: 'margin:0;padding:8px 14px;font:600 13px/1.4 system-ui,sans-serif;color:#fff;background:#16324a;border-bottom:1px solid #2f3336;',
+    banner: 'margin:0;padding:8px 14px;font:600 13px/1.4 system-ui,sans-serif;color:#fff;background:#4a3a16;border-bottom:1px solid #2f3336;',
+  };
+
+  function find(art, kind) {
+    return Array.from(art.children).find((c) => c.getAttribute && c.getAttribute('data-nx') === kind) || null;
+  }
+
+  function ensure(doc, art, kind, lines) {
+    const text = lines.join('\n');
+    let node = find(art, kind);
+    if (node && node.getAttribute('data-nx-text') === text && art.firstChild === node) return false;
+    if (node) node.remove();
+    node = doc.createElement('div');
+    node.setAttribute('data-nx', kind);
+    node.setAttribute('data-nx-text', text);
+    node.style.cssText = STYLES[kind];
+    for (const l of lines) {
+      const row = doc.createElement('div');
+      row.textContent = l;
+      node.append(row);
+    }
+    art.insertBefore(node, art.firstChild);
+    return true;
+  }
+
+  function remove(art, kind) {
+    const node = find(art, kind);
+    if (node) node.remove();
+  }
+
+  // model: { tweetId, lines: string[], bannerText: string|null }
+  function sync(root, model) {
+    const doc = root.ownerDocument || root;
+    const arts = X().articles(root);
+    const first = arts[0] || null;
+    const target = arts.find((a) => {
+      const p = X().parseArticle(a);
+      return p && p.id === model.tweetId;
+    }) || null;
+
+    for (const a of arts) {
+      if (a !== target || !model.lines.length) remove(a, 'label');
+      if (a !== first || a === target || !model.bannerText) remove(a, 'banner');
+    }
+    if (target && model.lines.length) ensure(doc, target, 'label', model.lines);
+    if (first && first !== target && model.bannerText) ensure(doc, first, 'banner', [model.bannerText]);
+    return { label: !!(target && model.lines.length), banner: !!(first && first !== target && model.bannerText) };
+  }
+
+  function clear(root) {
+    for (const n of Array.from(root.querySelectorAll('[data-nx]'))) n.remove();
+  }
+
+  return { sync, clear };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = Labels;
 
 // ---- scanner.js ----
 // scanner: rola o feed e coleta aparições até reencontrar uma âncora. Todo efeito colateral passa por `env`
@@ -404,25 +525,34 @@ const Api = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = Api;
 
 // ---- ui.js ----
-// ui: barra flutuante e tela de busca. Tudo dentro de Shadow DOM, para os estilos do X não vazarem.
+// ui: barra inferior (40% / 20% / 40%) e tela de busca. Tudo em Shadow DOM, para os estilos do X não vazarem.
+// A barra reserva espaço no fim da página (padding-bottom no <html>), então não tapa conteúdo.
 const Ui = (function () {
   const BAR_CSS = `
     :host { all: initial; }
     * { box-sizing: border-box; font-family: -apple-system, system-ui, "Segoe UI", sans-serif; }
-    .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
-      background: rgba(15,20,25,.96); color: #e7e9ea; padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-      border-top: 1px solid #2f3336; }
-    .badges { font-size: 13px; line-height: 1.4; margin: 0 2px 6px; }
-    .badges div { margin: 1px 0; }
-    .row { display: flex; gap: 8px; align-items: center; }
-    .pos { flex: 1; text-align: center; font-size: 14px; color: #71767b; }
-    button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
-      border-radius: 999px; padding: 12px 16px; font-size: 16px; min-height: 44px; cursor: pointer; }
+    .wrap { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646; display: flex; pointer-events: none; }
+    .wrap.full { justify-content: stretch; }
+    .wrap.left { justify-content: flex-start; }
+    .wrap.right { justify-content: flex-end; }
+    .inner { position: relative; pointer-events: auto; width: 100%; background: rgba(15,20,25,.97); color: #e7e9ea;
+      border-top: 1px solid #2f3336; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); }
+    .wrap.left .inner, .wrap.right .inner { width: 65%; border-radius: 14px 14px 0 0; border: 1px solid #2f3336; border-bottom: 0; }
+    .row { display: flex; gap: 6px; align-items: stretch; }
+    .cell { flex: 0 1 auto; min-width: 0; }
+    button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea; border-radius: 14px;
+      padding: 0 4px; font-size: 22px; min-height: 56px; cursor: pointer; width: 100%; -webkit-tap-highlight-color: transparent; }
     button.primary { background: #1d9bf0; border-color: #1d9bf0; color: #fff; font-weight: 600; }
-    button:disabled { opacity: .35; cursor: default; }
-    .menu { position: absolute; right: 10px; bottom: calc(100% + 6px); background: #16181c;
-      border: 1px solid #536471; border-radius: 12px; padding: 4px; min-width: 240px; }
-    .menu button { display: block; width: 100%; text-align: left; border: 0; border-radius: 8px; background: transparent; }
+    button.center { background: transparent; border-color: transparent; font-size: 14px; color: #9aa0a6;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.2; padding: 2px; }
+    button.center .notice { font-size: 11px; color: #f0b429; white-space: normal; overflow-wrap: anywhere; }
+    button.center .pos { font-size: 14px; color: #e7e9ea; }
+    button.nav { font-size: 22px; }
+    button:disabled { opacity: .3; cursor: default; }
+    .menu { position: absolute; right: 6px; left: 6px; bottom: calc(100% + 6px); background: #16181c;
+      border: 1px solid #536471; border-radius: 12px; padding: 4px; max-height: 60vh; overflow: auto; }
+    .menu button { display: block; text-align: left; border: 0; border-radius: 8px; background: transparent;
+      font-size: 16px; min-height: 44px; padding: 8px 12px; }
     .menu button:hover { background: #1f2327; }
   `;
   const OVERLAY_CSS = `
@@ -437,6 +567,7 @@ const Ui = (function () {
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
   `;
+  const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
     const e = doc.createElement(tag);
@@ -444,6 +575,7 @@ const Ui = (function () {
       if (k === 'class') e.className = v;
       else if (k === 'onclick') e.addEventListener('click', v);
       else if (k === 'disabled') e.disabled = !!v;
+      else if (k === 'style') e.style.cssText = v;
       else e.setAttribute(k, v);
     }
     for (const kid of kids.flat()) if (kid != null) e.append(kid);
@@ -458,46 +590,124 @@ const Ui = (function () {
     return { host, root };
   }
 
+  // Larguras (em %) das três células do modo leitura, conforme os botões escolhidos.
+  function readWidths(buttons) {
+    if (buttons === 'next') return { prev: 0, center: 20, next: 80 };
+    if (buttons === 'prev') return { prev: 80, center: 20, next: 0 };
+    return { prev: 40, center: 20, next: 40 };
+  }
+
   function create(doc) {
+    const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
-    let barNode = null;
+    let wrapNode = null;
     let ovNode = null;
     let menuOpen = false;
-    let lastBarModel = null;
+    let lastModel = null;
+    let observer = null;
+    let pressTimer = null;
+    let longPressed = false;
 
     function attach(h) {
       if (!h.host.isConnected) (doc.body || doc.documentElement).append(h.host);
     }
 
-    // m: { badges[], position, total, menuItems[{label,onClick}], onPrev, onNext, nextLabel, busy }
+    function reserve(h) {
+      const root = doc.documentElement;
+      if (h == null) root.style.removeProperty('padding-bottom');
+      else root.style.setProperty('padding-bottom', Math.ceil(h) + 'px', 'important');
+    }
+
+    function watchHeight(inner) {
+      if (observer) observer.disconnect();
+      if (!win || typeof win.ResizeObserver === 'undefined') return;
+      observer = new win.ResizeObserver((entries) => {
+        const e = entries[0];
+        const bs = e.borderBoxSize && (e.borderBoxSize[0] || e.borderBoxSize);
+        reserve(bs && bs.blockSize != null ? bs.blockSize : e.target.getBoundingClientRect().height);
+      });
+      observer.observe(inner);
+    }
+
+    function cell(node, pct) {
+      return el(doc, 'div', { class: 'cell', style: 'flex-basis:' + pct + '%' }, node);
+    }
+
+    function centerButton(m) {
+      const startPress = () => {
+        longPressed = false;
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => { longPressed = true; menuOpen = !menuOpen; renderBar(lastModel); }, LONG_PRESS_MS);
+      };
+      const endPress = () => clearTimeout(pressTimer);
+      const b = el(doc, 'button', {
+        class: 'center', 'data-act': 'toggle', 'aria-label': 'Alternar entre leitura e navegação',
+        onclick: () => { if (longPressed) { longPressed = false; return; } m.onToggle && m.onToggle(); },
+      },
+        m.notice ? el(doc, 'span', { class: 'notice' }, m.notice) : null,
+        el(doc, 'span', { class: 'pos' }, m.position != null && m.total != null ? m.position + ' / ' + m.total : '●'));
+      b.addEventListener('pointerdown', startPress);
+      b.addEventListener('pointerup', endPress);
+      b.addEventListener('pointerleave', endPress);
+      return b;
+    }
+
+    function readRow(m) {
+      const w = readWidths(m.buttons);
+      const row = el(doc, 'div', { class: 'row' });
+      if (w.prev) {
+        row.append(cell(el(doc, 'button', {
+          'data-act': 'prev', 'aria-label': 'Anterior', disabled: !m.onPrev || m.busy, onclick: () => m.onPrev && m.onPrev(),
+        }, '◀'), w.prev));
+      }
+      row.append(cell(centerButton(m), w.center));
+      if (w.next) {
+        row.append(cell(el(doc, 'button', {
+          class: 'primary', 'data-act': 'next', 'aria-label': 'Próxima', disabled: !m.onNext || m.busy,
+          onclick: () => m.onNext && m.onNext(),
+        }, m.nextLabel || '▶'), w.next));
+      }
+      return row;
+    }
+
+    // Navegação: ⋯ | item0 | centro | item1 | item2 (cada 20%)
+    function navRow(m) {
+      const items = m.navItems || [];
+      const navBtn = (it, i) => cell(el(doc, 'button', {
+        class: 'nav', 'data-act': 'nav-' + i, 'aria-label': it.title || it.label, onclick: () => it.onClick(),
+      }, it.label), 20);
+      const menuBtn = cell(el(doc, 'button', {
+        class: 'nav', 'data-act': 'menu', 'aria-label': 'Menu',
+        onclick: () => { menuOpen = !menuOpen; renderBar(lastModel); },
+      }, '⋯'), 20);
+      const row = el(doc, 'div', { class: 'row' }, menuBtn, items[0] ? navBtn(items[0], 0) : null,
+        cell(centerButton(m), 20), items[1] ? navBtn(items[1], 1) : null, items[2] ? navBtn(items[2], 2) : null);
+      return row;
+    }
+
+    // m: { mode, layout, buttons, position, total, notice, onPrev, onNext, nextLabel, onToggle,
+    //      navItems[{label,title,onClick}], menuItems[{label,onClick}], busy }
     function renderBar(m) {
-      lastBarModel = m;
+      lastModel = m;
       attach(bar);
-      if (barNode) barNode.remove();
-      const badges = el(doc, 'div', { class: 'badges' }, (m.badges || []).map((b) => el(doc, 'div', {}, b)));
-      const pos = el(doc, 'div', { class: 'pos' }, m.position != null && m.total != null ? m.position + ' / ' + m.total : '');
-      const prev = el(doc, 'button', { 'data-act': 'prev', disabled: !m.onPrev || m.busy, onclick: () => m.onPrev && m.onPrev() }, '◀');
-      const more = el(doc, 'button', {
-        'data-act': 'menu',
-        onclick: () => { menuOpen = !menuOpen; renderBar(lastBarModel); },
-      }, '⋯');
-      const next = el(doc, 'button', {
-        class: 'primary', 'data-act': 'next', disabled: !m.onNext || m.busy,
-        onclick: () => m.onNext && m.onNext(),
-      }, m.nextLabel || 'Próxima ▶');
+      if (wrapNode) wrapNode.remove();
       const menu = menuOpen
-        ? el(doc, 'div', { class: 'menu' }, (m.menuItems || []).map((it) =>
-            el(doc, 'button', { onclick: () => { menuOpen = false; renderBar(lastBarModel); it.onClick(); } }, it.label)))
+        ? el(doc, 'div', { class: 'menu', 'data-menu': '1' }, (m.menuItems || []).map((it) =>
+            el(doc, 'button', { onclick: () => { menuOpen = false; renderBar(lastModel); it.onClick(); } }, it.label)))
         : null;
-      barNode = el(doc, 'div', { class: 'bar' }, menu, badges, el(doc, 'div', { class: 'row' }, prev, pos, more, next));
-      bar.root.append(barNode);
+      const inner = el(doc, 'div', { class: 'inner' }, menu, m.mode === 'nav' ? navRow(m) : readRow(m));
+      wrapNode = el(doc, 'div', { class: 'wrap ' + (m.layout || 'full') }, inner);
+      bar.root.append(wrapNode);
+      watchHeight(inner);
     }
 
     function hideBar() {
-      if (barNode) barNode.remove();
-      barNode = null;
+      if (wrapNode) wrapNode.remove();
+      wrapNode = null;
       menuOpen = false;
+      if (observer) observer.disconnect();
+      reserve(null);
     }
 
     // o: { title, detail, error, buttons[{label,onClick}] }
@@ -516,21 +726,30 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay, _bar: bar, _ov: ov };
+    return { renderBar, hideBar, showOverlay, hideOverlay };
   }
 
-  return { create };
+  return { create, readWidths };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 
 // ---- main.js ----
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
-// ver o checklist manual em docs/08-roteiro.md.
+// ver o checklist manual em docs/STATUS.md.
 function startApp() {
-  const DEFAULTS = { apiBaseUrl: 'http://localhost:8010', apiKey: '', autoResume: true, internalNav: true };
+  const DEFAULTS = {
+    apiBaseUrl: 'http://localhost:8010',
+    apiKey: '',
+    autoResume: true,
+    internalNav: true,
+    layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
+    buttons: 'both', // 'both' | 'next' | 'prev'
+    hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+  };
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 10 };
   const FETCH_STALE_MS = 30 * 60 * 1000;
   const ERROR_STALE_MS = 5 * 60 * 1000;
+  const NOTICE_MS = 6000;
 
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   const gm = {
@@ -595,6 +814,29 @@ function startApp() {
   };
   const setPhase = (name, extra) => gm.set('nx_phase', Object.assign({ name, at: Date.now() }, extra || {}));
 
+  // ---------- barra do X escondida ----------
+  function applyXBar() {
+    try { Xdom.setBottomBarsHidden(document, window, cfg.hideXBar); } catch (e) { /* melhor esforço */ }
+  }
+  setInterval(applyXBar, 1500);
+
+  // ---------- etiquetas dentro da página ----------
+  let labelModel = null;
+  let labelTimer = null;
+  function syncLabels() {
+    if (labelModel) Labels.sync(document, labelModel);
+  }
+  function setLabels(entry) {
+    if (!entry) { labelModel = null; Labels.clear(document); return; }
+    labelModel = { tweetId: entry.tweet_id, lines: Core.buildBadges(entry), bannerText: Core.buildBannerText(entry) };
+    syncLabels();
+  }
+  // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).
+  new MutationObserver(() => {
+    if (labelTimer || !labelModel) return;
+    labelTimer = setTimeout(() => { labelTimer = null; syncLabels(); }, 200);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
   // ---------- navegação ----------
   // Preferencial: navegação interna do X (sem recarregar). Se não renderizar em 7 s, abre a página normalmente.
   function go(url) {
@@ -615,7 +857,7 @@ function startApp() {
   async function verifyNavigation(u) {
     const st = Core.parseStatusPath(u.pathname);
     const ok = await waitFor(
-      () => (st ? Xdom.hasStatus(document, st.id) : Xdom.hasArticles(document)),
+      () => (st ? Xdom.hasStatus(document, st.id) : Xdom.hasArticles(document) || u.pathname !== '/home'),
       7000,
       300
     );
@@ -635,52 +877,98 @@ function startApp() {
     })();
   }
 
-  // ---------- leitura ----------
+  // ---------- barra ----------
+  const CYCLE = {
+    layout: { order: ['full', 'left', 'right'], label: { full: 'ambas (largura total)', left: 'esquerda', right: 'direita' } },
+    buttons: { order: ['both', 'next', 'prev'], label: { both: 'ambos', next: 'só avançar', prev: 'só voltar' } },
+  };
+  function cycle(key) {
+    const { order } = CYCLE[key];
+    cfg[key] = order[(order.indexOf(cfg[key]) + 1) % order.length];
+    saveCfg();
+    drawBar();
+  }
+
   function menuItems(st) {
     return [
       { label: 'Buscar novas agora', onClick: () => startFetch() },
+      { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
+      { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
+      { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
+      { label: 'Ir para Explorar', onClick: () => go('https://x.com/explore') },
       { label: 'Trocar feed…', onClick: changeFeed },
       { label: 'Reabrir posts cobertos', onClick: () => reopenCovered(st) },
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Exportar dados', onClick: exportData },
       { label: 'Configurar API…', onClick: () => promptConfig() },
-      { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); onRoute(); } },
-      { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); onRoute(); } },
+      { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
     ];
   }
 
-  function renderEntryBar(st, notice) {
-    const badges = [];
-    if (notice) badges.push(notice);
-    badges.push(...Core.buildBadges(st.current));
-    ui.renderBar({
-      badges,
-      position: st.position,
-      total: st.total_visible,
-      menuItems: menuItems(st),
-      onPrev: onPrev,
-      onNext: onNext,
-      nextLabel: st.unread_after > 0 ? 'Próxima ▶' : 'Buscar novas ▶',
+  const NAV_ITEMS = () => [
+    { label: '🏠', title: 'Início', onClick: () => go('https://x.com/home') },
+    { label: '🔔', title: 'Notificações', onClick: () => go('https://x.com/notifications') },
+    { label: '✉️', title: 'Mensagens', onClick: () => go('https://x.com/messages') },
+  ];
+
+  // barState: { st, notice, message }  (message => fora da fila; sem botões de passar)
+  let barState = null;
+  function toggleMode() {
+    gm.set('nx_mode', gm.get('nx_mode', 'read') === 'read' ? 'nav' : 'read');
+    drawBar();
+  }
+
+  function barModel() {
+    const { st, notice, message } = barState;
+    const inEntry = !message && st && st.current;
+    return {
+      mode: gm.get('nx_mode', 'read'),
+      layout: cfg.layout,
+      buttons: cfg.buttons,
+      position: inEntry ? st.position : null,
+      total: inEntry ? st.total_visible : null,
+      notice: message || notice || null,
+      onPrev: inEntry ? onPrev : null,
+      onNext: inEntry ? onNext : resumeReading,
+      nextLabel: inEntry && st.unread_after === 0 ? '⟳' : '▶',
+      onToggle: toggleMode,
+      navItems: NAV_ITEMS(),
+      menuItems: menuItems(st || {}),
       busy,
-    });
+    };
+  }
+
+  function drawBar() {
+    if (barState) ui.renderBar(barModel());
+  }
+
+  function showBar(state) {
+    barState = state;
+    drawBar();
+    const n = state.notice;
+    if (n) {
+      setTimeout(() => {
+        if (barState && barState.notice === n) { barState.notice = null; drawBar(); }
+      }, NOTICE_MS);
+    }
+  }
+
+  function renderEntryBar(st, notice) {
+    showBar({ st, notice: notice || null });
+    setLabels(st.current);
   }
 
   function renderSideBar(message, st) {
-    ui.renderBar({
-      badges: [message],
-      position: null,
-      total: null,
-      menuItems: menuItems(st || {}),
-      onPrev: null,
-      onNext: resumeReading,
-      nextLabel: 'Voltar à leitura ▶',
-      busy,
-    });
+    setLabels(null);
+    showBar({ st: st || null, message });
   }
 
+  // ---------- leitura ----------
   async function openEntry(entry) {
     await api.putState({ cursor_seq: entry.seq });
     gm.set('nx_view', { seq: entry.seq, tweetId: entry.tweet_id, targetId: null });
+    gm.set('nx_mode', 'read');
     go(entry.url);
   }
 
@@ -697,7 +985,8 @@ function startApp() {
   async function guarded(fn) {
     if (busy) return;
     busy = true;
-    try { await fn(); } catch (e) { handleError(e); } finally { busy = false; }
+    drawBar();
+    try { await fn(); } catch (e) { handleError(e); } finally { busy = false; drawBar(); }
   }
 
   const onNext = () => guarded(async () => {
@@ -715,14 +1004,14 @@ function startApp() {
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
     if (q.items.length) return openEntry(q.items[0]);
-    ui.renderBar({ badges: ['Início da fila'], position: st.position, total: st.total_visible, menuItems: menuItems(st), onPrev: null, onNext, nextLabel: 'Próxima ▶' });
+    showBar({ st, notice: 'Início da fila' });
   });
 
   async function onStatusPage(token, status, st) {
     const cur = st.current;
     const view = gm.get('nx_view', null);
     const inQueue = cur && view && view.seq === cur.seq && (status.id === cur.tweet_id || status.id === view.targetId);
-    if (!inQueue) { renderSideBar('Fora da fila de leitura', st); return; }
+    if (!inQueue) { renderSideBar('Fora da fila', st); return; }
 
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
@@ -731,6 +1020,7 @@ function startApp() {
 
     const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000);
     if (token !== routeToken || !ready) return;
+    syncLabels();
     await sleep(2000);
     if (token !== routeToken) return;
 
@@ -789,6 +1079,7 @@ function startApp() {
 
   async function runFetch(token) {
     cancelled = false;
+    ui.hideBar();
     const progress = (n, steps) => ui.showOverlay({
       title: 'Buscando novas…',
       detail: n + ' posts lidos · passo ' + steps,
@@ -842,7 +1133,7 @@ function startApp() {
         return openEntry(q.items[0]);
       }
     }
-    gm.set('nx_notice', 'Você está em dia.');
+    gm.set('nx_notice', 'Você está em dia');
     ui.hideOverlay();
     if (st.current) return openEntry(st.current);
     ui.showOverlay({ title: 'Nada para ler', detail: 'O feed não trouxe posts.', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
@@ -897,16 +1188,13 @@ function startApp() {
       return;
     }
     ui.hideOverlay();
-    ui.renderBar({
-      badges: ['⚠ ' + (e && e.message ? e.message : 'Erro desconhecido')],
-      position: null, total: null,
-      menuItems: [{ label: 'Configurar API…', onClick: () => promptConfig() }, { label: 'Tentar de novo', onClick: () => onRoute() }],
-      onPrev: null, onNext: null, nextLabel: 'Próxima ▶',
-    });
+    setLabels(null);
+    showBar({ st: null, message: '⚠ ' + (e && e.message ? e.message : 'Erro desconhecido') });
   }
 
   async function onRoute() {
     const token = ++routeToken;
+    setLabels(null);
     try {
       if (Xdom.isLoginPath(location.pathname)) return;
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));
@@ -919,9 +1207,9 @@ function startApp() {
 
       if (phase.name === 'fetching') {
         if (feedHere) return await runFetch(token);
-        return renderSideBar('Busca de novas em andamento', st);
+        return renderSideBar('Busca em andamento', st);
       }
-      if (phase.name === 'error') return renderSideBar('A última busca falhou — veja o menu', st);
+      if (phase.name === 'error') return renderSideBar('Última busca falhou — veja o menu ⋯', st);
 
       if (feedHere && cfg.autoResume) return await resumeReading();
 
@@ -948,6 +1236,7 @@ function startApp() {
   });
 
   lastHref = location.href;
+  applyXBar();
   onRoute();
 }
 

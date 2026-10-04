@@ -54,40 +54,117 @@ test('Api: rotas usadas pelo script', async () => {
 });
 
 // ---------- Ui ----------
-function mountUi() {
+function mountUi(extra) {
   const win = new JSDOM('<!doctype html><body></body>', { url: 'https://x.com/home' }).window;
-  return { ui: Ui.create(win.document), doc: win.document };
+  if (extra) extra(win);
+  return { ui: Ui.create(win.document), doc: win.document, win };
 }
+const barRoot = (doc) => doc.getElementById('notixias-bar').shadowRoot;
+const base = (o) => Object.assign({ mode: 'read', layout: 'full', buttons: 'both', position: 4, total: 9, notice: null,
+  onPrev: () => {}, onNext: () => {}, onToggle: () => {}, navItems: [], menuItems: [], busy: false }, o);
+const basis = (btn) => btn.closest('.cell').style.flexBasis;
 
-test('Ui: barra mostra etiquetas e posição; botões chamam os handlers', () => {
+test('Ui: leitura com os dois botões = 40% / 20% / 40%', () => {
   const { ui, doc } = mountUi();
-  const hits = [];
-  ui.renderBar({
-    badges: ['↻ repostado por @ana', '👁 já visto em 03/10/2026 às 21:14'],
-    position: 4, total: 9,
-    onPrev: () => hits.push('prev'), onNext: () => hits.push('next'), nextLabel: 'Próxima ▶',
-    menuItems: [{ label: 'Buscar novas agora', onClick: () => hits.push('fetch') }],
-  });
-  const root = doc.getElementById('notixias-bar').shadowRoot;
-  const text = root.textContent;
-  assert.match(text, /repostado por @ana/);
-  assert.match(text, /já visto em 03\/10\/2026 às 21:14/);
-  assert.match(text, /4 \/ 9/);
-  root.querySelector('[data-act="next"]').click();
-  root.querySelector('[data-act="prev"]').click();
-  assert.deepEqual(hits, ['next', 'prev']);
-  root.querySelector('[data-act="menu"]').click(); // abre o menu (re-renderiza)
-  const item = [...doc.getElementById('notixias-bar').shadowRoot.querySelectorAll('.menu button')].find((b) => /Buscar novas/.test(b.textContent));
-  item.click();
-  assert.deepEqual(hits, ['next', 'prev', 'fetch']);
+  ui.renderBar(base());
+  const r = barRoot(doc);
+  assert.equal(basis(r.querySelector('[data-act="prev"]')), '40%');
+  assert.equal(basis(r.querySelector('[data-act="toggle"]')), '20%');
+  assert.equal(basis(r.querySelector('[data-act="next"]')), '40%');
+  assert.match(r.textContent, /4 \/ 9/);
 });
 
-test('Ui: botões desabilitados sem handler ou ocupado', () => {
+test('Ui: escolha de botões (só avançar / só voltar) redistribui a largura', () => {
   const { ui, doc } = mountUi();
-  ui.renderBar({ badges: [], position: null, total: null, onPrev: null, onNext: () => {}, busy: true, menuItems: [] });
-  const root = doc.getElementById('notixias-bar').shadowRoot;
-  assert.equal(root.querySelector('[data-act="prev"]').disabled, true);
-  assert.equal(root.querySelector('[data-act="next"]').disabled, true);
+  ui.renderBar(base({ buttons: 'next' }));
+  let r = barRoot(doc);
+  assert.equal(r.querySelector('[data-act="prev"]'), null);
+  assert.equal(basis(r.querySelector('[data-act="next"]')), '80%');
+  ui.renderBar(base({ buttons: 'prev' }));
+  r = barRoot(doc);
+  assert.equal(r.querySelector('[data-act="next"]'), null);
+  assert.equal(basis(r.querySelector('[data-act="prev"]')), '80%');
+});
+
+test('Ui: modo uma mão aplica a classe do lado escolhido', () => {
+  const { ui, doc } = mountUi();
+  for (const layout of ['full', 'left', 'right']) {
+    ui.renderBar(base({ layout }));
+    assert.ok(barRoot(doc).querySelector('.wrap.' + layout), layout);
+  }
+});
+
+test('Ui: botões chamam handlers; centro alterna o modo; desabilita sem handler/ocupado', () => {
+  const { ui, doc } = mountUi();
+  const hits = [];
+  ui.renderBar(base({ onPrev: () => hits.push('prev'), onNext: () => hits.push('next'), onToggle: () => hits.push('toggle') }));
+  const r = barRoot(doc);
+  r.querySelector('[data-act="prev"]').click();
+  r.querySelector('[data-act="next"]').click();
+  r.querySelector('[data-act="toggle"]').click();
+  assert.deepEqual(hits, ['prev', 'next', 'toggle']);
+  ui.renderBar(base({ onPrev: null, busy: false }));
+  assert.equal(barRoot(doc).querySelector('[data-act="prev"]').disabled, true);
+  ui.renderBar(base({ busy: true }));
+  assert.equal(barRoot(doc).querySelector('[data-act="next"]').disabled, true);
+});
+
+test('Ui: aviso aparece no miolo, junto da posição', () => {
+  const { ui, doc } = mountUi();
+  ui.renderBar(base({ notice: '12 novos · ⚠ pode haver lacuna' }));
+  const center = barRoot(doc).querySelector('[data-act="toggle"]');
+  assert.match(center.querySelector('.notice').textContent, /12 novos/);
+  assert.match(center.querySelector('.pos').textContent, /4 \/ 9/);
+});
+
+test('Ui: modo navegação mostra ⋯, 3 atalhos e o centro; atalhos chamam handlers', () => {
+  const { ui, doc } = mountUi();
+  const hits = [];
+  const navItems = ['Início', 'Notificações', 'Mensagens'].map((t) => ({ label: t[0], title: t, onClick: () => hits.push(t) }));
+  ui.renderBar(base({ mode: 'nav', navItems }));
+  const r = barRoot(doc);
+  assert.equal(r.querySelector('[data-act="prev"]'), null);
+  assert.equal(r.querySelector('[data-act="next"]'), null);
+  for (const act of ['menu', 'nav-0', 'nav-1', 'nav-2', 'toggle']) assert.equal(basis(r.querySelector(`[data-act="${act}"]`)), '20%', act);
+  r.querySelector('[data-act="nav-0"]').click();
+  r.querySelector('[data-act="nav-2"]').click();
+  assert.deepEqual(hits, ['Início', 'Mensagens']);
+});
+
+test('Ui: menu abre pelo ⋯ no modo navegação e executa o item', () => {
+  const { ui, doc } = mountUi();
+  const hits = [];
+  ui.renderBar(base({ mode: 'nav', menuItems: [{ label: 'Buscar novas agora', onClick: () => hits.push('fetch') }] }));
+  barRoot(doc).querySelector('[data-act="menu"]').click();
+  const item = [...barRoot(doc).querySelectorAll('.menu button')].find((b) => /Buscar novas/.test(b.textContent));
+  item.click();
+  assert.deepEqual(hits, ['fetch']);
+  assert.equal(barRoot(doc).querySelector('.menu'), null); // fechou
+});
+
+test('Ui: pressão longa no centro abre o menu e não alterna o modo', async () => {
+  const { ui, doc, win } = mountUi();
+  const hits = [];
+  ui.renderBar(base({ onToggle: () => hits.push('toggle'), menuItems: [{ label: 'Item', onClick: () => {} }] }));
+  const center = barRoot(doc).querySelector('[data-act="toggle"]');
+  center.dispatchEvent(new win.Event('pointerdown'));
+  await new Promise((r) => setTimeout(r, 700));
+  assert.ok(barRoot(doc).querySelector('.menu'), 'menu deveria estar aberto');
+  barRoot(doc).querySelector('[data-act="toggle"]').click();
+  assert.deepEqual(hits, []); // o clique que segue a pressão longa é ignorado
+});
+
+test('Ui: reserva espaço no fim da página (padding-bottom) e libera ao esconder', () => {
+  let cb;
+  const { ui, doc } = mountUi((win) => {
+    win.ResizeObserver = class { constructor(f) { cb = f; } observe() {} disconnect() {} };
+  });
+  ui.renderBar(base());
+  cb([{ borderBoxSize: [{ blockSize: 90.2 }], target: {} }]);
+  assert.equal(doc.documentElement.style.getPropertyValue('padding-bottom'), '91px');
+  assert.equal(doc.documentElement.style.getPropertyPriority('padding-bottom'), 'important');
+  ui.hideBar();
+  assert.equal(doc.documentElement.style.getPropertyValue('padding-bottom'), '');
 });
 
 test('Ui: overlay de busca e de erro; hideOverlay remove', () => {

@@ -1,10 +1,19 @@
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
-// ver o checklist manual em docs/08-roteiro.md.
+// ver o checklist manual em docs/STATUS.md.
 function startApp() {
-  const DEFAULTS = { apiBaseUrl: 'http://localhost:8010', apiKey: '', autoResume: true, internalNav: true };
+  const DEFAULTS = {
+    apiBaseUrl: 'http://localhost:8010',
+    apiKey: '',
+    autoResume: true,
+    internalNav: true,
+    layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
+    buttons: 'both', // 'both' | 'next' | 'prev'
+    hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+  };
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 10 };
   const FETCH_STALE_MS = 30 * 60 * 1000;
   const ERROR_STALE_MS = 5 * 60 * 1000;
+  const NOTICE_MS = 6000;
 
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   const gm = {
@@ -69,6 +78,29 @@ function startApp() {
   };
   const setPhase = (name, extra) => gm.set('nx_phase', Object.assign({ name, at: Date.now() }, extra || {}));
 
+  // ---------- barra do X escondida ----------
+  function applyXBar() {
+    try { Xdom.setBottomBarsHidden(document, window, cfg.hideXBar); } catch (e) { /* melhor esforço */ }
+  }
+  setInterval(applyXBar, 1500);
+
+  // ---------- etiquetas dentro da página ----------
+  let labelModel = null;
+  let labelTimer = null;
+  function syncLabels() {
+    if (labelModel) Labels.sync(document, labelModel);
+  }
+  function setLabels(entry) {
+    if (!entry) { labelModel = null; Labels.clear(document); return; }
+    labelModel = { tweetId: entry.tweet_id, lines: Core.buildBadges(entry), bannerText: Core.buildBannerText(entry) };
+    syncLabels();
+  }
+  // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).
+  new MutationObserver(() => {
+    if (labelTimer || !labelModel) return;
+    labelTimer = setTimeout(() => { labelTimer = null; syncLabels(); }, 200);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
   // ---------- navegação ----------
   // Preferencial: navegação interna do X (sem recarregar). Se não renderizar em 7 s, abre a página normalmente.
   function go(url) {
@@ -89,7 +121,7 @@ function startApp() {
   async function verifyNavigation(u) {
     const st = Core.parseStatusPath(u.pathname);
     const ok = await waitFor(
-      () => (st ? Xdom.hasStatus(document, st.id) : Xdom.hasArticles(document)),
+      () => (st ? Xdom.hasStatus(document, st.id) : Xdom.hasArticles(document) || u.pathname !== '/home'),
       7000,
       300
     );
@@ -109,52 +141,98 @@ function startApp() {
     })();
   }
 
-  // ---------- leitura ----------
+  // ---------- barra ----------
+  const CYCLE = {
+    layout: { order: ['full', 'left', 'right'], label: { full: 'ambas (largura total)', left: 'esquerda', right: 'direita' } },
+    buttons: { order: ['both', 'next', 'prev'], label: { both: 'ambos', next: 'só avançar', prev: 'só voltar' } },
+  };
+  function cycle(key) {
+    const { order } = CYCLE[key];
+    cfg[key] = order[(order.indexOf(cfg[key]) + 1) % order.length];
+    saveCfg();
+    drawBar();
+  }
+
   function menuItems(st) {
     return [
       { label: 'Buscar novas agora', onClick: () => startFetch() },
+      { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
+      { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
+      { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
+      { label: 'Ir para Explorar', onClick: () => go('https://x.com/explore') },
       { label: 'Trocar feed…', onClick: changeFeed },
       { label: 'Reabrir posts cobertos', onClick: () => reopenCovered(st) },
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Exportar dados', onClick: exportData },
       { label: 'Configurar API…', onClick: () => promptConfig() },
-      { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); onRoute(); } },
-      { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); onRoute(); } },
+      { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
     ];
   }
 
-  function renderEntryBar(st, notice) {
-    const badges = [];
-    if (notice) badges.push(notice);
-    badges.push(...Core.buildBadges(st.current));
-    ui.renderBar({
-      badges,
-      position: st.position,
-      total: st.total_visible,
-      menuItems: menuItems(st),
-      onPrev: onPrev,
-      onNext: onNext,
-      nextLabel: st.unread_after > 0 ? 'Próxima ▶' : 'Buscar novas ▶',
+  const NAV_ITEMS = () => [
+    { label: '🏠', title: 'Início', onClick: () => go('https://x.com/home') },
+    { label: '🔔', title: 'Notificações', onClick: () => go('https://x.com/notifications') },
+    { label: '✉️', title: 'Mensagens', onClick: () => go('https://x.com/messages') },
+  ];
+
+  // barState: { st, notice, message }  (message => fora da fila; sem botões de passar)
+  let barState = null;
+  function toggleMode() {
+    gm.set('nx_mode', gm.get('nx_mode', 'read') === 'read' ? 'nav' : 'read');
+    drawBar();
+  }
+
+  function barModel() {
+    const { st, notice, message } = barState;
+    const inEntry = !message && st && st.current;
+    return {
+      mode: gm.get('nx_mode', 'read'),
+      layout: cfg.layout,
+      buttons: cfg.buttons,
+      position: inEntry ? st.position : null,
+      total: inEntry ? st.total_visible : null,
+      notice: message || notice || null,
+      onPrev: inEntry ? onPrev : null,
+      onNext: inEntry ? onNext : resumeReading,
+      nextLabel: inEntry && st.unread_after === 0 ? '⟳' : '▶',
+      onToggle: toggleMode,
+      navItems: NAV_ITEMS(),
+      menuItems: menuItems(st || {}),
       busy,
-    });
+    };
+  }
+
+  function drawBar() {
+    if (barState) ui.renderBar(barModel());
+  }
+
+  function showBar(state) {
+    barState = state;
+    drawBar();
+    const n = state.notice;
+    if (n) {
+      setTimeout(() => {
+        if (barState && barState.notice === n) { barState.notice = null; drawBar(); }
+      }, NOTICE_MS);
+    }
+  }
+
+  function renderEntryBar(st, notice) {
+    showBar({ st, notice: notice || null });
+    setLabels(st.current);
   }
 
   function renderSideBar(message, st) {
-    ui.renderBar({
-      badges: [message],
-      position: null,
-      total: null,
-      menuItems: menuItems(st || {}),
-      onPrev: null,
-      onNext: resumeReading,
-      nextLabel: 'Voltar à leitura ▶',
-      busy,
-    });
+    setLabels(null);
+    showBar({ st: st || null, message });
   }
 
+  // ---------- leitura ----------
   async function openEntry(entry) {
     await api.putState({ cursor_seq: entry.seq });
     gm.set('nx_view', { seq: entry.seq, tweetId: entry.tweet_id, targetId: null });
+    gm.set('nx_mode', 'read');
     go(entry.url);
   }
 
@@ -171,7 +249,8 @@ function startApp() {
   async function guarded(fn) {
     if (busy) return;
     busy = true;
-    try { await fn(); } catch (e) { handleError(e); } finally { busy = false; }
+    drawBar();
+    try { await fn(); } catch (e) { handleError(e); } finally { busy = false; drawBar(); }
   }
 
   const onNext = () => guarded(async () => {
@@ -189,14 +268,14 @@ function startApp() {
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
     if (q.items.length) return openEntry(q.items[0]);
-    ui.renderBar({ badges: ['Início da fila'], position: st.position, total: st.total_visible, menuItems: menuItems(st), onPrev: null, onNext, nextLabel: 'Próxima ▶' });
+    showBar({ st, notice: 'Início da fila' });
   });
 
   async function onStatusPage(token, status, st) {
     const cur = st.current;
     const view = gm.get('nx_view', null);
     const inQueue = cur && view && view.seq === cur.seq && (status.id === cur.tweet_id || status.id === view.targetId);
-    if (!inQueue) { renderSideBar('Fora da fila de leitura', st); return; }
+    if (!inQueue) { renderSideBar('Fora da fila', st); return; }
 
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
@@ -205,6 +284,7 @@ function startApp() {
 
     const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000);
     if (token !== routeToken || !ready) return;
+    syncLabels();
     await sleep(2000);
     if (token !== routeToken) return;
 
@@ -263,6 +343,7 @@ function startApp() {
 
   async function runFetch(token) {
     cancelled = false;
+    ui.hideBar();
     const progress = (n, steps) => ui.showOverlay({
       title: 'Buscando novas…',
       detail: n + ' posts lidos · passo ' + steps,
@@ -316,7 +397,7 @@ function startApp() {
         return openEntry(q.items[0]);
       }
     }
-    gm.set('nx_notice', 'Você está em dia.');
+    gm.set('nx_notice', 'Você está em dia');
     ui.hideOverlay();
     if (st.current) return openEntry(st.current);
     ui.showOverlay({ title: 'Nada para ler', detail: 'O feed não trouxe posts.', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
@@ -371,16 +452,13 @@ function startApp() {
       return;
     }
     ui.hideOverlay();
-    ui.renderBar({
-      badges: ['⚠ ' + (e && e.message ? e.message : 'Erro desconhecido')],
-      position: null, total: null,
-      menuItems: [{ label: 'Configurar API…', onClick: () => promptConfig() }, { label: 'Tentar de novo', onClick: () => onRoute() }],
-      onPrev: null, onNext: null, nextLabel: 'Próxima ▶',
-    });
+    setLabels(null);
+    showBar({ st: null, message: '⚠ ' + (e && e.message ? e.message : 'Erro desconhecido') });
   }
 
   async function onRoute() {
     const token = ++routeToken;
+    setLabels(null);
     try {
       if (Xdom.isLoginPath(location.pathname)) return;
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));
@@ -393,9 +471,9 @@ function startApp() {
 
       if (phase.name === 'fetching') {
         if (feedHere) return await runFetch(token);
-        return renderSideBar('Busca de novas em andamento', st);
+        return renderSideBar('Busca em andamento', st);
       }
-      if (phase.name === 'error') return renderSideBar('A última busca falhou — veja o menu', st);
+      if (phase.name === 'error') return renderSideBar('Última busca falhou — veja o menu ⋯', st);
 
       if (feedHere && cfg.autoResume) return await resumeReading();
 
@@ -422,6 +500,7 @@ function startApp() {
   });
 
   lastHref = location.href;
+  applyXBar();
   onRoute();
 }
 

@@ -274,3 +274,26 @@ O que foi confirmado na página real: o botão do topo é `<button>` com `data-t
 - Até 40 cliques por busca. Se uma lacuna **não puder ser aberta** (limite), a busca marca `anchor_found = false`: a primeira entrada nova recebe `gap_before` e a barra avisa "pode haver lacuna" — nada é pulado em silêncio.
 - Os posts de uma lacuna recém-aberta entram **no meio**, na ordem do feed (cada item novo é inserido junto do vizinho que o X mostra acima dele).
 - Se o X usar outro texto/estrutura para a lacuna, o botão não é reconhecido e a busca segue como antes; nesse caso mande o esqueleto/captura para eu incluir.
+
+
+## 0.6.0: comandos pela URL (atalho do iPhone, favoritos)
+
+O script entende o parâmetro `nx` na URL do X e executa o comando assim que a página carrega (e limpa o parâmetro da barra de endereço, então recarregar a página não repete a ação). O comando vale por 2 minutos depois da abertura.
+
+| URL | Efeito |
+|---|---|
+| `https://x.com/home?nx=update` | Busca novas (igual a "Buscar novas agora"). |
+| `https://x.com/home?nx=deep` | Busca com varredura profunda. |
+| `https://x.com/home?nx=following` | Lê/atualiza as contas seguidas. |
+| `https://x.com/home?nx=read` | Continua a leitura. |
+
+Valores desconhecidos são ignorados (e removidos da URL). Todos só fazem o que você já faria pelo menu; nada é destrutivo.
+
+### Atalho no iPhone (app Atalhos)
+1. Atalhos → **+** → ação **Abrir URLs** → URL `x-safari-https://x.com/home?nx=update`.
+2. Dar um nome (ex.: "Atualizar notícias") → ⓘ → **Adicionar à Tela de Início**.
+3. Opcional: **Automação** → "Hora do dia" → **Executar o Atalho** (sem pedir confirmação, se o iOS permitir) nos horários desejados.
+
+Por que `x-safari-https://` e não `https://`: um link `https://x.com/...` aberto de outro app costuma ir para o **app do X** (links universais), onde o script não roda. O esquema `x-safari-https://` força o **Safari**. Se o iOS não aceitar, alternativas: um favorito do Safari com a URL (abre direto no Safari) ou colar a URL no Safari.
+
+O script só roda no Safari (extensão Userscripts), não no app do X nem em aplicativos "adicionados à Tela de Início" como web app.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.5.1
+// @version      0.6.0
 // @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
 // @match        https://x.com/*
 // @match        https://twitter.com/*
@@ -157,6 +157,21 @@ const Core = (function () {
     return '↻ uma mensagem dessa thread foi repostada por ' + reps.map((r) => '@' + r).join(', ');
   }
 
+  // Comando de abertura pela URL (atalho do iPhone, favorito...): `https://x.com/home?nx=update`.
+  //   update    -> busca novas;  deep -> busca com varredura profunda;
+  //   following -> lê as contas seguidas;  read -> continua a leitura.
+  // Devolve o comando (ou null, se ausente/desconhecido) e a query SEM o parâmetro, para limpar a barra de endereço
+  // (recarregar a página não repete a ação).
+  const LAUNCH_CMDS = ['update', 'deep', 'following', 'read'];
+  function parseLaunch(search) {
+    const p = new URLSearchParams(search || '');
+    const raw = p.get('nx');
+    if (raw === null) return { cmd: null, search: search || '' };
+    p.delete('nx');
+    const rest = p.toString();
+    return { cmd: LAUNCH_CMDS.includes(raw) ? raw : null, search: rest ? '?' + rest : '' };
+  }
+
   function normPath(p) {
     return (p || '').replace(/\/+$/, '') || '/';
   }
@@ -205,7 +220,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, splitConversation, clusterize, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1758,6 +1773,14 @@ function startApp() {
     a.click();
   }
 
+  // Comando vindo da URL, válido por 2 minutos (uma busca nunca dispara por uma abertura antiga).
+  function takeLaunch() {
+    const l = gm.get('nx_launch', null);
+    if (!l) return null;
+    gm.set('nx_launch', null);
+    return Date.now() - (l.at || 0) < 2 * 60 * 1000 ? l.cmd : null;
+  }
+
   // ---------- roteamento ----------
   function handleError(e) {
     if (e && e.status === 401) {
@@ -1780,6 +1803,14 @@ function startApp() {
       if (token !== routeToken) return;
       feed = st.feed;
       flushFollowOps();
+      const cmd = takeLaunch();
+      if (cmd) {
+        ui.hideOverlay();
+        if (cmd === 'update') return await startFetch(false);
+        if (cmd === 'deep') return await startFetch(true);
+        if (cmd === 'following') return startFollowingRefresh();
+        if (cmd === 'read') return await resumeReading();
+      }
       const phase = getPhase();
       const feedHere = Core.isFeedPath(feed.url, location.pathname);
 
@@ -1816,6 +1847,13 @@ function startApp() {
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
   });
+
+  // Comando pela URL (atalho do iPhone: https://x.com/home?nx=update): guarda e limpa o parâmetro.
+  const launch = Core.parseLaunch(location.search);
+  if (launch.cmd || /[?&]nx=/.test(location.search)) {
+    history.replaceState(history.state, '', location.pathname + launch.search + location.hash);
+    if (launch.cmd) gm.set('nx_launch', { cmd: launch.cmd, at: Date.now() });
+  }
 
   lastHref = location.href;
   applyXBar();

@@ -176,3 +176,15 @@ test('toApiItem envia o nome de quem repostou', () => {
   assert.equal('reposter_name' in Core.toApiItem({ id: '1', author: 'a', reposter: 'b' }), false);
   assert.equal('reposter_name' in Core.toApiItem({ id: '1', author: 'a', reposterName: 'x' }), false);
 });
+
+test('parseLaunch: comando pela URL (atalho do iPhone) e limpeza do parâmetro', () => {
+  assert.deepEqual(Core.parseLaunch('?nx=update'), { cmd: 'update', search: '' });
+  assert.deepEqual(Core.parseLaunch('?nx=deep'), { cmd: 'deep', search: '' });
+  assert.deepEqual(Core.parseLaunch('?nx=following'), { cmd: 'following', search: '' });
+  assert.deepEqual(Core.parseLaunch('?nx=read'), { cmd: 'read', search: '' });
+  assert.deepEqual(Core.parseLaunch('?a=1&nx=update&b=2'), { cmd: 'update', search: '?a=1&b=2' });   // preserva o resto
+  assert.deepEqual(Core.parseLaunch('?nx=apagar-tudo'), { cmd: null, search: '' });                    // desconhecido: ignorado e removido
+  assert.deepEqual(Core.parseLaunch(''), { cmd: null, search: '' });
+  assert.deepEqual(Core.parseLaunch('?q=x'), { cmd: null, search: '?q=x' });
+  assert.deepEqual(Core.parseLaunch(undefined), { cmd: null, search: '' });
+});

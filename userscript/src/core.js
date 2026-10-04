@@ -138,6 +138,21 @@ const Core = (function () {
     return '↻ uma mensagem dessa thread foi repostada por ' + reps.map((r) => '@' + r).join(', ');
   }
 
+  // Comando de abertura pela URL (atalho do iPhone, favorito...): `https://x.com/home?nx=update`.
+  //   update    -> busca novas;  deep -> busca com varredura profunda;
+  //   following -> lê as contas seguidas;  read -> continua a leitura.
+  // Devolve o comando (ou null, se ausente/desconhecido) e a query SEM o parâmetro, para limpar a barra de endereço
+  // (recarregar a página não repete a ação).
+  const LAUNCH_CMDS = ['update', 'deep', 'following', 'read'];
+  function parseLaunch(search) {
+    const p = new URLSearchParams(search || '');
+    const raw = p.get('nx');
+    if (raw === null) return { cmd: null, search: search || '' };
+    p.delete('nx');
+    const rest = p.toString();
+    return { cmd: LAUNCH_CMDS.includes(raw) ? raw : null, search: rest ? '?' + rest : '' };
+  }
+
   function normPath(p) {
     return (p || '').replace(/\/+$/, '') || '/';
   }
@@ -186,7 +201,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
-    pickThreadTarget, splitConversation, clusterize, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

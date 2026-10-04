@@ -263,3 +263,14 @@ O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no f
 - **Lembretes:** a barra avisa quando a lista nunca foi lida ou tem mais de 30 dias.
 - Mudanças feitas **fora** do script (app do X no celular, outro navegador) não são vistas: use o botão do menu.
 - Nunca clica em nada: só lê a página e escuta os cliques seus.
+
+
+## 0.5.1: lacunas e "Ver novos posts" na busca
+
+O que foi confirmado na página real: o botão do topo é `<button>` com `data-testid="pillLabel"` ("Ver novos posts"); o "Mostrar mais" que aparece é `tweet-text-show-more-link` e fica **dentro** de um post (só expande texto longo, não esconde posts). **Células de lacuna entre posts não puderam ser reproduzidas** (a conta de teste segue poucas contas), então o tratamento é genérico e conservador:
+
+- No início da busca, clica em **"Ver novos posts"** se existir (inclui o que chegou depois de o feed carregar).
+- Durante a rolagem, se há na tela uma **célula sem post, sem usuário, sem links e com UM botão** de texto curto que bate numa lista fechada (`Mostrar mais`, `Show more`, `Ver mais`, `Load more`, `Mostrar N posts`...), clica nele e **relê o mesmo trecho** antes de rolar. Nunca clica em promoções ("Inscrever-se"), "Quem seguir", botões de seguir, células com links, nem no "Mostrar mais" de dentro de um post.
+- Até 40 cliques por busca. Se uma lacuna **não puder ser aberta** (limite), a busca marca `anchor_found = false`: a primeira entrada nova recebe `gap_before` e a barra avisa "pode haver lacuna" — nada é pulado em silêncio.
+- Os posts de uma lacuna recém-aberta entram **no meio**, na ordem do feed (cada item novo é inserido junto do vizinho que o X mostra acima dele).
+- Se o X usar outro texto/estrutura para a lacuna, o botão não é reconhecido e a busca segue como antes; nesse caso mande o esqueleto/captura para eu incluir.

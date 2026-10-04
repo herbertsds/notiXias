@@ -169,3 +169,97 @@ test('rolagem infinita: no fim da página o X carrega mais posts; o scanner espe
   assert.equal(fresh(r).length, 40);
   assert.equal(r.reason, 'end');
 });
+
+// ---- lacunas "Mostrar mais" no meio do feed ----
+function gapEnv({ win = 6, itemPx = 100, viewport = 500 } = {}) {
+  const full = mk(40);
+  let opened = false, scroll = 0, clicks = 0, topClicks = 0;
+  const list = () => (opened ? full : [...full.slice(0, 10), { gap: true }, ...full.slice(30)]); // 10..29 escondidos
+  const windowAt = () => { const l = list(); const start = Math.floor(scroll / itemPx); return l.slice(start, start + win); };
+  const env = {
+    log: () => ({ clicks, topClicks, opened }),
+    readItems: () => windowAt().filter((i) => !i.gap),
+    scrollToTop: () => { scroll = 0; },
+    scrollBy: (px) => { scroll = Math.min(scroll + px, Math.max(0, list().length * itemPx - viewport)); },
+    scrollHeight: () => list().length * itemPx,
+    viewportHeight: () => viewport,
+    atBottom: () => scroll + viewport >= list().length * itemPx - 4,
+    sleep: async () => {}, rand: (a) => a, onProgress: () => {}, isCancelled: () => false,
+    expand: (click) => {
+      const visible = !opened && windowAt().some((i) => i.gap);
+      if (!visible) return { found: 0, clicked: false };
+      if (click) { opened = true; clicks++; return { found: 1, clicked: true }; }
+      return { found: 1, clicked: false };
+    },
+    expandTop: () => { topClicks++; return true; },
+  };
+  return { env, full };
+}
+
+test('lacuna "Mostrar mais" no meio: abre e captura TODOS os posts escondidos', async () => {
+  const { env, full } = gapEnv();
+  const r = await Scanner.run(env, OPTS, keys(full.slice(30, 40)));
+  assert.equal(env.log().clicks, 1);
+  assert.equal(r.expanded, 1);
+  assert.equal(r.gapUnresolved, 0);
+  assert.equal(r.anchorFound, true);
+  assert.deepEqual(ids(fresh(r)), ids(full.slice(0, 30)));      // inclui os 10..29 que estavam escondidos
+});
+
+test('sem o gancho de expansão, os posts escondidos seriam pulados (por que o gancho existe)', async () => {
+  const { env, full } = gapEnv();
+  delete env.expand;
+  const r = await Scanner.run(env, OPTS, keys(full.slice(30, 40)));
+  assert.deepEqual(ids(fresh(r)), ids(full.slice(0, 10)));
+});
+
+test('limite de cliques: lacuna não aberta fica registrada como pendente', async () => {
+  const { env, full } = gapEnv();
+  const r = await Scanner.run(env, { ...OPTS, maxExpand: 0 }, keys(full.slice(30, 40)));
+  assert.equal(env.log().clicks, 0);
+  assert.ok(r.gapUnresolved >= 1);
+});
+
+test('"Ver novos posts" do topo é clicado antes de começar', async () => {
+  const { env, full } = gapEnv();
+  await Scanner.run(env, OPTS, keys(full.slice(30, 40)));
+  assert.equal(env.log().topClicks, 1);
+});
+
+test('duas lacunas no feed são abertas uma a uma e nada fica de fora', async () => {
+  const full = mk(80);
+  const gaps = [{ at: 10, hide: 12 }, { at: 40, hide: 12 }];       // 10..21 e 40..51 escondidos
+  const opened = [false, false];
+  const hiddenIdx = new Set();
+  const view = () => {
+    const out = [];
+    for (let i = 0; i < full.length; i++) {
+      const g = gaps.findIndex((x) => i === x.at);
+      if (g >= 0 && !opened[g]) { out.push({ gap: g }); i += gaps[g].hide - 1; continue; }
+      out.push(full[i]);
+    }
+    return out;
+  };
+  let scroll = 0, clicks = 0;
+  const win = 6, itemPx = 100, viewport = 500;
+  const at = () => view().slice(Math.floor(scroll / itemPx), Math.floor(scroll / itemPx) + win);
+  const env = {
+    readItems: () => at().filter((i) => !('gap' in i)),
+    scrollToTop: () => { scroll = 0; },
+    scrollBy: (px) => { scroll = Math.min(scroll + px, Math.max(0, view().length * itemPx - viewport)); },
+    scrollHeight: () => view().length * itemPx,
+    viewportHeight: () => viewport,
+    atBottom: () => scroll + viewport >= view().length * itemPx - 4,
+    sleep: async () => {}, rand: (a) => a, onProgress: () => {}, isCancelled: () => false,
+    expand: (click) => {
+      const g = at().find((i) => 'gap' in i);
+      if (!g) return { found: 0, clicked: false };
+      if (click) { opened[g.gap] = true; clicks++; return { found: 1, clicked: true }; }
+      return { found: 1, clicked: false };
+    },
+  };
+  const r = await Scanner.run(env, OPTS, keys(full.slice(60, 70)));
+  assert.equal(clicks, 2);
+  assert.equal(r.gapUnresolved, 0);
+  assert.deepEqual(ids(fresh(r)), ids(full.slice(0, 60)));
+});

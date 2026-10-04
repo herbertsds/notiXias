@@ -406,6 +406,17 @@ function startApp() {
       sleep, rand,
       onProgress: progress,
       isCancelled: () => cancelled || token !== routeToken,
+      // Abre lacunas "Mostrar mais" no meio do feed (e o botão "Ver novos posts"): nada escondido é pulado.
+      expand: (click) => {
+        const btns = Xdom.findGapButtons(document, window);
+        if (click && btns.length) { btns[0].click(); return { found: btns.length, clicked: true }; }
+        return { found: btns.length, clicked: false };
+      },
+      expandTop: () => {
+        const pill = Xdom.findNewPostsPill(document);
+        if (pill) { pill.click(); return true; }
+        return false;
+      },
     };
     const deep = !!getPhase().deep;
     const scan = await Scanner.run(env, deep ? Object.assign({}, SCAN, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : SCAN, anchor.keys);
@@ -422,7 +433,7 @@ function startApp() {
 
     const res = await api.append({
       items: Core.clusterize(scan.seq).map(Core.toApiItem),
-      anchor_found: scan.anchorFound,
+      anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
     });
     setPhase('idle');

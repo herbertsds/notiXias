@@ -226,3 +226,53 @@ test('sem elemento com dir, o nome é nulo (a etiqueta cai para o @)', () => {
   assert.equal(it.reposter, 'beto');
   assert.equal(it.reposterName, null);
 });
+
+// ---- lacunas ("Mostrar mais") e "Ver novos posts" ----
+const cell = (inner) => `<div data-testid="cellInnerDiv">${inner}</div>`;
+const col = (...cells) => `<div data-testid="primaryColumn">${cells.join('')}</div><div data-testid="sidebarColumn"><button>Mostrar mais</button></div>`;
+
+test('findGapButtons: célula sem post com um botão "Mostrar mais" (pt, en e com contagem)', () => {
+  for (const label of ['Mostrar mais', 'Show more', 'Mostrar 12 posts', 'Ver mais', 'Load more']) {
+    const d = dom(col(cell(article({ id: '1', author: 'a' })), cell(`<div><button>${label}</button></div>`)));
+    const found = Xdom.findGapButtons(d, d.defaultView);
+    assert.equal(found.length, 1, label);
+    assert.equal(found[0].textContent.trim(), label);
+  }
+});
+
+test('findGapButtons: NUNCA devolve promoção, "Quem seguir", "Mostrar mais" dentro de post ou células com link', () => {
+  const html = col(
+    cell('<div><button>Inscrever-se</button></div>'),                                           // promoção
+    cell('<div><button>Assine o Premium</button></div>'),
+    cell(`<div data-testid="UserCell"><a href="/x"><span>X</span></a><button data-testid="9-follow">Seguir</button></div><button>Mostrar mais</button>`), // Quem seguir
+    cell(article({ id: '2', author: 'a' }).replace('</article>', '<button data-testid="tweet-text-show-more-link">Mostrar mais</button></article>')),   // texto longo
+    cell('<div><a href="/explore">Mostrar mais</a><button>Mostrar mais</button></div>'),         // tem link
+    cell('<div><button>Mostrar mais</button><button>Fechar</button></div>'),                      // dois botões
+    cell('<div><button data-testid="5-follow">Mostrar mais</button></div>'),                      // botão de seguir
+    cell('<div><button>Mostrar mais ' + 'x'.repeat(60) + '</button></div>'),                      // texto longo demais
+  );
+  const d = dom(html);
+  assert.equal(Xdom.findGapButtons(d, d.defaultView).length, 0);
+});
+
+test('findGapButtons: só a coluna principal (o "Mostrar mais" da lateral é ignorado) e só o que está na tela', () => {
+  const d = dom(col(cell('<div><button>Mostrar mais</button></div>')));
+  assert.equal(Xdom.findGapButtons(d, d.defaultView).length, 1);
+  const sideOnly = dom('<div data-testid="primaryColumn"></div><div data-testid="sidebarColumn"><div data-testid="cellInnerDiv"><button>Mostrar mais</button></div></div>');
+  assert.equal(Xdom.findGapButtons(sideOnly, sideOnly.defaultView).length, 0);
+  const w = d.defaultView;
+  Object.defineProperty(w, 'innerHeight', { value: 800 });
+  const btn = d.querySelector('button');
+  btn.getBoundingClientRect = () => ({ top: 3000, bottom: 3040, height: 40 });   // fora da tela
+  assert.equal(Xdom.findGapButtons(d, w).length, 0);
+  btn.getBoundingClientRect = () => ({ top: 400, bottom: 440, height: 40 });     // na tela
+  assert.equal(Xdom.findGapButtons(d, w).length, 1);
+});
+
+test('findNewPostsPill: botão do topo "Ver novos posts"; ignora outros botões', () => {
+  const d = dom('<div data-testid="primaryColumn"><button><div data-testid="pillLabel"><span>Ver novos posts</span></div></button><button>Mostrar mais</button></div>');
+  const pill = Xdom.findNewPostsPill(d);
+  assert.ok(pill && /novos posts/.test(pill.textContent));
+  assert.equal(Xdom.findNewPostsPill(dom('<div><button>Ver novos posts</button></div>')), null);   // sem pillLabel
+  assert.equal(Xdom.findNewPostsPill(dom('<button><div data-testid="pillLabel">Outra coisa</div></button>')), null);
+});

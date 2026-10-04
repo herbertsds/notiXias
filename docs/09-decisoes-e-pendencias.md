@@ -40,6 +40,7 @@
 | D35 | Quem repostou aparece pelo **nome de exibição** (link para o perfil); sem nome, o @. | Pedido do dono (0.4.0). |
 | D36 | Novas entradas entram **entre as não lidas, pelo horário do tweet original**; conversas pelo horário do 1º post novo de conta seguida (raiz não seguida/lida não conta). `ord` separa posição de identidade (`seq`). | Pedido do dono (0.4.0). |
 | D37 | A lista exata de contas seguidas é lida da página de Seguindo (uma vez, e por botão no menu) e mantida ao vivo observando os botões seguir/deixar de seguir (pelo resultado, não só pelo clique). | Pedido do dono (0.5.0): saber exatamente quem ele segue, em vez de inferir pelo feed. |
+| D38 | A busca abre lacunas "Mostrar mais" entre posts (célula sem post/links com um único botão de texto numa lista fechada) e o "Ver novos posts" do topo; lacuna não aberta vira aviso de possível lacuna. | Pedido do dono (0.5.1): não pular posts escondidos. |
 | D30 | "Sempre abrir a versão mobile" **não é viável** por userscript (layout depende da largura da janela). | Limitação do X/navegador. |
 
 ## Pendências (resolver na prática, durante o desenvolvimento)
@@ -58,6 +59,7 @@
 | P10 | Refinar `kind` (`reply`, `quote`) e etiquetas correspondentes. | Se fizer falta. |
 | P11 | Esconder a barra do X por heurística (nav fixo embaixo) funciona no mobile real? | Testar em janela estreita e no iPhone. |
 | P12 | Etiquetas injetadas sobrevivem aos redesenhos do X? | Observar no uso; ajustar `labels.js`. |
+| P14 | Formato real da célula de lacuna no Seguindo (não reproduzida com a conta de teste). | Observar em uso; se aparecer um "Mostrar mais" não aberto, mandar captura/esqueleto. |
 | P13 | Botão 🏠 reabre a leitura (retomada automática): é o desejado? | Decidir no uso. |
 
 ## Adiado (fora do escopo inicial)

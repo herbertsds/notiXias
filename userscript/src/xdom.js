@@ -203,13 +203,50 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- lacunas e "novos posts" no feed ----
+  // Texto de botão que revela posts escondidos ("Mostrar mais", "Show more", "Mostrar 12 posts"...). Lista fechada
+  // de propósito: nunca clicar em botões de promoção ("Inscrever-se"), "Quem seguir" etc.
+  const GAP_RE = /\b(mostrar|ver|show|load|carregar|cargar)\b[^\n]*\b(mais|more|más|posts?)\b|\b\d+\b[^\n]*\bposts?\b/i;
+
+  // Botões que preenchem uma LACUNA entre posts: célula sem post, sem usuário, sem links e com UM botão de texto
+  // curto que bate em GAP_RE. Só os que estão na tela (o X carrega a lacuna ao rolar até ela).
+  function findGapButtons(root, win) {
+    const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
+    const out = [];
+    for (const cell of scope.querySelectorAll('[data-testid="cellInnerDiv"]')) {
+      if (cell.querySelector('article, [data-testid="UserCell"], a[href]')) continue;
+      const btns = Array.from(cell.querySelectorAll('button, [role="button"]')).filter(
+        (b) => !/-(un)?follow$/.test(b.getAttribute('data-testid') || '')
+      );
+      if (btns.length !== 1) continue;
+      const b = btns[0];
+      const t = (b.innerText || b.textContent || '').trim();
+      if (!t || t.length > 40 || !GAP_RE.test(t)) continue;
+      if (win && b.getBoundingClientRect) {
+        const r = b.getBoundingClientRect();
+        if (r.height && (r.bottom < 0 || r.top > win.innerHeight)) continue;
+      }
+      out.push(b);
+    }
+    return out;
+  }
+
+  // Botão do topo "Ver novos posts" / "Show N posts" (posts que chegaram depois de o feed carregar).
+  function findNewPostsPill(root) {
+    for (const lab of root.querySelectorAll('[data-testid="pillLabel"]')) {
+      const b = lab.closest('button, [role="button"]');
+      if (b && /posts?/i.test(b.innerText || b.textContent || '')) return b;
+    }
+    return null;
+  }
+
   function isLoginPath(pathname) {
     return /^\/(i\/flow\/login|login)(\/|$)/.test(pathname || '');
   }
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden,
+    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

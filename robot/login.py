@@ -21,7 +21,7 @@ def main() -> int:
         profile = tempfile.mkdtemp(prefix="notixias-login-")
         try:
             ctx = pw.chromium.launch_persistent_context(
-                profile, channel="chrome", headless=False, no_viewport=True,
+                profile, channel="chrome", headless=False, no_viewport=True, chromium_sandbox=True,
                 ignore_default_args=["--enable-automation"], args=["--disable-blink-features=AutomationControlled"],
             )
         except Exception as e:  # noqa: BLE001

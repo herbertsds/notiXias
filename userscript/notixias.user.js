@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.3
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.3
+// @version      0.8.4
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.4
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -536,6 +536,19 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
+  // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
+  // escolher 1x depois de outra velocidade tem de devolver o vídeo ao normal, e o padrão (1x, nunca mexido) deixa o X
+  // em paz. O navegador pode recusar velocidades baixas demais (o iOS limita): então o vídeo segue como estava.
+  function applyPlaybackRate(video, rate, touched) {
+    if (rate === 1 && !touched.has(video)) return false;
+    if (video.playbackRate !== rate) {
+      try { video.playbackRate = rate; } catch (e) { return false; }
+    }
+    if (rate !== 1) touched.add(video);
+    else if (video.playbackRate === 1) touched.delete(video);
+    return true;
+  }
+
   // Os controles do X (botão de som) estão aparecendo? Eles surgem e somem com transição de opacidade, dentro do player.
   // Sem botão de som (vídeo sem áudio, GIF) não há como saber: considera visíveis.
   function controlsVisible(component, win) {
@@ -665,7 +678,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1412,7 +1425,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.3'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.4'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1533,6 +1546,7 @@ async function startApp() {
   // o toque abre um menu de 0,1x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
+  const speedTouched = new WeakSet(); // vídeos cuja velocidade o script já alterou
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
   function applySpeed() {
     if (cfg.bot) return;
@@ -1540,8 +1554,7 @@ async function startApp() {
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
     if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
-    // O navegador pode recusar velocidades muito baixas (o iOS limita): nesse caso o vídeo segue como estava.
-    if (rate !== 1 && v.video.playbackRate !== rate) { try { v.video.playbackRate = rate; } catch (e) { /* velocidade não suportada */ } }
+    Xdom.applyPlaybackRate(v.video, rate, speedTouched);
     ui.showSpeed({
       label: Core.formatSpeed(rate),
       options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),
@@ -1554,7 +1567,7 @@ async function startApp() {
   }
   setInterval(applySpeed, 300);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
-  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
+  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;

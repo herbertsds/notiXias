@@ -122,6 +122,7 @@ async function startApp() {
   // o toque abre um menu de 0,1x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
+  const speedTouched = new WeakSet(); // vídeos cuja velocidade o script já alterou
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
   function applySpeed() {
     if (cfg.bot) return;
@@ -129,8 +130,7 @@ async function startApp() {
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
     if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
-    // O navegador pode recusar velocidades muito baixas (o iOS limita): nesse caso o vídeo segue como estava.
-    if (rate !== 1 && v.video.playbackRate !== rate) { try { v.video.playbackRate = rate; } catch (e) { /* velocidade não suportada */ } }
+    Xdom.applyPlaybackRate(v.video, rate, speedTouched);
     ui.showSpeed({
       label: Core.formatSpeed(rate),
       options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),
@@ -143,7 +143,7 @@ async function startApp() {
   }
   setInterval(applySpeed, 300);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
-  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
+  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;

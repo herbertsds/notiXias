@@ -399,3 +399,23 @@ test('visibleVideo devolve o player (videoComponent); controlsVisible segue a op
   w.document.getElementById('ctl').style.display = '';
   assert.equal(Xdom.controlsVisible(v.component, w), true);                       // sem botão de som: não dá para saber
 });
+
+
+test('applyPlaybackRate: 1x devolve o vídeo ao normal depois de outra velocidade; sem escolha não mexe em nada', () => {
+  const touched = new WeakSet();
+  const video = { playbackRate: 1 };
+  assert.equal(Xdom.applyPlaybackRate(video, 1, touched), false);              // padrão: deixa o X em paz
+  assert.equal(video.playbackRate, 1);
+  Xdom.applyPlaybackRate(video, 2, touched);                                    // escolheu 2x
+  assert.equal(video.playbackRate, 2);
+  video.playbackRate = 1;                                                       // o X recriou/zerou: reaplica
+  Xdom.applyPlaybackRate(video, 2, touched);
+  assert.equal(video.playbackRate, 2);
+  Xdom.applyPlaybackRate(video, 1, touched);                                    // escolheu 1x: volta ao normal
+  assert.equal(video.playbackRate, 1);
+  video.playbackRate = 1.5;                                                     // depois disso o script não mexe mais
+  assert.equal(Xdom.applyPlaybackRate(video, 1, touched), false);
+  assert.equal(video.playbackRate, 1.5);
+  const recusa = { get playbackRate() { return 1; }, set playbackRate(v) { throw new Error('não suportado'); } };
+  assert.equal(Xdom.applyPlaybackRate(recusa, 0.1, new WeakSet()), false);      // o navegador recusou: não quebra
+});

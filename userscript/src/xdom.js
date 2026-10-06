@@ -242,6 +242,19 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
+  // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
+  // escolher 1x depois de outra velocidade tem de devolver o vídeo ao normal, e o padrão (1x, nunca mexido) deixa o X
+  // em paz. O navegador pode recusar velocidades baixas demais (o iOS limita): então o vídeo segue como estava.
+  function applyPlaybackRate(video, rate, touched) {
+    if (rate === 1 && !touched.has(video)) return false;
+    if (video.playbackRate !== rate) {
+      try { video.playbackRate = rate; } catch (e) { return false; }
+    }
+    if (rate !== 1) touched.add(video);
+    else if (video.playbackRate === 1) touched.delete(video);
+    return true;
+  }
+
   // Os controles do X (botão de som) estão aparecendo? Eles surgem e somem com transição de opacidade, dentro do player.
   // Sem botão de som (vídeo sem áudio, GIF) não há como saber: considera visíveis.
   function controlsVisible(component, win) {
@@ -371,7 +384,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

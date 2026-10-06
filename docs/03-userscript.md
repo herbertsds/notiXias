@@ -340,3 +340,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.8.2: nova opção **2,75x** no menu de velocidades (0,1x · 0,25x · 0,5x · 0,75x · 1x · 1,25x · 1,5x · 1,75x · 2x · 2,5x · 2,75x · 3x).
 
 0.8.3: o botão de velocidade foi para o **canto superior direito** do vídeo (no esquerdo coincidia com o botão de voltar), **menor** (28 px) e **mais translúcido**; o menu abre alinhado à direita, com botões também menores.
+
+0.8.4: correção do **1x** no menu de velocidade: o script só alterava o vídeo quando a escolha não era 1x, então voltar a 1x depois de outra velocidade não fazia nada. Agora o vídeo que o script já alterou volta ao normal ao escolher 1x; um vídeo nunca alterado continua sem ser tocado. Regra em `Xdom.applyPlaybackRate` (testada).

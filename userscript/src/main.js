@@ -110,6 +110,13 @@ async function startApp() {
   }
   setInterval(applyXBar, 1500);
 
+  // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
+  function applyAges() {
+    if (cfg.bot || !Core.parseStatusPath(location.pathname)) return;
+    try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
+  }
+  setInterval(applyAges, 1500);
+
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;
   let labelTimer = null;

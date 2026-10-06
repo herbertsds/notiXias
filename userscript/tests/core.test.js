@@ -230,3 +230,15 @@ test('formatNext: próxima automática com tipo e tempo restante; pausa e espera
   assert.match(Core.formatNext({ state: 'waiting_session', at: null }, now).main, /aguardando a sessão/);
   assert.equal(Core.formatNext(null, now), null);
 });
+
+test('ageLabel: só min ou h, nunca dias', () => {
+  const idAt = (ms) => String(BigInt(ms - 1288834974657) << 22n);
+  const now = Date.UTC(2026, 9, 6, 12, 0);
+  assert.equal(Core.ageLabel(idAt(now - 20 * 1000), now), '1 min');
+  assert.equal(Core.ageLabel(idAt(now - 35 * 60000), now), '35 min');
+  assert.equal(Core.ageLabel(idAt(now - 60 * 60000), now), '1 h');
+  assert.equal(Core.ageLabel(idAt(now - 119 * 60000), now), '1 h');
+  assert.equal(Core.ageLabel(idAt(now - 35 * 3600000), now), '35 h');
+  assert.equal(Core.ageLabel(idAt(now - 90 * 24 * 3600000), now), '2160 h');
+  assert.equal(Core.ageLabel('abc', now), '');
+});

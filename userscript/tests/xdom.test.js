@@ -293,3 +293,26 @@ test('findAppBanners: acha a faixa "Abrir no app X" no topo e não engole o cont
   const found = Xdom.findAppBanners(w.document, w);
   assert.deepEqual(found.map((n) => n.id), ['banner']);
 });
+
+
+test('setAges: "· N h" depois do nome, esconde o horário do X e atualiza sem duplicar', () => {
+  const id = String((BigInt(Date.UTC(2026, 9, 6, 9, 0) - 1288834974657) << 22n));      // post de 09:00 UTC
+  const w = new JSDOM(
+    '<body><div data-testid="primaryColumn"><article data-testid="tweet"><div data-testid="User-Name">' +
+    '<div><div><a href="/opta"><div><div dir="ltr"><span><span>Opta</span></span></div><div dir="ltr"><span>✓</span></div></div></a></div></div>' +
+    '<div><div><div><a href="/opta"><div dir="ltr"><span>@opta</span></div></a></div><div dir="ltr"><span id="dot">·</span></div>' +
+    `<div><a href="/opta/status/${id}"><time datetime="2026-10-06T09:00:00.000Z">6 de out</time></a></div></div></div>` +
+    `</div><a href="/opta/status/${id}"><time>x</time></a></article></div></body>`,
+    { url: 'https://x.com/opta/status/' + id }
+  ).window;
+  const now = Date.UTC(2026, 9, 6, 11, 30);                                           // 2 h 30 depois
+  assert.equal(Xdom.setAges(w.document, w, now), 1);
+  const sp = w.document.querySelector('[data-nx-age]');
+  assert.equal(sp.textContent, '· 2 h');
+  assert.equal(sp.closest('a').getAttribute('href'), '/opta');                        // dentro da linha do nome
+  assert.ok(sp.previousElementSibling.textContent.includes('✓'));                     // depois do selo
+  assert.equal(w.document.querySelectorAll('[data-nx-hidden]').length, 2);            // "·" e horário do X escondidos
+  Xdom.setAges(w.document, w, now + 40 * 60000);                                      // 40 min depois: só atualiza
+  assert.equal(w.document.querySelectorAll('[data-nx-age]').length, 1);
+  assert.equal(w.document.querySelector('[data-nx-age]').textContent, '· 3 h');
+});

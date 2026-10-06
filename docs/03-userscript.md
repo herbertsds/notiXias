@@ -318,3 +318,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.7.1: menu ⋯ → **Execuções…** (histórico em tela cheia, mais recente no topo: manual/automática, normal/profunda, horário e resultado). Cada busca informa `run: { source, mode }` à API; falhas vão para `POST /runs`.
 
 0.7.2: o topo de **Execuções…** mostra a próxima execução automática (horário sorteado, normal ou profunda, tempo restante) ou o estado do robô (pausado, aguardando sessão).
+
+0.7.3: **idade do post ao lado do nome** nas páginas de post (focal, thread e respostas): "Nome ✓ · 35 h @usuario". Calculada pelo ID do post (snowflake), sempre em `min` ou `h` (nunca dias ou meses: 3 dias = `72 h`). Usa a mesma fonte, tamanho e cor do @; o horário próprio do X na linha do @ é escondido para não duplicar. Atualiza sozinho enquanto a página está aberta. Não roda no feed nem no robô.

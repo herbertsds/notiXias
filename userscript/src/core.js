@@ -55,6 +55,14 @@ const Core = (function () {
     );
   }
 
+  // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Sempre "N min" ou "N h", nunca dias.
+  function ageLabel(id, nowMs) {
+    let created;
+    try { created = Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return ''; }
+    const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
+    return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
+  }
+
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
   const STOP_REASON = {
     anchor: 'chegou ao que já estava salvo',
@@ -251,7 +259,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

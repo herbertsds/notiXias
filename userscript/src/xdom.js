@@ -223,6 +223,51 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- idade do post ao lado do nome ----
+  // Em cada post da página, "· 35 h" logo depois do nome (e do selo), no estilo do X. O horário próprio do X na linha do
+  // @ ("· 5 de out", "· 9 h") é escondido para não ficar duplicado. Estrutura real: [data-testid="User-Name"] > (linha do
+  // nome: a > div flex) + (linha do @: div > [@, "·", a > time]). Idempotente: chamadas seguintes só atualizam o texto.
+  function setAges(root, win, nowMs) {
+    ensureStyle(root.ownerDocument || root);
+    const doc = root.ownerDocument || root;
+    const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
+    let n = 0;
+    for (const art of scope.querySelectorAll('article[data-testid="tweet"]')) {
+      const un = art.querySelector('[data-testid="User-Name"]');
+      const it = parseArticle(art);
+      if (!un || !it) continue;
+      const label = C().ageLabel(it.id, nowMs);
+      if (!label) continue;
+      let sp = un.querySelector('[data-nx-age]');
+      if (!sp) {
+        const link = un.querySelector('a[href^="/"]');
+        const row = link && link.firstElementChild;
+        if (!row) continue;
+        sp = doc.createElement('span');
+        sp.setAttribute('data-nx-age', '1');
+        // mesma fonte, tamanho e cor do @ (senão o texto herda a fonte padrão do navegador)
+        const ref = (un.children[1] && un.children[1].querySelector('span')) || un.querySelector('span');
+        const cs = ref && win && win.getComputedStyle ? win.getComputedStyle(ref) : null;
+        sp.style.cssText =
+          'margin-left:4px;white-space:nowrap;flex:none;font-weight:400;' +
+          (cs && cs.fontFamily ? 'font-family:' + cs.fontFamily + ';' : '') +
+          (cs && cs.fontSize ? 'font-size:' + cs.fontSize + ';' : '') +
+          (cs && cs.color ? 'color:' + cs.color + ';' : 'color:rgb(113,118,123);');
+        row.append(sp);
+        const inner = un.children[1] && un.children[1].firstElementChild;
+        if (inner) {
+          for (const k of Array.from(inner.children).slice(1)) {
+            if (k.querySelector('time') || k.textContent.trim() === '·') k.setAttribute(HIDE_ATTR, '1');
+          }
+        }
+      }
+      const text = '· ' + label;
+      if (sp.textContent !== text) sp.textContent = text;
+      n++;
+    }
+    return n;
+  }
+
   // ---- lacunas e "novos posts" no feed ----
   // Texto de botão que revela posts escondidos ("Mostrar mais", "Show more", "Mostrar 12 posts"...). Lista fechada
   // de propósito: nunca clicar em botões de promoção ("Inscrever-se"), "Quem seguir" etc.
@@ -266,7 +311,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

@@ -351,6 +351,12 @@ async function startApp() {
     await sleep(2000);
     if (token !== routeToken) return;
 
+    // Resposta: os posts originais acima vêm cortados ("Mostrar mais"); abre todos (o X desenha os de cima aos poucos).
+    for (let i = 0, idle = 0; i < 5 && idle < 2; i++) {
+      if (Xdom.expandAncestorTexts(document, status.id)) { idle = 0; await sleep(900); } else { idle++; await sleep(700); }
+      if (token !== routeToken) return;
+    }
+
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
     if (!view.targetId) {
       const pageItems = Xdom.pageItems(document);

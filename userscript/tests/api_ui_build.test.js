@@ -227,10 +227,11 @@ test('bundle: nenhuma ação de escrita no X (curtir/repostar/seguir/postar)', (
   assert.ok(!/data-testid=["']?(like|unlike|retweet|unretweet|follow|unfollow|tweetButton)/.test(src));
 });
 
-test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "Mostrar mais", "Ver novos posts")', () => {
+test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "Mostrar mais", "Ver novos posts", "Mostrar mais" dos posts de cima)', () => {
   const clicks = bundle().split('\n').filter((l) => /\.click\(\)/.test(l) && !l.trim().startsWith('//')).map((l) => l.trim());
-  assert.equal(clicks.length, 3, clicks.join('\n'));
+  assert.equal(clicks.length, 4, clicks.join('\n'));
   assert.ok(clicks.some((l) => /tab\.click\(\)/.test(l)), 'aba do feed');
   assert.ok(clicks.some((l) => /btns\[0\]\.click\(\)/.test(l)), 'lacuna Mostrar mais');
   assert.ok(clicks.some((l) => /pill\.click\(\)/.test(l)), 'Ver novos posts');
+  assert.ok(clicks.some((l) => /more\.click\(\)/.test(l)), 'Mostrar mais dos posts acima do aberto');
 });

@@ -324,3 +324,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.7.4: a idade do post agora acompanha a disposição do cabeçalho, medida pela posição na tela: **@ na mesma linha do nome** (respostas, feed) -> "Nome ✓ @usuario · 35 h" (no fim de tudo, como no X); **@ abaixo do nome** (post em foco) -> "Nome ✓ · 35 h" / "@usuario". Se a janela mudar de largura, a idade muda de lugar sozinha. Sem medidas (testes) assume o @ abaixo.
 
 0.7.5: saíram do menu ⋯ "Reabrir posts cobertos" e "Exportar dados" (a API mantém `POST /entries/uncover` e `GET /export`; o export também serve para conferências por linha de comando).
+
+0.7.6: ao abrir uma **resposta**, o script abre sozinho o "Mostrar mais" dos posts originais **acima** dela (o botão expande no lugar, sem trocar de página). Só os que estão antes do post aberto; o próprio post e as respostas abaixo não são tocados. Tenta algumas vezes porque o X desenha os de cima aos poucos.

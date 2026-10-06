@@ -223,6 +223,29 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- "Mostrar mais" dos posts ACIMA do post aberto ----
+  // Numa resposta, os originais acima aparecem cortados com um botão "Mostrar mais" que expande no próprio lugar (não
+  // abre outra página). Abre os que estão antes do post aberto; o post aberto e as respostas abaixo ficam como estão.
+  // Devolve quantos botões clicou (0 = nada a abrir, ou a página ainda não desenhou o post aberto).
+  function expandAncestorTexts(root, focalId) {
+    const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
+    const arts = Array.from(scope.querySelectorAll('article[data-testid="tweet"]'));
+    const focal = arts.findIndex((a) => {
+      const it = parseArticle(a);
+      return it && it.id === focalId;
+    });
+    if (focal <= 0) return 0;
+    let clicked = 0;
+    for (const art of arts.slice(0, focal)) {
+      const more = art.querySelector('[data-testid="tweet-text-show-more-link"]');
+      if (more) {
+        more.click();
+        clicked++;
+      }
+    }
+    return clicked;
+  }
+
   // ---- idade do post ----
   // Duas disposições do cabeçalho no X, e a idade acompanha cada uma (medido pela posição na tela, não por classe):
   //  - @ na MESMA linha do nome (respostas, feed): "Nome ✓ @usuario · 35 h" -> a idade vai no FIM de tudo;
@@ -324,7 +347,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, expandAncestorTexts, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

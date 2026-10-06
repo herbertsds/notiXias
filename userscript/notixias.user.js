@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.5
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.5
+// @version      0.7.6
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.6
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -513,6 +513,29 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- "Mostrar mais" dos posts ACIMA do post aberto ----
+  // Numa resposta, os originais acima aparecem cortados com um botão "Mostrar mais" que expande no próprio lugar (não
+  // abre outra página). Abre os que estão antes do post aberto; o post aberto e as respostas abaixo ficam como estão.
+  // Devolve quantos botões clicou (0 = nada a abrir, ou a página ainda não desenhou o post aberto).
+  function expandAncestorTexts(root, focalId) {
+    const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
+    const arts = Array.from(scope.querySelectorAll('article[data-testid="tweet"]'));
+    const focal = arts.findIndex((a) => {
+      const it = parseArticle(a);
+      return it && it.id === focalId;
+    });
+    if (focal <= 0) return 0;
+    let clicked = 0;
+    for (const art of arts.slice(0, focal)) {
+      const more = art.querySelector('[data-testid="tweet-text-show-more-link"]');
+      if (more) {
+        more.click();
+        clicked++;
+      }
+    }
+    return clicked;
+  }
+
   // ---- idade do post ----
   // Duas disposições do cabeçalho no X, e a idade acompanha cada uma (medido pela posição na tela, não por classe):
   //  - @ na MESMA linha do nome (respostas, feed): "Nome ✓ @usuario · 35 h" -> a idade vai no FIM de tudo;
@@ -614,7 +637,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, expandAncestorTexts, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1286,7 +1309,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.5'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.6'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1635,6 +1658,12 @@ async function startApp() {
     syncLabels();
     await sleep(2000);
     if (token !== routeToken) return;
+
+    // Resposta: os posts originais acima vêm cortados ("Mostrar mais"); abre todos (o X desenha os de cima aos poucos).
+    for (let i = 0, idle = 0; i < 5 && idle < 2; i++) {
+      if (Xdom.expandAncestorTexts(document, status.id)) { idle = 0; await sleep(900); } else { idle++; await sleep(700); }
+      if (token !== routeToken) return;
+    }
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
     if (!view.targetId) {

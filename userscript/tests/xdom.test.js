@@ -345,3 +345,21 @@ test('setAges: sem medidas de layout assume @ abaixo do nome', () => {
   Xdom.setAges(w.document, w, AGE_NOW);
   assert.equal(w.document.querySelector('[data-nx-age]').parentElement.id, 'nr');
 });
+
+
+test('expandAncestorTexts: abre "Mostrar mais" só dos posts ACIMA do post aberto', () => {
+  const art = (id, author, more) =>
+    `<article data-testid="tweet"><a href="/${author}/status/${id}"><time>1</time></a>` +
+    (more ? `<button data-testid="tweet-text-show-more-link">Mostrar mais</button>` : '') + '</article>';
+  const w = new JSDOM(
+    `<body><div data-testid="primaryColumn">${art('10', 'raiz', true)}${art('20', 'meio', true)}${art('30', 'foco', true)}${art('40', 'resp', true)}</div></body>`,
+    { url: 'https://x.com/foco/status/30' }
+  ).window;
+  const clicked = [];
+  w.document.querySelectorAll('button').forEach((b, i) => b.addEventListener('click', () => { clicked.push(i); b.remove(); }));
+  assert.equal(Xdom.expandAncestorTexts(w.document, '30'), 2);
+  assert.deepEqual(clicked, [0, 1]);                                             // raiz e meio; foco e resposta ficam
+  assert.equal(Xdom.expandAncestorTexts(w.document, '30'), 0);                  // nada mais a abrir
+  assert.equal(Xdom.expandAncestorTexts(w.document, '999'), 0);                 // post aberto ainda não desenhado: não mexe em nada
+  assert.equal(Xdom.expandAncestorTexts(w.document, '10'), 0);                  // abriu a raiz: não há nada acima
+});

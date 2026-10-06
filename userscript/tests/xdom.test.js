@@ -295,24 +295,53 @@ test('findAppBanners: acha a faixa "Abrir no app X" no topo e não engole o cont
 });
 
 
-test('setAges: "· N h" depois do nome, esconde o horário do X e atualiza sem duplicar', () => {
-  const id = String((BigInt(Date.UTC(2026, 9, 6, 9, 0) - 1288834974657) << 22n));      // post de 09:00 UTC
+function agesDom(id) {
   const w = new JSDOM(
     '<body><div data-testid="primaryColumn"><article data-testid="tweet"><div data-testid="User-Name">' +
-    '<div><div><a href="/opta"><div><div dir="ltr"><span><span>Opta</span></span></div><div dir="ltr"><span>✓</span></div></div></a></div></div>' +
-    '<div><div><div><a href="/opta"><div dir="ltr"><span>@opta</span></div></a></div><div dir="ltr"><span id="dot">·</span></div>' +
+    '<div><div><a id="n" href="/opta"><div id="nr"><div dir="ltr"><span><span>Opta</span></span></div><div dir="ltr"><span>✓</span></div></div></a></div></div>' +
+    '<div><div id="hr"><div><a id="h" href="/opta"><div dir="ltr"><span>@opta</span></div></a></div><div dir="ltr"><span id="dot">·</span></div>' +
     `<div><a href="/opta/status/${id}"><time datetime="2026-10-06T09:00:00.000Z">6 de out</time></a></div></div></div>` +
     `</div><a href="/opta/status/${id}"><time>x</time></a></article></div></body>`,
     { url: 'https://x.com/opta/status/' + id }
   ).window;
-  const now = Date.UTC(2026, 9, 6, 11, 30);                                           // 2 h 30 depois
-  assert.equal(Xdom.setAges(w.document, w, now), 1);
+  const rect = (top) => () => ({ top, left: 0, width: 80, height: 20, bottom: top + 20, right: 80 });
+  return { w, place: (handleTop) => { w.document.getElementById('n').getBoundingClientRect = rect(0); w.document.getElementById('h').getBoundingClientRect = rect(handleTop); } };
+}
+const AGE_ID = String(BigInt(Date.UTC(2026, 9, 6, 9, 0) - 1288834974657) << 22n);          // post de 09:00 UTC
+const AGE_NOW = Date.UTC(2026, 9, 6, 11, 30);                                                // 2 h 30 depois
+
+test('setAges: @ abaixo do nome -> "· N h" logo depois do nome e do selo; esconde o horário do X', () => {
+  const { w, place } = agesDom(AGE_ID);
+  place(22);                                                                                // @ na linha de baixo
+  assert.equal(Xdom.setAges(w.document, w, AGE_NOW), 1);
   const sp = w.document.querySelector('[data-nx-age]');
   assert.equal(sp.textContent, '· 2 h');
-  assert.equal(sp.closest('a').getAttribute('href'), '/opta');                        // dentro da linha do nome
-  assert.ok(sp.previousElementSibling.textContent.includes('✓'));                     // depois do selo
-  assert.equal(w.document.querySelectorAll('[data-nx-hidden]').length, 2);            // "·" e horário do X escondidos
-  Xdom.setAges(w.document, w, now + 40 * 60000);                                      // 40 min depois: só atualiza
+  assert.equal(sp.parentElement.id, 'nr');                                                  // dentro da linha do nome
+  assert.ok(sp.previousElementSibling.textContent.includes('✓'));                           // depois do selo
+  assert.equal(w.document.querySelectorAll('[data-nx-hidden]').length, 2);                  // "·" e horário do X
+  Xdom.setAges(w.document, w, AGE_NOW + 40 * 60000);                                        // só atualiza, sem duplicar
   assert.equal(w.document.querySelectorAll('[data-nx-age]').length, 1);
   assert.equal(w.document.querySelector('[data-nx-age]').textContent, '· 3 h');
+});
+
+test('setAges: @ na mesma linha do nome -> idade no FIM de tudo (depois do @); acompanha a mudança de layout', () => {
+  const { w, place } = agesDom(AGE_ID);
+  place(1);                                                                                 // @ na mesma linha
+  Xdom.setAges(w.document, w, AGE_NOW);
+  let sp = w.document.querySelector('[data-nx-age]');
+  assert.equal(sp.parentElement.id, 'hr');
+  assert.equal(sp.parentElement.lastElementChild, sp);
+  assert.equal(sp.textContent, '· 2 h');
+  assert.equal(w.document.querySelectorAll('[data-nx-hidden]').length, 2);
+  place(22);                                                                                // janela ficou estreita: @ desceu
+  Xdom.setAges(w.document, w, AGE_NOW);
+  sp = w.document.querySelector('[data-nx-age]');
+  assert.equal(sp.parentElement.id, 'nr');
+  assert.equal(w.document.querySelectorAll('[data-nx-age]').length, 1);
+});
+
+test('setAges: sem medidas de layout assume @ abaixo do nome', () => {
+  const { w } = agesDom(AGE_ID);                                                            // jsdom: tudo zero
+  Xdom.setAges(w.document, w, AGE_NOW);
+  assert.equal(w.document.querySelector('[data-nx-age]').parentElement.id, 'nr');
 });

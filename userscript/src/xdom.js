@@ -223,10 +223,22 @@ const Xdom = (function () {
     return bars.length;
   }
 
-  // ---- idade do post ao lado do nome ----
-  // Em cada post da página, "· 35 h" logo depois do nome (e do selo), no estilo do X. O horário próprio do X na linha do
-  // @ ("· 5 de out", "· 9 h") é escondido para não ficar duplicado. Estrutura real: [data-testid="User-Name"] > (linha do
-  // nome: a > div flex) + (linha do @: div > [@, "·", a > time]). Idempotente: chamadas seguintes só atualizam o texto.
+  // ---- idade do post ----
+  // Duas disposições do cabeçalho no X, e a idade acompanha cada uma (medido pela posição na tela, não por classe):
+  //  - @ na MESMA linha do nome (respostas, feed): "Nome ✓ @usuario · 35 h" -> a idade vai no FIM de tudo;
+  //  - @ ABAIXO do nome (post em foco): "Nome ✓ · 35 h" / "@usuario" -> a idade vai logo depois do nome e do selo.
+  // O horário próprio do X na linha do @ ("· 5 de out", "· 9 h") é escondido para não duplicar. Estrutura real:
+  // [data-testid="User-Name"] > (linha do nome: a > div flex) + (linha do @: div > [@, "·", a > time]).
+  function handleOnSameLine(un) {
+    const nameLink = un.querySelector('a[href^="/"]');
+    const handleLink = un.children[1] && un.children[1].querySelector('a[href^="/"]');
+    if (!nameLink || !handleLink || !nameLink.getBoundingClientRect) return false;
+    const a = nameLink.getBoundingClientRect();
+    const b = handleLink.getBoundingClientRect();
+    if (!a.height || !b.height) return false;
+    return Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < Math.max(a.height, b.height) / 2;
+  }
+
   function setAges(root, win, nowMs) {
     ensureStyle(root.ownerDocument || root);
     const doc = root.ownerDocument || root;
@@ -238,11 +250,13 @@ const Xdom = (function () {
       if (!un || !it) continue;
       const label = C().ageLabel(it.id, nowMs);
       if (!label) continue;
+      const link = un.querySelector('a[href^="/"]');
+      const nameRow = link && link.firstElementChild;
+      const handleInner = un.children[1] && un.children[1].firstElementChild;
+      const target = handleOnSameLine(un) && handleInner ? handleInner : nameRow;
+      if (!target) continue;
       let sp = un.querySelector('[data-nx-age]');
       if (!sp) {
-        const link = un.querySelector('a[href^="/"]');
-        const row = link && link.firstElementChild;
-        if (!row) continue;
         sp = doc.createElement('span');
         sp.setAttribute('data-nx-age', '1');
         // mesma fonte, tamanho e cor do @ (senão o texto herda a fonte padrão do navegador)
@@ -253,14 +267,13 @@ const Xdom = (function () {
           (cs && cs.fontFamily ? 'font-family:' + cs.fontFamily + ';' : '') +
           (cs && cs.fontSize ? 'font-size:' + cs.fontSize + ';' : '') +
           (cs && cs.color ? 'color:' + cs.color + ';' : 'color:rgb(113,118,123);');
-        row.append(sp);
-        const inner = un.children[1] && un.children[1].firstElementChild;
-        if (inner) {
-          for (const k of Array.from(inner.children).slice(1)) {
+        if (handleInner) {
+          for (const k of Array.from(handleInner.children).slice(1)) {
             if (k.querySelector('time') || k.textContent.trim() === '·') k.setAttribute(HIDE_ATTR, '1');
           }
         }
       }
+      if (sp.parentElement !== target) target.append(sp); // a janela mudou de largura: o @ passou para outra linha
       const text = '· ' + label;
       if (sp.textContent !== text) sp.textContent = text;
       n++;

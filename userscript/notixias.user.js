@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.1
+// @version      0.8.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -86,7 +86,7 @@ const Core = (function () {
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
-  const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 2.75, 3];
   const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
@@ -1411,7 +1411,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

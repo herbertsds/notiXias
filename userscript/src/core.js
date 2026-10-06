@@ -64,7 +64,7 @@ const Core = (function () {
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
-  const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 2.75, 3];
   const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----

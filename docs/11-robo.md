@@ -15,7 +15,7 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 
 ## Horários (`robot/app/schedule.py`, fuso America/Sao_Paulo)
 
-- A cada **X minutos**, X sorteado entre 30 e 45 **a cada execução**.
+- A cada **X minutos**, X sorteado entre 10 e 25 (era 30 a 45 até 2026-10-06; o dono aceitou o risco extra para a conta) **a cada execução**.
 - Madrugada: a primeira execução que cairia entre **01:00 e 04:45** roda (é a **única** da madrugada); depois disso nada até **04:45**, quando volta a buscar e retoma o ritmo normal. **A primeira busca a partir das 04:45 é PROFUNDA** (rola mais, comparando com as últimas 100 entradas) para recuperar algo que tenha ficado para trás; **a primeira a partir das 12:30 também é profunda**; as demais são normais.
 - Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 04:45).
 - Primeira vez (sem histórico): roda assim que houver sessão.
@@ -71,4 +71,4 @@ Menu ⋯ do notiXias → **Execuções…**: tela cheia com rolagem, a mais rece
 
 ### Próxima execução automática
 
-O sorteio dos 30–45 minutos é feito **logo depois de cada busca** (e guardado em `robot_data/status.json`, campo `plan`: um reinício não sorteia de novo). O robô informa à API o horário e o tipo (`PUT /robot/next`), e o topo da tela **Execuções…** mostra "Próxima automática: dd/mm/aaaa hh:mm · Normal|Profunda" com o tempo que falta. Se o robô estiver pausado ou sem sessão, a linha avisa isso; se o horário já passou há mais de 10 min, aparece "atrasada: confira o robô".
+O sorteio dos 10–25 minutos é feito **logo depois de cada busca** (e guardado em `robot_data/status.json`, campo `plan`: um reinício não sorteia de novo). O robô informa à API o horário e o tipo (`PUT /robot/next`), e o topo da tela **Execuções…** mostra "Próxima automática: dd/mm/aaaa hh:mm · Normal|Profunda" com o tempo que falta. Se o robô estiver pausado ou sem sessão, a linha avisa isso; se o horário já passou há mais de 10 min, aparece "atrasada: confira o robô".

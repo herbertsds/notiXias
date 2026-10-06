@@ -1,7 +1,7 @@
 """Política de horários do robô (funções puras, testáveis).
 
 Regras (decididas pelo dono):
-- A cada X minutos, com X sorteado entre 30 e 45 a CADA execução, busca novas.
+- A cada X minutos, com X sorteado entre 10 e 25 a CADA execução, busca novas.
 - Madrugada: depois de 01:00 roda UMA única vez e fica parado até 04:45; às 04:45 volta a buscar, e essa primeira
   busca do dia é PROFUNDA (varredura mais longa, para recuperar algo que tenha ficado para trás durante a pausa).
 
@@ -14,8 +14,8 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("America/Sao_Paulo")
-MIN_MINUTES = 30
-MAX_MINUTES = 45
+MIN_MINUTES = 10
+MAX_MINUTES = 25
 NIGHT_START = time(1, 0)
 NIGHT_END = time(4, 45)
 MIDDAY_DEEP = time(12, 30)  # primeira busca a partir desta hora também é profunda
@@ -69,6 +69,6 @@ def is_deep(last_run: datetime | None, when: datetime) -> bool:
 
 
 def plan(last_run: datetime | None, now: datetime, rng: random.Random | None = None) -> tuple[datetime, bool]:
-    """(quando, profunda?) da próxima busca. O sorteio dos 30–45 min acontece aqui, logo depois da busca anterior."""
+    """(quando, profunda?) da próxima busca. O sorteio dos 10–25 min acontece aqui, logo depois da busca anterior."""
     when = next_run(last_run, now, rng)
     return when, is_deep(last_run, when)

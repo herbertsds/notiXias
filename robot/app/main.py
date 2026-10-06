@@ -86,7 +86,7 @@ async def main() -> None:
         status["waiting_session"] = False
 
         now = datetime.now(timezone.utc)
-        # O sorteio dos 30–45 min é feito UMA vez, logo depois da busca anterior, e guardado: um reinício do contêiner
+        # O sorteio dos 10–25 min é feito UMA vez, logo depois da busca anterior, e guardado: um reinício do contêiner
         # não sorteia de novo (e o horário já foi informado à API para o menu mostrar).
         base = status.get("last_run_at")
         plan = status.get("plan")

@@ -242,3 +242,11 @@ test('ageLabel: só min ou h, nunca dias', () => {
   assert.equal(Core.ageLabel(idAt(now - 90 * 24 * 3600000), now), '2160 h');
   assert.equal(Core.ageLabel('abc', now), '');
 });
+
+test('velocidades do vídeo: ciclo 1x -> 1.25x -> 1.5x -> 2x -> 0.75x -> 1x', () => {
+  let s = 1;
+  const seen = [];
+  for (let i = 0; i < 5; i++) { s = Core.nextSpeed(s); seen.push(Core.formatSpeed(s)); }
+  assert.deepEqual(seen, ['1.25x', '1.5x', '2x', '0.75x', '1x']);
+  assert.equal(Core.nextSpeed(3), 1);                  // valor desconhecido volta ao normal
+});

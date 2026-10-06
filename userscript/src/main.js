@@ -10,6 +10,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
@@ -116,6 +117,24 @@ async function startApp() {
     try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyAges, 1500);
+
+  // Velocidade do vídeo: botão no canto do vídeo que está na tela; cada toque passa para a próxima velocidade.
+  // Só mexe no vídeo quando a velocidade escolhida não é 1x (o padrão deixa o X como está).
+  function applySpeed() {
+    if (cfg.bot) return;
+    let v = null;
+    try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
+    if (!v) { ui.hideSpeed(); return; }
+    const rate = cfg.videoSpeed || 1;
+    if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
+    ui.showSpeed({
+      label: Core.formatSpeed(rate), top: v.rect.top + 10, left: v.rect.left + 10,
+      onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
+    });
+  }
+  setInterval(applySpeed, 600);
+  // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
+  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
 
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;

@@ -223,6 +223,25 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- vídeo na tela ----
+  // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
+  // Devolve { video, rect (parte visível) } ou null.
+  function visibleVideo(root, win) {
+    let best = null;
+    for (const v of root.querySelectorAll('video')) {
+      const r = v.getBoundingClientRect();
+      if (!r.width || !r.height || r.width < 150) continue;
+      const w = Math.max(0, Math.min(r.right, win.innerWidth) - Math.max(r.left, 0));
+      const h = Math.max(0, Math.min(r.bottom, win.innerHeight) - Math.max(r.top, 0));
+      const share = (w * h) / (r.width * r.height);
+      if (share < 0.3) continue;
+      if (!best || share > best.share) {
+        best = { video: v, share, rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
+      }
+    }
+    return best ? { video: best.video, rect: best.rect } : null;
+  }
+
   // ---- "Mostrar mais" do texto dos posts (página de um post) ----
   // Posts longos vêm cortados com um botão "Mostrar mais" que expande no próprio lugar. Devolve os botões ainda
   // fechados de TODOS os posts da conversa (originais acima, o aberto e as respostas), na coluna principal.
@@ -337,7 +356,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

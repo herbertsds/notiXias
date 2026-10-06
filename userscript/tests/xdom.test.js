@@ -361,3 +361,18 @@ test('findTextMoreButtons: todos os "Mostrar mais" da conversa (acima, o aberto 
   btns[0].remove();
   assert.equal(Xdom.findTextMoreButtons(w.document).length, 2);                   // o que já abriu some da lista
 });
+
+
+test('visibleVideo: pega o vídeo mais visível e ignora o minúsculo ou o fora da tela', () => {
+  const w = new JSDOM('<body><video id="gif"></video><video id="fora"></video><video id="ok"></video></body>', { url: 'https://x.com/home' }).window;
+  Object.defineProperty(w, 'innerWidth', { value: 400 });
+  Object.defineProperty(w, 'innerHeight', { value: 800 });
+  const rect = (id, top, left, width, height) => { w.document.getElementById(id).getBoundingClientRect = () => ({ top, left, width, height, bottom: top + height, right: left + width }); };
+  rect('gif', 100, 10, 60, 60);                       // pequeno demais
+  rect('fora', 900, 0, 400, 300);                     // abaixo da tela
+  rect('ok', 500, 0, 400, 300);                       // parte para fora: 300 de 300 -> 100% dentro? (500..800)
+  const v = Xdom.visibleVideo(w.document, w);
+  assert.equal(v.video.id, 'ok');
+  assert.deepEqual(v.rect, { top: 500, left: 0, bottom: 800, right: 400 });
+  assert.equal(Xdom.visibleVideo(new JSDOM('<body></body>').window.document, w), null);
+});

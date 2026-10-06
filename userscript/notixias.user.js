@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.7
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.7
+// @version      0.7.8
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.8
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -84,6 +84,14 @@ const Core = (function () {
     const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
+
+  // Velocidades do vídeo (o X no celular não tem controle). Cada toque passa para a próxima, voltando a 1x.
+  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+  function nextSpeed(cur) {
+    const i = SPEEDS.indexOf(cur);
+    return SPEEDS[(i + 1) % SPEEDS.length];
+  }
+  const formatSpeed = (r) => r + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
   const STOP_REASON = {
@@ -281,7 +289,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, nextSpeed, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
@@ -513,6 +521,25 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- vídeo na tela ----
+  // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
+  // Devolve { video, rect (parte visível) } ou null.
+  function visibleVideo(root, win) {
+    let best = null;
+    for (const v of root.querySelectorAll('video')) {
+      const r = v.getBoundingClientRect();
+      if (!r.width || !r.height || r.width < 150) continue;
+      const w = Math.max(0, Math.min(r.right, win.innerWidth) - Math.max(r.left, 0));
+      const h = Math.max(0, Math.min(r.bottom, win.innerHeight) - Math.max(r.top, 0));
+      const share = (w * h) / (r.width * r.height);
+      if (share < 0.3) continue;
+      if (!best || share > best.share) {
+        best = { video: v, share, rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
+      }
+    }
+    return best ? { video: best.video, rect: best.rect } : null;
+  }
+
   // ---- "Mostrar mais" do texto dos posts (página de um post) ----
   // Posts longos vêm cortados com um botão "Mostrar mais" que expande no próprio lugar. Devolve os botões ainda
   // fechados de TODOS os posts da conversa (originais acima, o aberto e as respostas), na coluna principal.
@@ -627,7 +654,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1124,6 +1151,12 @@ const Ui = (function () {
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
   `;
+  const SPEED_CSS = `
+    :host { all: initial; }
+    button { position: fixed; z-index: 2147483645; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
+      border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
+      font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
+  `;
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -1158,6 +1191,9 @@ const Ui = (function () {
     const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
+    const spd = makeHost(doc, 'notixias-speed', SPEED_CSS);
+    let spdNode = null;
+    let spdHandler = null;
     let wrapNode = null;
     let ovNode = null;
     let menuOpen = false;
@@ -1288,7 +1324,26 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay };
+    // Botão de velocidade sobre o canto do vídeo. o: { label, top, left, onClick }
+    function showSpeed(o) {
+      attach(spd);
+      spdHandler = o.onClick;
+      if (!spdNode) {
+        spdNode = el(doc, 'button', {});
+        spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (spdHandler) spdHandler(); });
+        spd.root.append(spdNode);
+      }
+      if (spdNode.textContent !== o.label) spdNode.textContent = o.label;
+      spdNode.style.top = Math.round(o.top) + 'px';
+      spdNode.style.left = Math.round(o.left) + 'px';
+    }
+
+    function hideSpeed() {
+      if (spdNode) spdNode.remove();
+      spdNode = null;
+    }
+
+    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };
   }
 
   return { create, readWidths };
@@ -1299,7 +1354,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.7'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.8'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1308,6 +1363,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
@@ -1414,6 +1470,24 @@ async function startApp() {
     try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyAges, 1500);
+
+  // Velocidade do vídeo: botão no canto do vídeo que está na tela; cada toque passa para a próxima velocidade.
+  // Só mexe no vídeo quando a velocidade escolhida não é 1x (o padrão deixa o X como está).
+  function applySpeed() {
+    if (cfg.bot) return;
+    let v = null;
+    try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
+    if (!v) { ui.hideSpeed(); return; }
+    const rate = cfg.videoSpeed || 1;
+    if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
+    ui.showSpeed({
+      label: Core.formatSpeed(rate), top: v.rect.top + 10, left: v.rect.left + 10,
+      onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
+    });
+  }
+  setInterval(applySpeed, 600);
+  // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
+  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
 
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;

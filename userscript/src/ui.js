@@ -53,6 +53,12 @@ const Ui = (function () {
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
   `;
+  const SPEED_CSS = `
+    :host { all: initial; }
+    button { position: fixed; z-index: 2147483645; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
+      border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
+      font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
+  `;
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -87,6 +93,9 @@ const Ui = (function () {
     const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
+    const spd = makeHost(doc, 'notixias-speed', SPEED_CSS);
+    let spdNode = null;
+    let spdHandler = null;
     let wrapNode = null;
     let ovNode = null;
     let menuOpen = false;
@@ -217,7 +226,26 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay };
+    // Botão de velocidade sobre o canto do vídeo. o: { label, top, left, onClick }
+    function showSpeed(o) {
+      attach(spd);
+      spdHandler = o.onClick;
+      if (!spdNode) {
+        spdNode = el(doc, 'button', {});
+        spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (spdHandler) spdHandler(); });
+        spd.root.append(spdNode);
+      }
+      if (spdNode.textContent !== o.label) spdNode.textContent = o.label;
+      spdNode.style.top = Math.round(o.top) + 'px';
+      spdNode.style.left = Math.round(o.left) + 'px';
+    }
+
+    function hideSpeed() {
+      if (spdNode) spdNode.remove();
+      spdNode = null;
+    }
+
+    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };
   }
 
   return { create, readWidths };

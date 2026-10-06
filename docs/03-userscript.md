@@ -328,3 +328,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.7.6: ao abrir uma **resposta**, o script abre sozinho o "Mostrar mais" dos posts originais **acima** dela (o botão expande no lugar, sem trocar de página). Só os que estão antes do post aberto; o próprio post e as respostas abaixo não são tocados. Tenta algumas vezes porque o X desenha os de cima aos poucos.
 
 0.7.7: o "Mostrar mais" é aberto em **todos** os posts da página (originais acima, o post aberto e as respostas), não só nos de cima. Cada botão é clicado uma vez; se um clique levar a outra página, o script volta e para.
+
+0.7.8: **velocidade do vídeo**. O X no celular não tem controle de velocidade; quando há um vídeo na tela (pelo menos 30% visível), aparece um botão no canto superior esquerdo dele ("1x"). Cada toque passa para a próxima velocidade: 1x → 1.25x → 1.5x → 2x → 0.75x → 1x. A escolha fica salva (`videoSpeed`) e vale para os próximos vídeos; em 1x o script não mexe em nada. Reaplica a velocidade quando o X recria o vídeo. No player em tela cheia nativo do iOS o botão não aparece (não é página).

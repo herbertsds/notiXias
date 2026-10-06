@@ -63,6 +63,14 @@ const Core = (function () {
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
 
+  // Velocidades do vídeo (o X no celular não tem controle). Cada toque passa para a próxima, voltando a 1x.
+  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+  function nextSpeed(cur) {
+    const i = SPEEDS.indexOf(cur);
+    return SPEEDS[(i + 1) % SPEEDS.length];
+  }
+  const formatSpeed = (r) => r + 'x';
+
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
   const STOP_REASON = {
     anchor: 'chegou ao que já estava salvo',
@@ -259,7 +267,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, nextSpeed, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

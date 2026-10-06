@@ -302,3 +302,15 @@ O script só roda no Safari (extensão Userscripts), não no app do X nem em apl
 ## 0.6.2: texto do repost
 
 A etiqueta diz **"↻ Fulano repostou"** (nome de exibição; sem nome, o @), e no plural **"↻ Ana e Beto repostaram"** / **"↻ Ana, Beto e Caio repostaram"**. O aviso no topo da tela fica **"↻ Fulano repostou uma mensagem dessa thread"**.
+
+## 0.6.3 e 0.6.4: armazenamento no app Userscripts (iOS)
+
+No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonkey são síncronos). A leitura síncrona falhava e o script pedia a configuração da API a cada carga. Agora o `main.js` lê todas as chaves uma vez antes de iniciar (`gm.load()`), usa um cache em memória e grava com `GM_setValue` sem depender do retorno.
+
+0.6.4: o Userscripts só fornece as APIs pedidas por `@grant` e o armazenamento dele é `GM.getValue`/`GM.setValue` (com ponto); as versões com sublinhado podem não existir lá, e a gravação falhava em silêncio. O cabeçalho agora pede os dois pares e o código usa o que existir.
+
+0.6.6: a faixa "Abrir no app X" do topo (X mobile) é escondida junto com a barra inferior (opção "Barra do X"). Reconhecida pelo texto e pelo tamanho (faixa baixa e larga, sem posts dentro), sem depender de classes. `notixias-sem-banner.user.js` (remove a tag `apple-itunes-app`) ficou como tentativa que não resolveu; pode ser apagado.
+
+0.6.7: o `@name` voltou a ser só `notiXias`. O gerenciador usa o nome para identificar o script e guardar a configuração; com a versão no nome, cada atualização criava um script novo e a API era pedida de novo. A versão agora aparece no `@description` e no último item do menu ⋯ ("notiXias versão X"). Nunca mais mude o `@name` nem o `@namespace`.
+
+0.6.8: ao terminar uma busca de novas, o script **não avança** para o primeiro post novo: volta para a entrada em que você estava (a posição de leitura) e mostra "N novos" na barra; você segue com ▶. Só abre o primeiro novo se ainda não existir posição de leitura.

@@ -180,6 +180,26 @@ const Xdom = (function () {
     return out;
   }
 
+  // Faixa "Abrir no app X" no topo do X mobile. Reconhecida pelo texto (lista fechada) e pelo tamanho: sobe do texto
+  // até o maior ancestral que seja uma faixa baixa e larga e que NÃO contenha conteúdo do X (posts, coluna principal).
+  const APP_BANNER_RE = /^(abrir|open)\s+(no|in|o|the)?\s*(app|aplicativo)\b/i;
+  function findAppBanners(root, win) {
+    const out = [];
+    const vw = win.innerWidth;
+    for (const el of root.querySelectorAll('div, span, a')) {
+      if (el.children.length || !APP_BANNER_RE.test((el.textContent || '').trim())) continue;
+      let best = null;
+      for (let n = el; n && n.parentElement && n !== win.document.body; n = n.parentElement) {
+        if (n.querySelector('article, [data-testid="primaryColumn"], [data-testid="cellInnerDiv"], main')) break;
+        const r = n.getBoundingClientRect();
+        if (r.height > 160) break;
+        if (r.width >= vw * 0.9) best = n;
+      }
+      if (best && !out.includes(best)) out.push(best);
+    }
+    return out;
+  }
+
   const HIDE_ATTR = 'data-nx-hidden';
   const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}';
 
@@ -198,7 +218,7 @@ const Xdom = (function () {
       return 0;
     }
     ensureStyle(root.ownerDocument || root);
-    const bars = findBottomBars(root, win);
+    const bars = findBottomBars(root, win).concat(findAppBanners(root, win));
     bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
     return bars.length;
   }
@@ -246,7 +266,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

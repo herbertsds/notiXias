@@ -397,7 +397,10 @@ def _repost_anchor_id(rev, i):
     return rev[i].tweet_id
 
 
-def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None) -> dict:
+def append_items(
+    db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None,
+    gap_seq: int | None = None, scan=None,
+) -> dict:
     """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
     revisit_after = REVISIT_AFTER if revisit_after is None else revisit_after
     if batch_id:
@@ -432,8 +435,17 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
         i = j
 
     gap = bool(not anchor_found and had_entries and stats["created"] > 0)
+    reason = None
+    if scan is not None:
+        reason = "gap_unresolved" if scan.reason == "anchor" and scan.gap_unresolved else scan.reason
     if gap:
-        db.entries.update_one({"seq": stats["first_new_seq"]}, {"$set": {"gap_before": True}})
+        db.entries.update_one(
+            {"seq": stats["first_new_seq"]}, {"$set": {"gap_before": True, "gap_reason": reason or "unknown"}}
+        )
+    if gap_seq is not None and (anchor_found or gap):
+        # A busca tentou preencher a lacuna que começa em `gap_seq`: se chegou ao outro lado, ela fecha; se parou
+        # antes, a lacuna restante fica antes do item mais antigo que esta busca criou (a bandeira "anda").
+        db.entries.update_one({"seq": gap_seq, "gap_before": True}, {"$set": {"gap_before": False, "gap_reason": None}})
 
     result = {
         "created": stats["created"],
@@ -447,7 +459,10 @@ def append_items(db, items: list, anchor_found: bool, batch_id: str | None, revi
     }
     if batch_id:
         try:
-            db.batches.insert_one({"_id": batch_id, "result": result, "created_at": now()})
+            doc = {"_id": batch_id, "result": result, "created_at": now()}
+            if scan is not None:
+                doc["scan"] = scan.model_dump()
+            db.batches.insert_one(doc)
         except DuplicateKeyError:
             pass
     return result
@@ -477,6 +492,24 @@ def anchor_keys(db, depth: int) -> dict:
     for d in docs:
         keys.extend(d["appearance_keys"])
     return {"keys": keys, "last_seq": docs[0]["seq"] if docs else None}
+
+
+def gap_info(db, depth: int, max_age_days: int) -> dict:
+    """A lacuna aberta mais antiga ainda alcançável (capturada há no máximo `max_age_days` dias).
+
+    `keys` = aparições das `depth` entradas capturadas logo ANTES da lacuna: são o "outro lado" que a busca precisa
+    reencontrar para saber que não há mais nada faltando."""
+    since = now() - timedelta(days=max_age_days)
+    gap = db.entries.find_one(
+        {"gap_before": True, "removed": False, "captured_at": {"$gte": since}}, sort=[("seq", ASCENDING)]
+    )
+    if not gap:
+        return {"seq": None, "keys": []}
+    docs = list(db.entries.find({"seq": {"$lt": gap["seq"]}}, {"appearance_keys": 1}).sort("seq", DESCENDING).limit(depth))
+    keys: list[str] = []
+    for d in docs:
+        keys.extend(d["appearance_keys"])
+    return {"seq": gap["seq"], "keys": keys, "reason": gap.get("gap_reason")}
 
 
 def list_queue(db, after: int | None, before: int | None, limit: int, include_covered: bool) -> dict:

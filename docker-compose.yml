@@ -54,6 +54,27 @@ services:
       - ./userscript:/work
     command: ["sh", "-c", "npm install --no-audit --no-fund --silent && npm test"]
 
+  # Testes do robô: docker compose --profile test run --rm robot-test
+  robot-test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: robot/Dockerfile
+      args:
+        INSTALL_DEV: "1"
+    volumes:
+      - ./robot/app:/robot/app
+      - ./robot/tests:/robot/tests
+      - ./userscript/notixias.user.js:/robot/notixias.user.js:ro
+    environment:
+      API_BASE_URL: http://api:8000
+      DATA_DIR: /tmp/robot-data
+    depends_on:
+      api:
+        condition: service_started
+    networks: [notixias_net]
+    command: ["pytest", "-q", "tests/test_schedule.py", "tests/test_runner_e2e.py"]
+
 volumes:
   notixias_mongo_data:
 

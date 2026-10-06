@@ -79,6 +79,10 @@ Chaves de aparição das últimas `depth` entradas (por `seq` decrescente, inclu
 { "keys": ["1840000000000000001|", "1840000000000000002|fulano"], "last_seq": 118 }
 ```
 
+### `GET /api/v1/queue/gap?depth=25&max_age_days=3`
+
+A lacuna aberta mais antiga ainda alcançável: `{ seq, keys, reason }` (`keys` = aparições das `depth` entradas capturadas antes dela; `seq: null` se não houver). `POST /queue/append` aceita `gap_seq`: uma busca que reencontrou esse "outro lado" fecha a lacuna; uma parcial a desloca para antes do item mais antigo que criou. (Preparado na API; o script ainda não usa.)
+
 ### `POST /api/v1/queue/append`
 
 Recebe um lote de aparições em **ordem do feed** (mais nova primeiro), exatamente como o scanner as viu.
@@ -92,7 +96,8 @@ Recebe um lote de aparições em **ordem do feed** (mais nova primeiro), exatame
     { "tweet_id": "1840000000000000012", "author": "conta_e", "cluster": 1 }
   ],
   "anchor_found": true,
-  "batch_id": "b-2026-10-04T12:00:00Z-ab12"
+  "batch_id": "b-2026-10-04T12:00:00Z-ab12",
+  "scan": { "reason": "anchor", "steps": 42, "collected": 87, "gap_unresolved": 0 }
 }
 ```
 
@@ -103,7 +108,7 @@ Comportamento (todas as regras em `05-modelo-de-dados.md`):
 3. Se o tweet foi visto **há menos de 2 h** (`REVISIT_AFTER_MINUTES`) e não há entrada não lida: a aparição e o reposter são registrados na entrada mais recente do tweet e **não** se cria entrada (`absorbed`). Só quando a última visualização é mais antiga que isso o repost volta à fila (item 4).
 3. Se existe entrada **não lida** (e não removida) com o mesmo `tweet_id`: acrescenta a chave e o reposter a ela (merge) e não cria nova.
 4. Caso contrário cria nova entrada com `seq` do contador atômico.
-5. Se `anchor_found = false` e a fila já tinha entradas, marca `gap_before = true` na primeira entrada criada.
+5. Se `anchor_found = false` e a fila já tinha entradas, marca `gap_before = true` na primeira entrada criada e grava nela `gap_reason` (o `scan.reason` informado: `max_steps`, `max_collect`, `end`, `gap_unresolved`...). `scan` (opcional) é diagnóstico: por que a busca parou, quantos passos, quantos itens; fica no lote.
 6. **Idempotente** por `batch_id` (reenvio devolve o mesmo resultado, sem duplicar).
 
 Resposta:

@@ -2,6 +2,7 @@
 # - Mongo próprio, com autenticação, SEM portas publicadas.
 # - API sem porta publicada no host: só o proxy (Nginx Proxy Manager) a alcança pela rede `infra_net`,
 #   pelo nome `notixias-api` (porta 8000).
+# - O serviço `robot` fala com a API pela rede interna (http://api:8000); sem portas publicadas.
 # - Nada aqui toca nos containers, volumes ou redes dos outros projetos.
 name: notixias
 
@@ -50,6 +51,30 @@ services:
       notixias_net:
       infra_net:
         aliases: [notixias-api]
+
+  # Robô: navegador sem tela que busca novas no X com a SUA sessão, em horários sorteados (ver docs/11-robo.md).
+  # Só roda quando existe robot_data/x_state.json (gerado no seu computador por scripts/robot_login.sh).
+  robot:
+    build:
+      context: .
+      dockerfile: robot/Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "${ROBOT_UID:-1000}:${ROBOT_GID:-1000}"
+    environment:
+      HOME: /tmp
+      API_BASE_URL: http://api:8000
+      API_KEY_FILE: /run/secrets/api_key
+      DATA_DIR: /data
+    volumes:
+      - ./robot_data:/data
+      - ./.secrets/api_key.txt:/run/secrets/api_key:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    shm_size: 1g
+    mem_limit: 2g
+    networks: [notixias_net]
 
 volumes:
   notixias_mongo_data:

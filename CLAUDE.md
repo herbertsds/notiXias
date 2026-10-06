@@ -8,7 +8,8 @@ Leia `README.md` e `docs/` antes de qualquer trabalho. Os documentos refletem de
 - Desenvolvimento **local** (Docker no Mac). Só mexer no servidor Oracle quando o dono pedir, e então apenas o que for do notiXias.
 - **Nunca tocar** nos containers/volumes/redes de outros projetos no servidor (`contagem_carboidratos_*`, `keycloak*`, `nginx_proxy_manager`, `portainer`). Mongo do notiXias é **sempre um container próprio**.
 - **Nunca** versionar segredos (`.env`, chave de API, chaves SSH). O userscript não contém a chave; ela vive no armazenamento do gerenciador de scripts.
-- Nenhuma automação de login no X. O dono se autentica manualmente no navegador.
+- Nenhuma automação de login no X. O dono se autentica manualmente (no navegador, ou em `scripts/robot_login.sh` para o robô do servidor).
+- Robô de busca no servidor (`robot/`, ver `docs/11-robo.md`): autorizado pelo dono em 2026-10-06, aceitando o risco para a conta. Só busca novas; nunca lê entradas nem mexe na posição.
 - Não guardar texto de posts nem mídia; apenas IDs, links, autor e metadados de captura.
 
 ## Stack decidida
@@ -30,6 +31,7 @@ docker compose --profile test run --rm api-test               # testes da API
 docker compose --profile test run --rm userscript-test       # testes do userscript
 docker compose --profile test run --rm userscript-test sh -c "node build.js"   # regenera notixias.user.js
 ./scripts/e2e.sh                                              # contrato cliente JS <-> API
+docker compose --profile test run --rm robot-test            # testes do robô (agenda, laço; e2e se E2E_API_KEY estiver definida)
 ```
 
 - Depois de editar `userscript/src/*`, **sempre** regenerar `userscript/notixias.user.js` (há um teste que falha se estiver desatualizado).

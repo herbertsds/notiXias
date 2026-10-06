@@ -73,9 +73,16 @@ def get_anchor(request: Request, depth: int = Query(10, ge=1, le=200)):
     return svc.anchor_keys(_db(request), depth)
 
 
+@router.get("/queue/gap")
+def get_gap(request: Request, depth: int = Query(25, ge=1, le=100), max_age_days: int = Query(3, ge=1, le=60)):
+    return svc.gap_info(_db(request), depth, max_age_days)
+
+
 @router.post("/queue/append")
 def post_append(body: AppendIn, request: Request):
-    return svc.append_items(_db(request), body.items, body.anchor_found, body.batch_id)
+    return svc.append_items(
+        _db(request), body.items, body.anchor_found, body.batch_id, gap_seq=body.gap_seq, scan=body.scan
+    )
 
 
 @router.get("/queue")

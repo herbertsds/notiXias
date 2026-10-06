@@ -1,0 +1,48 @@
+"""Login MANUAL no X para o robô (rode no SEU computador; nada é automatizado).
+
+Abre um Chromium com janela; você entra na conta normalmente (usuário, senha, verificação). Quando a página inicial
+carregar, a sessão (cookies) é salva em .secrets/x_state.json e a janela fecha. Depois: scripts/robot_install_session.sh
+"""
+import sys
+import time
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+OUT = Path(__file__).resolve().parent.parent / ".secrets" / "x_state.json"
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+
+def main() -> int:
+    OUT.parent.mkdir(exist_ok=True)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=False)
+        ctx = browser.new_context(
+            user_agent=USER_AGENT, viewport={"width": 1100, "height": 900}, locale="pt-BR", timezone_id="America/Sao_Paulo"
+        )
+        page = ctx.new_page()
+        page.goto("https://x.com/login")
+        print("Entre na conta do X na janela que abriu. Tenho 10 minutos; ao chegar na página inicial eu salvo e fecho.")
+        deadline = time.time() + 600
+        while time.time() < deadline:
+            time.sleep(2)
+            try:
+                logged = page.url.split("?")[0].rstrip("/") == "https://x.com/home" and any(
+                    c["name"] == "auth_token" for c in ctx.cookies("https://x.com")
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            if logged:
+                time.sleep(3)  # deixa o X terminar de gravar os cookies
+                ctx.storage_state(path=str(OUT))
+                OUT.chmod(0o600)
+                print(f"Sessão salva em {OUT}")
+                browser.close()
+                return 0
+        print("Tempo esgotado sem concluir o login.", file=sys.stderr)
+        browser.close()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

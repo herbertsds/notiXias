@@ -276,3 +276,20 @@ test('findNewPostsPill: botão do topo "Ver novos posts"; ignora outros botões'
   assert.equal(Xdom.findNewPostsPill(dom('<div><button>Ver novos posts</button></div>')), null);   // sem pillLabel
   assert.equal(Xdom.findNewPostsPill(dom('<button><div data-testid="pillLabel">Outra coisa</div></button>')), null);
 });
+
+test('findAppBanners: acha a faixa "Abrir no app X" no topo e não engole o conteúdo do X', () => {
+  const w = new JSDOM(
+    '<body><div id="root"><div id="banner"><div id="inner"><span>X</span><span id="t">Abrir no app X</span><a>ABRIR</a></div></div>' +
+    '<div id="col" data-testid="primaryColumn"><article><span>Abrir no app de outro jeito</span></article></div></div></body>',
+    { url: 'https://x.com/home' }
+  ).window;
+  Object.defineProperty(w, 'innerWidth', { value: 400 });
+  const rect = (r) => () => Object.assign({ top: 0, left: 0, width: 0, height: 0 }, r);
+  const el = (id) => w.document.getElementById(id);
+  el('inner').getBoundingClientRect = rect({ width: 400, height: 70 });
+  el('banner').getBoundingClientRect = rect({ width: 400, height: 70 });
+  el('t').getBoundingClientRect = rect({ width: 200, height: 20 });
+  el('root').getBoundingClientRect = rect({ width: 400, height: 3000 });
+  const found = Xdom.findAppBanners(w.document, w);
+  assert.deepEqual(found.map((n) => n.id), ['banner']);
+});

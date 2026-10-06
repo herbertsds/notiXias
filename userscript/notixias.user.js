@@ -1,14 +1,16 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.6.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal).
+// @version      0.7.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM.getValue
+// @grant        GM.setValue
 // @connect      localhost
 // @connect      127.0.0.1
 // @connect      notixias.163.176.176.10.nip.io
@@ -416,6 +418,26 @@ const Xdom = (function () {
     return out;
   }
 
+  // Faixa "Abrir no app X" no topo do X mobile. Reconhecida pelo texto (lista fechada) e pelo tamanho: sobe do texto
+  // até o maior ancestral que seja uma faixa baixa e larga e que NÃO contenha conteúdo do X (posts, coluna principal).
+  const APP_BANNER_RE = /^(abrir|open)\s+(no|in|o|the)?\s*(app|aplicativo)\b/i;
+  function findAppBanners(root, win) {
+    const out = [];
+    const vw = win.innerWidth;
+    for (const el of root.querySelectorAll('div, span, a')) {
+      if (el.children.length || !APP_BANNER_RE.test((el.textContent || '').trim())) continue;
+      let best = null;
+      for (let n = el; n && n.parentElement && n !== win.document.body; n = n.parentElement) {
+        if (n.querySelector('article, [data-testid="primaryColumn"], [data-testid="cellInnerDiv"], main')) break;
+        const r = n.getBoundingClientRect();
+        if (r.height > 160) break;
+        if (r.width >= vw * 0.9) best = n;
+      }
+      if (best && !out.includes(best)) out.push(best);
+    }
+    return out;
+  }
+
   const HIDE_ATTR = 'data-nx-hidden';
   const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}';
 
@@ -434,7 +456,7 @@ const Xdom = (function () {
       return 0;
     }
     ensureStyle(root.ownerDocument || root);
-    const bars = findBottomBars(root, win);
+    const bars = findBottomBars(root, win).concat(findAppBanners(root, win));
     bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
     return bars.length;
   }
@@ -482,7 +504,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, setBottomBarsHidden, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1133,7 +1155,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // ---- main.js ----
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
-function startApp() {
+async function startApp() {
+  const NX_VERSION = '0.7.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1142,26 +1165,46 @@ function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
+  // O robô roda sem pessoa olhando e com intervalos longos entre as buscas: aceita rolar mais antes de desistir.
+  const BOT_SCAN = { maxSteps: 400, maxCollect: 800 };
   const FETCH_STALE_MS = 30 * 60 * 1000;
   const ERROR_STALE_MS = 5 * 60 * 1000;
   const NOTICE_MS = 6000;
 
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
+  // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
+  // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
+  const GM_KEYS = ['nx_cfg', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
+  const gmCache = new Map();
+  // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
+  const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
+  const gmSet = (k, v) => (typeof GM_setValue === 'function' ? GM_setValue(k, v) : GM.setValue(k, v));
   const gm = {
+    async load() {
+      // Limite de tempo: se o gerenciador não responder, o app inicia com os padrões em vez de ficar parado.
+      const one = async (k) => {
+        try {
+          const raw = await Promise.race([gmGet(k), new Promise((r) => setTimeout(() => r(undefined), 1500))]);
+          if (raw !== undefined && raw !== null && raw !== '') gmCache.set(k, JSON.parse(raw));
+        } catch (e) { /* valor ausente ou ilegível: usa o padrão */ }
+      };
+      await Promise.all(GM_KEYS.map(one));
+    },
     get(k, d) {
-      try {
-        const raw = GM_getValue(k);
-        return raw === undefined || raw === null || raw === '' ? d : JSON.parse(raw);
-      } catch (e) {
-        return d;
-      }
+      return gmCache.has(k) ? gmCache.get(k) : d;
     },
     set(k, v) {
-      try { GM_setValue(k, JSON.stringify(v)); } catch (e) { /* sem armazenamento */ }
+      gmCache.set(k, v);
+      try {
+        const r = gmSet(k, JSON.stringify(v));
+        if (r && typeof r.catch === 'function') r.catch(() => {});
+      } catch (e) { /* sem armazenamento */ }
     },
   };
+  await gm.load();
   let cfg = Object.assign({}, DEFAULTS, gm.get('nx_cfg', {}));
   const saveCfg = () => gm.set('nx_cfg', cfg);
 
@@ -1185,6 +1228,8 @@ function startApp() {
 
   // ---------- utilidades ----------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Sinal para o robô do servidor (lido pelo navegador sem tela): a busca terminou, com sucesso ou erro.
+  const botDone = (result) => { if (cfg.bot) window.__nxBotResult = Object.assign({ at: Date.now() }, result); };
   const rand = (a, b) => a + Math.random() * (b - a);
   async function waitFor(fn, timeout, every) {
     const t0 = Date.now();
@@ -1310,6 +1355,7 @@ function startApp() {
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
+      { label: 'notiXias versão ' + NX_VERSION, onClick: () => {} },
     ];
   }
 
@@ -1479,7 +1525,7 @@ function startApp() {
     try {
       const f = await api.following();
       const failedRecently = Date.now() - gm.get('nx_follow_fail_at', 0) < 24 * 3600 * 1000;
-      if (!f.last_full_at && !failedRecently) return startFollowingRefresh({ then: 'fetch', deep: !!deep });
+      if (!f.last_full_at && !failedRecently && !cfg.bot) return startFollowingRefresh({ then: 'fetch', deep: !!deep });
     } catch (e) { /* sem a lista, a busca ainda funciona (usa o aprendido do feed) */ }
     setPhase('fetching', { deep: !!deep });
     if (Core.isFeedPath(feed.url, location.pathname)) onRoute();
@@ -1495,6 +1541,7 @@ function startApp() {
   }
 
   async function failFetch(message, art) {
+    botDone({ ok: false, error: message });
     setPhase('error');
     const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
     gm.set('nx_skeleton', sk);
@@ -1552,7 +1599,8 @@ function startApp() {
       },
     };
     const deep = !!getPhase().deep;
-    const scan = await Scanner.run(env, deep ? Object.assign({}, SCAN, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : SCAN, anchor.keys);
+    const base = cfg.bot ? Object.assign({}, SCAN, BOT_SCAN) : SCAN;
+    const scan = await Scanner.run(env, deep ? Object.assign({}, base, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : base, anchor.keys);
     if (token !== routeToken) return;
 
     if (scan.reason === 'cancelled') {
@@ -1568,20 +1616,28 @@ function startApp() {
       items: Core.clusterize(scan.seq).map(Core.toApiItem),
       anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
+      // diagnóstico: por que a busca parou (fica na lacuna e no lote, para a causa não precisar ser adivinhada)
+      scan: { reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length, gap_unresolved: scan.gapUnresolved || 0 },
     });
     setPhase('idle');
+    if (cfg.bot) {
+      // Robô: não abre nada (abrir uma entrada registraria leitura e mexeria na posição). Só informa o resultado.
+      botDone({ ok: true, created: res.created, updated: res.updated, gap: !!res.gap, reason: scan.reason, steps: scan.steps, anchor_found: scan.anchorFound });
+      return;
+    }
 
     const st = await api.state();
     if (res.created > 0 || res.updated > 0) {
+      const parts = [];
+      if (res.created > 0) parts.push(res.created + ' novos');
+      if (res.updated > 0) parts.push(res.updated + ' com resposta nova');
+      gm.set('nx_notice', parts.join(' · ') + (res.gap ? ' · ⚠ pode haver lacuna' : ''));
+      ui.hideOverlay();
+      // Não avança sozinho: volta para onde você estava e você segue com ▶. Só abre o primeiro novo se ainda não
+      // havia nenhuma posição de leitura.
+      if (st.current) return openEntry(st.current);
       const q = await api.queue({ after: st.cursor_seq || 0, limit: 1 });
-      if (q.items.length) {
-        const parts = [];
-        if (res.created > 0) parts.push(res.created + ' novos');
-        if (res.updated > 0) parts.push(res.updated + ' com resposta nova');
-        gm.set('nx_notice', parts.join(' · ') + (res.gap ? ' · ⚠ pode haver lacuna' : ''));
-        ui.hideOverlay();
-        return openEntry(q.items[0]);
-      }
+      if (q.items.length) return openEntry(q.items[0]);
     }
     gm.set('nx_notice', 'Você está em dia');
     ui.hideOverlay();
@@ -1791,6 +1847,7 @@ function startApp() {
 
   // ---------- roteamento ----------
   function handleError(e) {
+    botDone({ ok: false, error: (e && e.message) || 'erro', status: e && e.status });
     if (e && e.status === 401) {
       if (promptConfig()) onRoute();
       return;
@@ -1804,7 +1861,7 @@ function startApp() {
     const token = ++routeToken;
     setLabels(null);
     try {
-      if (Xdom.isLoginPath(location.pathname)) return;
+      if (Xdom.isLoginPath(location.pathname)) { botDone({ ok: false, error: 'sessão do X expirada (tela de login)', login: true }); return; }
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));
 
       const st = await api.state();
@@ -1832,6 +1889,7 @@ function startApp() {
       }
       if (phase.name === 'error') return renderSideBar('Última busca falhou — veja o menu ⋯', st);
 
+      if (cfg.bot) return; // robô: sem comando de busca, não faz nada
       if (feedHere && cfg.autoResume) return await resumeReading();
 
       const status = Core.parseStatusPath(location.pathname);
@@ -1868,6 +1926,16 @@ function startApp() {
   onRoute();
 }
 
-if (typeof window !== 'undefined' && typeof GM_xmlhttpRequest !== 'undefined') startApp();
+if (typeof window !== 'undefined' && typeof GM_xmlhttpRequest !== 'undefined') {
+  startApp().catch((e) => {
+    // Sem isto, uma falha ao iniciar deixa a página sem nada e sem pista do motivo.
+    try {
+      const d = document.createElement('div');
+      d.textContent = 'notiXias: erro ao iniciar: ' + (e && e.message ? e.message : e);
+      d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b00020;color:#fff;padding:8px;font:13px sans-serif;text-align:center';
+      document.documentElement.appendChild(d);
+    } catch (e2) { /* nada a fazer */ }
+  });
+}
 
 })();

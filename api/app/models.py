@@ -20,11 +20,22 @@ class AppearanceIn(BaseModel):
     cluster: int | None = Field(default=None, ge=1, le=1_000_000)
 
 
+class ScanIn(BaseModel):
+    """Como a busca terminou (diagnóstico): por que parou e quanto rolou."""
+
+    reason: str = Field(max_length=30, pattern=r"^[\w\-]+$")  # anchor | max_steps | max_collect | end | backfill | gap_unresolved
+    steps: int = Field(default=0, ge=0, le=100_000)
+    collected: int = Field(default=0, ge=0, le=100_000)
+    gap_unresolved: int = Field(default=0, ge=0, le=100_000)  # lacunas "Mostrar mais" que ficaram sem abrir
+
+
 class AppendIn(BaseModel):
     """`items` na ordem do feed: o mais novo primeiro."""
 
     items: list[AppearanceIn] = Field(max_length=1000)
     anchor_found: bool
+    gap_seq: int | None = Field(default=None, ge=1)  # busca que tentou preencher a lacuna que começa nesta entrada
+    scan: ScanIn | None = None
     batch_id: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w.:\-]+$")
 
 

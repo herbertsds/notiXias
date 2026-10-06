@@ -2,12 +2,12 @@
 
 Regras (decididas pelo dono):
 - A cada X minutos, com X sorteado entre 10 e 25 a CADA execução, busca novas.
-- Madrugada: depois de 01:00 roda UMA única vez e fica parado até 04:45; às 04:45 volta a buscar, e essa primeira
+- Madrugada: depois de 01:00 roda UMA única vez e fica parado até 05:10; às 05:10 volta a buscar, e essa primeira
   busca do dia é PROFUNDA (varredura mais longa, para recuperar algo que tenha ficado para trás durante a pausa).
 
-Leitura adotada da segunda regra: a execução "depois de 1h" é a primeira que cairia entre 01:00 e 04:45 pelo
-sorteio normal; ela roda no horário sorteado e, a partir daí, o próximo horário é 04:45. Fuso: America/Sao_Paulo.
-A execução é profunda quando é a primeira a partir das 04:45 ou a primeira a partir das 12:30 (`is_deep`).
+Leitura adotada da segunda regra: a execução "depois de 1h" é a primeira que cairia entre 01:00 e 05:10 pelo
+sorteio normal; ela roda no horário sorteado e, a partir daí, o próximo horário é 05:10. Fuso: America/Sao_Paulo.
+A execução é profunda quando é a primeira a partir das 05:10 ou a primeira a partir das 12:30 (`is_deep`).
 """
 import random
 from datetime import datetime, time, timedelta
@@ -17,7 +17,7 @@ TZ = ZoneInfo("America/Sao_Paulo")
 MIN_MINUTES = 10
 MAX_MINUTES = 25
 NIGHT_START = time(1, 0)
-NIGHT_END = time(4, 45)
+NIGHT_END = time(5, 10)
 MIDDAY_DEEP = time(12, 30)  # primeira busca a partir desta hora também é profunda
 
 
@@ -27,7 +27,7 @@ def in_night(t: datetime) -> bool:
 
 
 def night_bounds(t: datetime) -> tuple[datetime, datetime]:
-    """Início (01:00) e fim (04:45) da madrugada do DIA de `t`, no fuso local."""
+    """Início (01:00) e fim (05:10) da madrugada do DIA de `t`, no fuso local."""
     lt = t.astimezone(TZ)
     return lt.replace(hour=1, minute=0, second=0, microsecond=0), lt.replace(hour=NIGHT_END.hour, minute=NIGHT_END.minute, second=0, microsecond=0)
 
@@ -55,7 +55,7 @@ DEEP_FROM = (NIGHT_END, MIDDAY_DEEP)
 
 
 def is_deep(last_run: datetime | None, when: datetime) -> bool:
-    """Profunda = primeira busca a partir de 04:45 (fim da madrugada) ou de 12:30: a anterior foi antes dessa hora
+    """Profunda = primeira busca a partir de 05:10 (fim da madrugada) ou de 12:30: a anterior foi antes dessa hora
     e esta é nela ou depois."""
     if last_run is None:
         return False

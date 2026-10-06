@@ -16,8 +16,8 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 ## Horários (`robot/app/schedule.py`, fuso America/Sao_Paulo)
 
 - A cada **X minutos**, X sorteado entre 10 e 25 (era 30 a 45 até 2026-10-06; o dono aceitou o risco extra para a conta) **a cada execução**.
-- Madrugada: a primeira execução que cairia entre **01:00 e 04:45** roda (é a **única** da madrugada); depois disso nada até **04:45**, quando volta a buscar e retoma o ritmo normal. **A primeira busca a partir das 04:45 é PROFUNDA** (rola mais, comparando com as últimas 100 entradas) para recuperar algo que tenha ficado para trás; **a primeira a partir das 12:30 também é profunda**; as demais são normais.
-- Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 04:45).
+- Madrugada: a primeira execução que cairia entre **01:00 e 05:10** roda (é a **única** da madrugada); depois disso nada até **05:10**, quando volta a buscar e retoma o ritmo normal. **A primeira busca a partir das 05:10 é PROFUNDA** (rola mais, comparando com as últimas 100 entradas) para recuperar algo que tenha ficado para trás; **a primeira a partir das 12:30 também é profunda**; as demais são normais.
+- Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 05:10).
 - Primeira vez (sem histórico): roda assim que houver sessão.
 
 ## Proteções

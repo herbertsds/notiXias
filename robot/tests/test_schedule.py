@@ -26,13 +26,13 @@ def test_primeira_execucao_e_agora():
     assert next_run(None, now) == now
 
 
-def test_depois_de_1h_roda_uma_unica_vez_e_para_ate_4h45():
+def test_depois_de_1h_roda_uma_unica_vez_e_para_ate_5h10():
     rng = random.Random(2)
     last = at(0, 55)                      # última antes da madrugada
     n1 = next_run(last, last, rng)        # 01:05..01:20 -> cai na madrugada: roda (a única)
-    assert at(1) <= n1 < at(4, 45)
-    n2 = next_run(n1, n1, rng)            # já rodou na madrugada: só às 04:45
-    assert n2 == at(4, 45)
+    assert at(1) <= n1 < at(5, 10)
+    n2 = next_run(n1, n1, rng)            # já rodou na madrugada: só às 05:10
+    assert n2 == at(5, 10)
     n3 = next_run(n2, n2, rng)            # volta ao ritmo normal
     assert n2 + timedelta(minutes=10) <= n3 <= n2 + timedelta(minutes=25)
 
@@ -52,10 +52,10 @@ def test_ultima_cedo_demais_nao_pula_a_unica_execucao():
     assert at(1, 0) <= n2 <= at(1, 15)
 
 
-def test_reinicio_na_madrugada_depois_de_ja_ter_rodado_espera_4h45():
+def test_reinicio_na_madrugada_depois_de_ja_ter_rodado_espera_5h10():
     last = at(1, 20)
     now = at(3, 0)                                     # contêiner reiniciou às 03:00
-    assert next_run(last, now, random.Random(6)) == at(4, 45)
+    assert next_run(last, now, random.Random(6)) == at(5, 10)
 
 
 def test_reinicio_na_madrugada_sem_rodada_na_madrugada_roda_agora():
@@ -75,14 +75,14 @@ def test_fuso_de_sao_paulo_independe_do_fuso_do_servidor():
     last = datetime(2026, 10, 6, 3, 55, tzinfo=timezone.utc)     # 00:55 em São Paulo (UTC-3)
     n = next_run(last, last, random.Random(9))
     assert schedule.in_night(n)
-    assert next_run(n, n, random.Random(9)) == at(4, 45)
+    assert next_run(n, n, random.Random(9)) == at(5, 10)
 
 
-def test_primeira_busca_depois_das_4h45_e_profunda():
+def test_primeira_busca_depois_das_5h10_e_profunda():
     rng = random.Random(10)
     night = at(1, 20)
     when = next_run(night, night, rng)
-    assert when == at(4, 45)
+    assert when == at(5, 10)
     assert schedule.is_deep(night, when) is True
     nxt = next_run(when, when, rng)
     assert schedule.is_deep(when, nxt) is False          # as seguintes são normais
@@ -92,11 +92,11 @@ def test_primeira_busca_depois_das_4h45_e_profunda():
 def test_busca_normal_do_dia_nunca_e_profunda():
     last, when = at(10, 0), at(10, 40)
     assert schedule.is_deep(last, when) is False
-    assert schedule.is_deep(at(23, 0, day=5), at(0, 30)) is False          # antes das 04:45 do dia
+    assert schedule.is_deep(at(23, 0, day=5), at(0, 30)) is False          # antes das 05:10 do dia
     assert schedule.is_deep(at(0, 50), at(1, 30)) is False                 # a única da madrugada é normal
 
 
-def test_depois_de_reinicio_a_primeira_apos_4h45_tambem_e_profunda():
+def test_depois_de_reinicio_a_primeira_apos_5h10_tambem_e_profunda():
     last = at(1, 20)
     now = at(7, 0)                                                         # contêiner ficou parado até as 07:00
     when = next_run(last, now, random.Random(11))

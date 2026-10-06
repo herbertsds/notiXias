@@ -326,3 +326,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.7.5: saíram do menu ⋯ "Reabrir posts cobertos" e "Exportar dados" (a API mantém `POST /entries/uncover` e `GET /export`; o export também serve para conferências por linha de comando).
 
 0.7.6: ao abrir uma **resposta**, o script abre sozinho o "Mostrar mais" dos posts originais **acima** dela (o botão expande no lugar, sem trocar de página). Só os que estão antes do post aberto; o próprio post e as respostas abaixo não são tocados. Tenta algumas vezes porque o X desenha os de cima aos poucos.
+
+0.7.7: o "Mostrar mais" é aberto em **todos** os posts da página (originais acima, o post aberto e as respostas), não só nos de cima. Cada botão é clicado uma vez; se um clique levar a outra página, o script volta e para.

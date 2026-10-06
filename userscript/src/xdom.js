@@ -223,27 +223,17 @@ const Xdom = (function () {
     return bars.length;
   }
 
-  // ---- "Mostrar mais" dos posts ACIMA do post aberto ----
-  // Numa resposta, os originais acima aparecem cortados com um botão "Mostrar mais" que expande no próprio lugar (não
-  // abre outra página). Abre os que estão antes do post aberto; o post aberto e as respostas abaixo ficam como estão.
-  // Devolve quantos botões clicou (0 = nada a abrir, ou a página ainda não desenhou o post aberto).
-  function expandAncestorTexts(root, focalId) {
+  // ---- "Mostrar mais" do texto dos posts (página de um post) ----
+  // Posts longos vêm cortados com um botão "Mostrar mais" que expande no próprio lugar. Devolve os botões ainda
+  // fechados de TODOS os posts da conversa (originais acima, o aberto e as respostas), na coluna principal.
+  function findTextMoreButtons(root) {
     const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
-    const arts = Array.from(scope.querySelectorAll('article[data-testid="tweet"]'));
-    const focal = arts.findIndex((a) => {
-      const it = parseArticle(a);
-      return it && it.id === focalId;
-    });
-    if (focal <= 0) return 0;
-    let clicked = 0;
-    for (const art of arts.slice(0, focal)) {
+    const out = [];
+    for (const art of scope.querySelectorAll('article[data-testid="tweet"]')) {
       const more = art.querySelector('[data-testid="tweet-text-show-more-link"]');
-      if (more) {
-        more.click();
-        clicked++;
-      }
+      if (more) out.push(more);
     }
-    return clicked;
+    return out;
   }
 
   // ---- idade do post ----
@@ -347,7 +337,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, expandAncestorTexts, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

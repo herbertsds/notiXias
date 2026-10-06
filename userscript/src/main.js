@@ -351,10 +351,21 @@ async function startApp() {
     await sleep(2000);
     if (token !== routeToken) return;
 
-    // Resposta: os posts originais acima vêm cortados ("Mostrar mais"); abre todos (o X desenha os de cima aos poucos).
-    for (let i = 0, idle = 0; i < 5 && idle < 2; i++) {
-      if (Xdom.expandAncestorTexts(document, status.id)) { idle = 0; await sleep(900); } else { idle++; await sleep(700); }
+    // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
+    // os posts aos poucos, então olha de novo algumas vezes. Cada botão é clicado uma vez só; se um clique levar a
+    // outra página, volta e para.
+    const clickedMore = new WeakSet();
+    for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
+      const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
+      if (!btn) { idle++; await sleep(700); if (token !== routeToken) return; continue; }
+      idle = 0;
+      clickedMore.add(btn);
+      clicks++;
+      const href = location.href;
+      btn.click();
+      await sleep(500);
       if (token !== routeToken) return;
+      if (location.href !== href) { history.back(); await sleep(800); break; }
     }
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.

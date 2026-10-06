@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.6
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.6
+// @version      0.7.7
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.7
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -513,27 +513,17 @@ const Xdom = (function () {
     return bars.length;
   }
 
-  // ---- "Mostrar mais" dos posts ACIMA do post aberto ----
-  // Numa resposta, os originais acima aparecem cortados com um botão "Mostrar mais" que expande no próprio lugar (não
-  // abre outra página). Abre os que estão antes do post aberto; o post aberto e as respostas abaixo ficam como estão.
-  // Devolve quantos botões clicou (0 = nada a abrir, ou a página ainda não desenhou o post aberto).
-  function expandAncestorTexts(root, focalId) {
+  // ---- "Mostrar mais" do texto dos posts (página de um post) ----
+  // Posts longos vêm cortados com um botão "Mostrar mais" que expande no próprio lugar. Devolve os botões ainda
+  // fechados de TODOS os posts da conversa (originais acima, o aberto e as respostas), na coluna principal.
+  function findTextMoreButtons(root) {
     const scope = root.querySelector('[data-testid="primaryColumn"]') || root;
-    const arts = Array.from(scope.querySelectorAll('article[data-testid="tweet"]'));
-    const focal = arts.findIndex((a) => {
-      const it = parseArticle(a);
-      return it && it.id === focalId;
-    });
-    if (focal <= 0) return 0;
-    let clicked = 0;
-    for (const art of arts.slice(0, focal)) {
+    const out = [];
+    for (const art of scope.querySelectorAll('article[data-testid="tweet"]')) {
       const more = art.querySelector('[data-testid="tweet-text-show-more-link"]');
-      if (more) {
-        more.click();
-        clicked++;
-      }
+      if (more) out.push(more);
     }
-    return clicked;
+    return out;
   }
 
   // ---- idade do post ----
@@ -637,7 +627,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, expandAncestorTexts, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1309,7 +1299,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.6'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.7'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1659,10 +1649,21 @@ async function startApp() {
     await sleep(2000);
     if (token !== routeToken) return;
 
-    // Resposta: os posts originais acima vêm cortados ("Mostrar mais"); abre todos (o X desenha os de cima aos poucos).
-    for (let i = 0, idle = 0; i < 5 && idle < 2; i++) {
-      if (Xdom.expandAncestorTexts(document, status.id)) { idle = 0; await sleep(900); } else { idle++; await sleep(700); }
+    // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
+    // os posts aos poucos, então olha de novo algumas vezes. Cada botão é clicado uma vez só; se um clique levar a
+    // outra página, volta e para.
+    const clickedMore = new WeakSet();
+    for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
+      const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
+      if (!btn) { idle++; await sleep(700); if (token !== routeToken) return; continue; }
+      idle = 0;
+      clickedMore.add(btn);
+      clicks++;
+      const href = location.href;
+      btn.click();
+      await sleep(500);
       if (token !== routeToken) return;
+      if (location.href !== href) { history.back(); await sleep(800); break; }
     }
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.

@@ -46,7 +46,7 @@ async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     data = Path(os.environ.get("DATA_DIR", "/data"))
     data.mkdir(parents=True, exist_ok=True)
-    state_path = data / "x_state.json"      # sessão do X (cookies); gerada por scripts/robot_login.py no seu computador
+    state_path = data / "x_state.json"      # sessão do X (cookies); gerada por scripts/robot_login.sh no seu computador
     status_path = data / "status.json"
     api_base = os.environ.get("API_BASE_URL", "http://api:8000")
     bundle = Path(os.environ.get("BUNDLE_PATH", "/robot/notixias.user.js")).read_text(encoding="utf-8")
@@ -76,7 +76,7 @@ async def main() -> None:
 
         if not state_path.exists():
             if not status.get("waiting_session"):
-                log.error("sem sessão do X em %s: rode scripts/robot_login.py no seu computador e envie o arquivo", state_path)
+                log.error("sem sessão do X em %s: rode scripts/robot_login.sh e depois scripts/robot_install_session.sh no seu computador", state_path)
             status.update(waiting_session=True, next_run_at=None)
             save_json(status_path, status)
             await asyncio.sleep(60)

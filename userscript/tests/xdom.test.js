@@ -376,3 +376,26 @@ test('visibleVideo: pega o vídeo mais visível e ignora o minúsculo ou o fora 
   assert.deepEqual(v.rect, { top: 500, left: 0, bottom: 800, right: 400 });
   assert.equal(Xdom.visibleVideo(new JSDOM('<body></body>').window.document, w), null);
 });
+
+
+test('visibleVideo devolve o player (videoComponent); controlsVisible segue a opacidade dos controles do X', () => {
+  const w = new JSDOM(
+    '<body><div data-testid="videoComponent" id="vc"><video id="v"></video><div id="ctl" style="opacity:1"><button data-testid="mute-button"></button></div></div></body>',
+    { url: 'https://x.com/home' }
+  ).window;
+  Object.defineProperty(w, 'innerWidth', { value: 400 });
+  Object.defineProperty(w, 'innerHeight', { value: 800 });
+  w.document.getElementById('v').getBoundingClientRect = () => ({ top: 100, left: 0, width: 400, height: 225, bottom: 325, right: 400 });
+  const v = Xdom.visibleVideo(w.document, w);
+  assert.equal(v.component.id, 'vc');
+  assert.equal(Xdom.controlsVisible(v.component, w), true);
+  w.document.getElementById('ctl').style.opacity = '0';                          // controles sumiram
+  assert.equal(Xdom.controlsVisible(v.component, w), false);
+  w.document.getElementById('ctl').style.opacity = '1';
+  w.document.getElementById('ctl').style.display = 'none';
+  assert.equal(Xdom.controlsVisible(v.component, w), false);
+  assert.equal(Xdom.controlsVisible(null, w), true);                              // sem player conhecido: não esconde
+  w.document.querySelector('[data-testid="mute-button"]').remove();
+  w.document.getElementById('ctl').style.display = '';
+  assert.equal(Xdom.controlsVisible(v.component, w), true);                       // sem botão de som: não dá para saber
+});

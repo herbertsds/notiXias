@@ -236,10 +236,25 @@ const Xdom = (function () {
       const share = (w * h) / (r.width * r.height);
       if (share < 0.3) continue;
       if (!best || share > best.share) {
-        best = { video: v, share, rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
+        best = { video: v, share, component: v.closest('[data-testid="videoComponent"]'), rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
       }
     }
-    return best ? { video: best.video, rect: best.rect } : null;
+    return best ? { video: best.video, rect: best.rect, component: best.component } : null;
+  }
+
+  // Os controles do X (botão de som) estão aparecendo? Eles surgem e somem com transição de opacidade, dentro do player.
+  // Sem botão de som (vídeo sem áudio, GIF) não há como saber: considera visíveis.
+  function controlsVisible(component, win) {
+    if (!component) return true;
+    const btn = component.querySelector('[data-testid="mute-button"]');
+    if (!btn) return true;
+    let o = 1;
+    for (let n = btn; n && n !== component.parentElement; n = n.parentElement) {
+      const cs = win.getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      o *= parseFloat(cs.opacity === '' ? '1' : cs.opacity);
+    }
+    return o > 0.1;
   }
 
   // ---- "Mostrar mais" do texto dos posts (página de um post) ----
@@ -356,7 +371,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

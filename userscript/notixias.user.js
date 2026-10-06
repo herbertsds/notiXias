@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.8
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.8
+// @version      0.7.9
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.9
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -534,10 +534,25 @@ const Xdom = (function () {
       const share = (w * h) / (r.width * r.height);
       if (share < 0.3) continue;
       if (!best || share > best.share) {
-        best = { video: v, share, rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
+        best = { video: v, share, component: v.closest('[data-testid="videoComponent"]'), rect: { top: Math.max(r.top, 0), left: Math.max(r.left, 0), bottom: Math.min(r.bottom, win.innerHeight), right: Math.min(r.right, win.innerWidth) } };
       }
     }
-    return best ? { video: best.video, rect: best.rect } : null;
+    return best ? { video: best.video, rect: best.rect, component: best.component } : null;
+  }
+
+  // Os controles do X (botão de som) estão aparecendo? Eles surgem e somem com transição de opacidade, dentro do player.
+  // Sem botão de som (vídeo sem áudio, GIF) não há como saber: considera visíveis.
+  function controlsVisible(component, win) {
+    if (!component) return true;
+    const btn = component.querySelector('[data-testid="mute-button"]');
+    if (!btn) return true;
+    let o = 1;
+    for (let n = btn; n && n !== component.parentElement; n = n.parentElement) {
+      const cs = win.getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      o *= parseFloat(cs.opacity === '' ? '1' : cs.opacity);
+    }
+    return o > 0.1;
   }
 
   // ---- "Mostrar mais" do texto dos posts (página de um post) ----
@@ -654,7 +669,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1153,7 +1168,7 @@ const Ui = (function () {
   `;
   const SPEED_CSS = `
     :host { all: initial; }
-    button { position: fixed; z-index: 2147483645; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
+    button { display: block; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
       border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
       font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
   `;
@@ -1324,23 +1339,34 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    // Botão de velocidade sobre o canto do vídeo. o: { label, top, left, onClick }
+    // Botão de velocidade do vídeo. o: { label, container?, visible?, top?, left?, onClick }
+    //  - com `container` (o player do X): o botão vai DENTRO dele, posicionado em absoluto, e portanto rola junto com
+    //    o vídeo sem nenhum atraso; `visible=false` esconde (os controles do X sumiram);
+    //  - sem `container`: fixo na tela em top/left (quem chama o esconde enquanto a página rola).
     function showSpeed(o) {
-      attach(spd);
       spdHandler = o.onClick;
+      const host = spd.host;
       if (!spdNode) {
         spdNode = el(doc, 'button', {});
+        const stop = (e) => { e.stopPropagation(); };
+        for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) spdNode.addEventListener(ev, stop);
         spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (spdHandler) spdHandler(); });
         spd.root.append(spdNode);
       }
       if (spdNode.textContent !== o.label) spdNode.textContent = o.label;
-      spdNode.style.top = Math.round(o.top) + 'px';
-      spdNode.style.left = Math.round(o.left) + 'px';
+      const hidden = o.visible === false ? 'display:none;' : '';
+      if (o.container) {
+        if (host.parentElement !== o.container) o.container.append(host);
+        host.style.cssText = 'position:absolute;top:10px;left:10px;z-index:5;' + hidden;
+      } else {
+        const root = doc.documentElement;
+        if (host.parentElement !== root) root.append(host);
+        host.style.cssText = 'position:fixed;top:' + Math.round(o.top) + 'px;left:' + Math.round(o.left) + 'px;z-index:2147483645;' + hidden;
+      }
     }
 
     function hideSpeed() {
-      if (spdNode) spdNode.remove();
-      spdNode = null;
+      spd.host.remove();
     }
 
     return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };
@@ -1354,7 +1380,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.8'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.9'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1471,21 +1497,27 @@ async function startApp() {
   }
   setInterval(applyAges, 1500);
 
-  // Velocidade do vídeo: botão no canto do vídeo que está na tela; cada toque passa para a próxima velocidade.
-  // Só mexe no vídeo quando a velocidade escolhida não é 1x (o padrão deixa o X como está).
+  // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
+  // cada toque passa para a próxima velocidade. Só mexe no vídeo quando a escolhida não é 1x.
+  // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
+  let scrollingUntil = 0;
+  window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
   function applySpeed() {
     if (cfg.bot) return;
     let v = null;
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
-    if (!v) { ui.hideSpeed(); return; }
+    if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
     if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
     ui.showSpeed({
-      label: Core.formatSpeed(rate), top: v.rect.top + 10, left: v.rect.left + 10,
+      label: Core.formatSpeed(rate),
+      container: v.component,
+      visible: Xdom.controlsVisible(v.component, window),
+      top: v.rect.top + 10, left: v.rect.left + 10,
       onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
     });
   }
-  setInterval(applySpeed, 600);
+  setInterval(applySpeed, 300);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
 

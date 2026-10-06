@@ -235,3 +235,25 @@ test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "
   assert.ok(clicks.some((l) => /pill\.click\(\)/.test(l)), 'Ver novos posts');
   assert.ok(clicks.some((l) => /btn\.click\(\)/.test(l)), 'Mostrar mais do texto dos posts');
 });
+
+
+test('Ui: botão de velocidade vai dentro do player e some com os controles; fora do player fica fixo', () => {
+  const { ui, doc } = mountUi();
+  const vc = doc.createElement('div');
+  doc.body.append(vc);
+  let taps = 0;
+  ui.showSpeed({ label: '1x', container: vc, visible: true, onClick: () => { taps++; } });
+  const host = doc.getElementById('notixias-speed');
+  assert.equal(host.parentElement, vc);                                            // dentro do player: rola junto
+  assert.match(host.style.cssText, /position:\s*absolute/);
+  host.shadowRoot.querySelector('button').click();
+  assert.equal(taps, 1);
+  ui.showSpeed({ label: '1.5x', container: vc, visible: false, onClick: () => {} });
+  assert.match(host.style.cssText, /display:\s*none/);
+  assert.equal(host.shadowRoot.querySelector('button').textContent, '1.5x');
+  ui.showSpeed({ label: '1x', top: 40, left: 8, onClick: () => {} });             // sem player: fixo na tela
+  assert.equal(host.parentElement, doc.documentElement);
+  assert.match(host.style.cssText, /position:\s*fixed/);
+  ui.hideSpeed();
+  assert.equal(doc.getElementById('notixias-speed'), null);
+});

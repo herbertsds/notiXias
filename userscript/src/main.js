@@ -118,21 +118,27 @@ async function startApp() {
   }
   setInterval(applyAges, 1500);
 
-  // Velocidade do vídeo: botão no canto do vídeo que está na tela; cada toque passa para a próxima velocidade.
-  // Só mexe no vídeo quando a velocidade escolhida não é 1x (o padrão deixa o X como está).
+  // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
+  // cada toque passa para a próxima velocidade. Só mexe no vídeo quando a escolhida não é 1x.
+  // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
+  let scrollingUntil = 0;
+  window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
   function applySpeed() {
     if (cfg.bot) return;
     let v = null;
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
-    if (!v) { ui.hideSpeed(); return; }
+    if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
     if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
     ui.showSpeed({
-      label: Core.formatSpeed(rate), top: v.rect.top + 10, left: v.rect.left + 10,
+      label: Core.formatSpeed(rate),
+      container: v.component,
+      visible: Xdom.controlsVisible(v.component, window),
+      top: v.rect.top + 10, left: v.rect.left + 10,
       onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
     });
   }
-  setInterval(applySpeed, 600);
+  setInterval(applySpeed, 300);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { if ((cfg.videoSpeed || 1) !== 1) applySpeed(); }, true);
 

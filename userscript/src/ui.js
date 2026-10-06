@@ -55,7 +55,7 @@ const Ui = (function () {
   `;
   const SPEED_CSS = `
     :host { all: initial; }
-    button { position: fixed; z-index: 2147483645; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
+    button { display: block; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
       border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
       font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
   `;
@@ -226,23 +226,34 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    // Botão de velocidade sobre o canto do vídeo. o: { label, top, left, onClick }
+    // Botão de velocidade do vídeo. o: { label, container?, visible?, top?, left?, onClick }
+    //  - com `container` (o player do X): o botão vai DENTRO dele, posicionado em absoluto, e portanto rola junto com
+    //    o vídeo sem nenhum atraso; `visible=false` esconde (os controles do X sumiram);
+    //  - sem `container`: fixo na tela em top/left (quem chama o esconde enquanto a página rola).
     function showSpeed(o) {
-      attach(spd);
       spdHandler = o.onClick;
+      const host = spd.host;
       if (!spdNode) {
         spdNode = el(doc, 'button', {});
+        const stop = (e) => { e.stopPropagation(); };
+        for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) spdNode.addEventListener(ev, stop);
         spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (spdHandler) spdHandler(); });
         spd.root.append(spdNode);
       }
       if (spdNode.textContent !== o.label) spdNode.textContent = o.label;
-      spdNode.style.top = Math.round(o.top) + 'px';
-      spdNode.style.left = Math.round(o.left) + 'px';
+      const hidden = o.visible === false ? 'display:none;' : '';
+      if (o.container) {
+        if (host.parentElement !== o.container) o.container.append(host);
+        host.style.cssText = 'position:absolute;top:10px;left:10px;z-index:5;' + hidden;
+      } else {
+        const root = doc.documentElement;
+        if (host.parentElement !== root) root.append(host);
+        host.style.cssText = 'position:fixed;top:' + Math.round(o.top) + 'px;left:' + Math.round(o.left) + 'px;z-index:2147483645;' + hidden;
+      }
     }
 
     function hideSpeed() {
-      if (spdNode) spdNode.remove();
-      spdNode = null;
+      spd.host.remove();
     }
 
     return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };

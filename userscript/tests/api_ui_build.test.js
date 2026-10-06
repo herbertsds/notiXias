@@ -250,6 +250,8 @@ test('Ui: botão de velocidade abre menu de opções, escolhe, fecha; some com o
   const host = doc.getElementById('notixias-speed');
   assert.equal(host.parentElement, vc);                                            // dentro do player: rola junto
   assert.match(host.style.cssText, /position:\s*absolute/);
+  assert.match(host.style.cssText, /right:\s*10px/);                               // canto superior DIREITO do vídeo
+  assert.doesNotMatch(host.style.cssText, /left:/);
   assert.equal(host.shadowRoot.querySelector('.menu'), null);                      // fechado no começo
   host.shadowRoot.querySelector('button').click();                                 // toque no botão abre
   const items = [...host.shadowRoot.querySelectorAll('.menu button')];
@@ -266,7 +268,7 @@ test('Ui: botão de velocidade abre menu de opções, escolhe, fecha; some com o
   ui.showSpeed(model(false));                                                      // controles do X sumiram
   assert.match(host.style.cssText, /display:\s*none/);
   assert.equal(host.shadowRoot.querySelector('.menu'), null);
-  ui.showSpeed({ label: '1x', top: 40, left: 8, options: [], onPick: () => {} });  // sem player: fixo na tela
+  ui.showSpeed({ label: '1x', top: 40, right: 8, options: [], onPick: () => {} });  // sem player: fixo na tela
   assert.equal(host.parentElement, doc.documentElement);
   assert.match(host.style.cssText, /position:\s*fixed/);
   ui.hideSpeed();

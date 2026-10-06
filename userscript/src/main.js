@@ -138,7 +138,7 @@ async function startApp() {
       container: v.component,
       visible: Xdom.controlsVisible(v.component, window),
       maxHeight: v.rect.bottom - v.rect.top - 60,   // o menu cabe dentro do vídeo (rola se for pequeno)
-      top: v.rect.top + 10, left: v.rect.left + 10,
+      top: v.rect.top + 10, right: window.innerWidth - v.rect.right + 10,
     });
   }
   setInterval(applySpeed, 300);

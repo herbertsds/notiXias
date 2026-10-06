@@ -338,3 +338,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.8.1: nova opção **0,1x** no menu de velocidades (agora 0,1x a 3x). Alguns navegadores recusam velocidades muito baixas (o iOS pode limitar); se recusar, o vídeo segue como estava e o botão continua mostrando a escolha.
 
 0.8.2: nova opção **2,75x** no menu de velocidades (0,1x · 0,25x · 0,5x · 0,75x · 1x · 1,25x · 1,5x · 1,75x · 2x · 2,5x · 2,75x · 3x).
+
+0.8.3: o botão de velocidade foi para o **canto superior direito** do vídeo (no esquerdo coincidia com o botão de voltar), **menor** (28 px) e **mais translúcido**; o menu abre alinhado à direita, com botões também menores.

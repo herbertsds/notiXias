@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.2
+// @version      0.8.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1164,14 +1164,15 @@ const Ui = (function () {
   `;
   const SPEED_CSS = `
     :host { all: initial; }
-    button { display: block; min-width: 60px; height: 38px; padding: 0 14px; border-radius: 19px;
-      border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
-      font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
+    button { display: block; min-width: 46px; height: 28px; padding: 0 10px; border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.25); background: rgba(15,20,25,.42); color: rgba(255,255,255,.9); cursor: pointer;
+      font: 600 13px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
   `;
   const SPEED_MENU_CSS = `
-    .menu { position: absolute; top: 44px; left: 0; display: grid; grid-template-columns: repeat(2, minmax(70px, 1fr)); gap: 4px;
-      padding: 6px; background: rgba(15,20,25,.96); border: 1px solid rgba(255,255,255,.35); border-radius: 12px; overflow-y: auto; }
-    .menu button { height: 36px; min-width: 70px; padding: 0 10px; font-size: 15px; border-radius: 10px; font-weight: 500; }
+    .menu { position: absolute; top: 34px; right: 0; display: grid; grid-template-columns: repeat(2, minmax(62px, 1fr)); gap: 4px;
+      padding: 5px; background: rgba(15,20,25,.88); border: 1px solid rgba(255,255,255,.3); border-radius: 12px; overflow-y: auto; }
+    .menu button { height: 32px; min-width: 62px; padding: 0 8px; font-size: 14px; border-radius: 9px; font-weight: 500;
+      background: rgba(255,255,255,.06); color: #fff; }
     .menu button.sel { background: #1d9bf0; border-color: #1d9bf0; font-weight: 700; }
   `;
   const LONG_PRESS_MS = 600;
@@ -1344,10 +1345,10 @@ const Ui = (function () {
     }
 
     // Botão de velocidade do vídeo; ao tocar abre um menu com as opções.
-    // o: { label, options[{value,label,selected}], onPick(value), container?, visible?, maxHeight?, top?, left? }
+    // o: { label, options[{value,label,selected}], onPick(value), container?, visible?, maxHeight?, top?, right? }
     //  - com `container` (o player do X): o botão vai DENTRO dele, em posição absoluta, e rola junto com o vídeo sem
     //    atraso; `visible=false` esconde (os controles do X sumiram) e fecha o menu;
-    //  - sem `container`: fixo na tela em top/left (quem chama o esconde enquanto a página rola).
+    //  - sem `container`: fixo na tela em top/right (quem chama o esconde enquanto a página rola).
     function renderSpeedMenu() {
       if (spdMenu) spdMenu.remove();
       spdMenu = null;
@@ -1378,11 +1379,11 @@ const Ui = (function () {
       const hidden = o.visible === false ? 'display:none;' : '';
       if (o.container) {
         if (host.parentElement !== o.container) o.container.append(host);
-        host.style.cssText = 'position:absolute;top:10px;left:10px;z-index:5;' + hidden;
+        host.style.cssText = 'position:absolute;top:10px;right:10px;z-index:5;' + hidden;
       } else {
         const root = doc.documentElement;
         if (host.parentElement !== root) root.append(host);
-        host.style.cssText = 'position:fixed;top:' + Math.round(o.top) + 'px;left:' + Math.round(o.left) + 'px;z-index:2147483645;' + hidden;
+        host.style.cssText = 'position:fixed;top:' + Math.round(o.top) + 'px;right:' + Math.round(o.right) + 'px;z-index:2147483645;' + hidden;
       }
       if (o.visible === false && spdOpen) { spdOpen = false; renderSpeedMenu(); }
       else if (spdOpen && spdMenu) {
@@ -1411,7 +1412,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1548,7 +1549,7 @@ async function startApp() {
       container: v.component,
       visible: Xdom.controlsVisible(v.component, window),
       maxHeight: v.rect.bottom - v.rect.top - 60,   // o menu cabe dentro do vídeo (rola se for pequeno)
-      top: v.rect.top + 10, left: v.rect.left + 10,
+      top: v.rect.top + 10, right: window.innerWidth - v.rect.right + 10,
     });
   }
   setInterval(applySpeed, 300);

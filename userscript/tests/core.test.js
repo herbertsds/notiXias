@@ -214,3 +214,19 @@ test('formatRun: manual/automática, normal/profunda, horário e resultado', () 
   assert.equal(bad.tone, 'error');
   assert.equal(bad.sub, '⚠ Falhou: sessão expirada');
 });
+
+test('formatNext: próxima automática com tipo e tempo restante; pausa e espera de sessão', () => {
+  const now = new Date(2026, 9, 6, 8, 0);
+  const at = new Date(2026, 9, 6, 8, 38).toISOString();
+  const n = Core.formatNext({ at, mode: 'deep', state: 'scheduled' }, now);
+  assert.equal(n.main, 'Próxima automática: 06/10/2026 08:38 · Profunda');
+  assert.equal(n.sub, 'em 38 min');
+  assert.equal(n.tone, 'next');
+  assert.equal(Core.formatNext({ at: new Date(2026, 9, 6, 12, 5).toISOString(), mode: 'normal', state: 'scheduled' }, now).sub, 'em 4 h 05 min');
+  const late = Core.formatNext({ at: new Date(2026, 9, 6, 7, 0).toISOString(), mode: 'normal', state: 'scheduled' }, now);
+  assert.equal(late.tone, 'warn');
+  assert.match(late.sub, /atrasada 60 min/);
+  assert.equal(Core.formatNext({ state: 'paused', at: null }, now).tone, 'error');
+  assert.match(Core.formatNext({ state: 'waiting_session', at: null }, now).main, /aguardando a sessão/);
+  assert.equal(Core.formatNext(null, now), null);
+});

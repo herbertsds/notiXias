@@ -10,6 +10,7 @@ from .models import (
     EntryPatch,
     FollowAccount,
     FollowingPut,
+    RobotNextIn,
     RunFailIn,
     SettleIn,
     SkeletonIn,
@@ -89,6 +90,11 @@ def post_append(body: AppendIn, request: Request):
 @router.get("/runs")
 def get_runs(request: Request, limit: int = Query(100, ge=1, le=200)):
     return svc.list_runs(_db(request), limit)
+
+
+@router.put("/robot/next")
+def put_robot_next(body: RobotNextIn, request: Request):
+    return svc.set_robot_next(_db(request), body)
 
 
 @router.post("/runs", status_code=201)

@@ -53,3 +53,19 @@ def test_limite_e_validacao(client):
     bad = client.post("/api/v1/queue/append", json={"items": [], "anchor_found": True, "run": {"source": "outro"}})
     assert bad.status_code == 422
     assert client.get("/api/v1/runs", params={"limit": 0}).status_code == 422
+
+
+def test_proxima_execucao_do_robo_aparece_no_historico(client):
+    assert client.get("/api/v1/runs").json()["next"] is None
+    r = client.put("/api/v1/robot/next", json={"at": "2026-10-06T13:25:00+00:00", "mode": "deep", "state": "scheduled"})
+    assert r.status_code == 200
+    nxt = client.get("/api/v1/runs").json()["next"]
+    assert nxt["mode"] == "deep" and nxt["state"] == "scheduled" and nxt["at"].startswith("2026-10-06T13:25:00")
+    client.put("/api/v1/robot/next", json={"at": None, "state": "paused"})
+    nxt = client.get("/api/v1/runs").json()["next"]
+    assert nxt["state"] == "paused" and nxt["at"] is None
+
+
+def test_proxima_execucao_validacao_e_chave(client, anon):
+    assert client.put("/api/v1/robot/next", json={"state": "outro"}).status_code == 422
+    assert anon.put("/api/v1/robot/next", json={"state": "paused"}).status_code == 401

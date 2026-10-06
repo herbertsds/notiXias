@@ -191,7 +191,8 @@ async function startApp() {
     ui.showOverlay({ title: 'Execuções', detail: 'Carregando…', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     try {
       const r = await api.runs(100);
-      ui.showOverlay({ title: 'Execuções', rows: r.items.map(Core.formatRun), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+      const nextRow = Core.formatNext(r.next);
+      ui.showOverlay({ title: 'Execuções', rows: (nextRow ? [nextRow] : []).concat(r.items.map(Core.formatRun)), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     } catch (e) {
       ui.showOverlay({ title: 'Execuções', detail: '⚠ ' + (e && e.message ? e.message : 'Não consegui carregar.'), error: true, buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     }

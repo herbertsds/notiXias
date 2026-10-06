@@ -83,6 +83,8 @@ Chaves de aparição das últimas `depth` entradas (por `seq` decrescente, inclu
 
 Histórico de execuções, da mais recente para a mais antiga: `{ items: [{ at, source: "manual"|"robot", mode: "normal"|"deep", ok, created, updated, gap, anchor_found, reason, steps, collected, error }] }`. Execuções bem-sucedidas entram sozinhas quando o `POST /queue/append` traz `run: { source, mode }`; falhas são registradas com `POST /runs` `{ source, mode, error }`. Retenção de 90 dias.
 
+`GET /runs` também devolve `next`: `{ at, mode, state: "scheduled"|"paused"|"waiting_session", updated_at }` ou `null`, informado pelo robô em `PUT /api/v1/robot/next` `{ at, mode, state }`.
+
 ### `GET /api/v1/queue/gap?depth=25&max_age_days=3`
 
 A lacuna aberta mais antiga ainda alcançável: `{ seq, keys, reason }` (`keys` = aparições das `depth` entradas capturadas antes dela; `seq: null` se não houver). `POST /queue/append` aceita `gap_seq`: uma busca que reencontrou esse "outro lado" fecha a lacuna; uma parcial a desloca para antes do item mais antigo que criou. (Preparado na API; o script ainda não usa.)

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.1
+// @version      0.7.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -102,6 +102,23 @@ const Core = (function () {
     const why = STOP_REASON[run.reason];
     if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
     return { main, sub: parts.join(' · '), tone: run.gap ? 'warn' : 'ok' };
+  }
+
+  // Linha "próxima execução automática" no topo do histórico. `next` vem de GET /runs ({at, mode, state} ou null).
+  function formatNext(next, now) {
+    if (!next) return null;
+    if (next.state === 'paused') return { main: 'Robô pausado', sub: 'Falhas seguidas ou sessão do X expirada: envie uma sessão nova ou reinicie o contêiner (docs/11-robo.md).', tone: 'error' };
+    if (next.state === 'waiting_session') return { main: 'Robô aguardando a sessão do X', sub: 'Rode scripts/robot_login.sh e scripts/robot_install_session.sh no computador.', tone: 'warn' };
+    const d = new Date(next.at);
+    if (isNaN(d.getTime())) return null;
+    const when = pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const mins = Math.round((d.getTime() - (now || new Date()).getTime()) / 60000);
+    const rel = mins >= 60 ? 'em ' + Math.floor(mins / 60) + ' h ' + pad(mins % 60) + ' min' : mins >= 1 ? 'em ' + mins + ' min' : mins > -10 ? 'agora' : 'atrasada ' + Math.abs(mins) + ' min: confira o robô';
+    return {
+      main: 'Próxima automática: ' + when + ' · ' + (next.mode === 'deep' ? 'Profunda' : 'Normal'),
+      sub: rel,
+      tone: mins <= -10 ? 'warn' : 'next',
+    };
   }
 
   // Thread: depois do post focal, posts do MESMO autor em sequência contígua, com IDs crescentes.
@@ -256,7 +273,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
@@ -1021,6 +1038,8 @@ const Ui = (function () {
     .rw .m { font-size: 15px; font-weight: 600; }
     .rw .s { font-size: 14px; color: #9aa0a6; margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; }
     .rw.warn .s { color: #f0b429; }
+    .rw.next { background: #0f1c27; border-radius: 10px; border-bottom: 1px solid #1d9bf0; margin: 8px 0; }
+    .rw.next .m { color: #1d9bf0; }
     .rw.error .s { color: #f4212e; }
     .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
@@ -1201,7 +1220,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1391,7 +1410,8 @@ async function startApp() {
     ui.showOverlay({ title: 'Execuções', detail: 'Carregando…', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     try {
       const r = await api.runs(100);
-      ui.showOverlay({ title: 'Execuções', rows: r.items.map(Core.formatRun), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+      const nextRow = Core.formatNext(r.next);
+      ui.showOverlay({ title: 'Execuções', rows: (nextRow ? [nextRow] : []).concat(r.items.map(Core.formatRun)), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     } catch (e) {
       ui.showOverlay({ title: 'Execuções', detail: '⚠ ' + (e && e.message ? e.message : 'Não consegui carregar.'), error: true, buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
     }

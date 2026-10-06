@@ -7,7 +7,7 @@ Regras (decididas pelo dono):
 
 Leitura adotada da segunda regra: a execução "depois de 1h" é a primeira que cairia entre 01:00 e 04:45 pelo
 sorteio normal; ela roda no horário sorteado e, a partir daí, o próximo horário é 04:45. Fuso: America/Sao_Paulo.
-A execução é profunda quando é a primeira a partir das 04:45 (`is_deep`).
+A execução é profunda quando é a primeira a partir das 04:45 ou a primeira a partir das 12:30 (`is_deep`).
 """
 import random
 from datetime import datetime, time, timedelta
@@ -18,6 +18,7 @@ MIN_MINUTES = 30
 MAX_MINUTES = 45
 NIGHT_START = time(1, 0)
 NIGHT_END = time(4, 45)
+MIDDAY_DEEP = time(12, 30)  # primeira busca a partir desta hora também é profunda
 
 
 def in_night(t: datetime) -> bool:
@@ -50,10 +51,24 @@ def next_run(last_run: datetime | None, now: datetime, rng: random.Random | None
     return candidate
 
 
+DEEP_FROM = (NIGHT_END, MIDDAY_DEEP)
+
+
 def is_deep(last_run: datetime | None, when: datetime) -> bool:
-    """Primeira busca a partir do fim da madrugada (04:45): a anterior foi antes dessa hora e esta é depois."""
+    """Profunda = primeira busca a partir de 04:45 (fim da madrugada) ou de 12:30: a anterior foi antes dessa hora
+    e esta é nela ou depois."""
     if last_run is None:
         return False
     when = when.astimezone(TZ)
-    _, end = night_bounds(when)
-    return last_run.astimezone(TZ) < end <= when
+    last = last_run.astimezone(TZ)
+    for t in DEEP_FROM:
+        boundary = when.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+        if last < boundary <= when:
+            return True
+    return False
+
+
+def plan(last_run: datetime | None, now: datetime, rng: random.Random | None = None) -> tuple[datetime, bool]:
+    """(quando, profunda?) da próxima busca. O sorteio dos 30–45 min acontece aqui, logo depois da busca anterior."""
+    when = next_run(last_run, now, rng)
+    return when, is_deep(last_run, when)

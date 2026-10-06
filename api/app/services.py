@@ -513,7 +513,13 @@ def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anch
 
 def list_runs(db, limit: int) -> dict:
     docs = list(db.runs.find({}, {"_id": 0}).sort("at", DESCENDING).limit(limit))
-    return {"items": docs}
+    return {"items": docs, "next": db.meta.find_one({"_id": "robot_next"}, {"_id": 0})}
+
+
+def set_robot_next(db, body) -> dict:
+    doc = {"at": body.at, "mode": body.mode, "state": body.state, "updated_at": now()}
+    db.meta.replace_one({"_id": "robot_next"}, {"_id": "robot_next", **doc}, upsert=True)
+    return {"ok": True}
 
 
 def gap_info(db, depth: int, max_age_days: int) -> dict:

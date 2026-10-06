@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import runner, schedule
+from . import notify, runner, schedule
 
 log = logging.getLogger("robot")
 MAX_FAILURES = 3  # falhas seguidas antes de parar de insistir (protege a conta)
@@ -66,6 +66,7 @@ async def main() -> None:
                 status.update(paused=True, next_run_at=None)
                 save_json(status_path, status)
                 log.error("PAUSADO após %s falhas seguidas (%s). Envie uma sessão nova ou reinicie o contêiner.", failures, status.get("last_error"))
+                await notify.publish_next(api_base, read_api_key(), None, False, "paused")
             if mtime != paused_at_mtime:
                 log.info("sessão nova detectada: retomando")
                 failures, paused_at_mtime = 0, None
@@ -77,6 +78,7 @@ async def main() -> None:
         if not state_path.exists():
             if not status.get("waiting_session"):
                 log.error("sem sessão do X em %s: rode scripts/robot_login.sh e depois scripts/robot_install_session.sh no seu computador", state_path)
+                await notify.publish_next(api_base, read_api_key(), None, False, "waiting_session")
             status.update(waiting_session=True, next_run_at=None)
             save_json(status_path, status)
             await asyncio.sleep(60)
@@ -84,13 +86,22 @@ async def main() -> None:
         status["waiting_session"] = False
 
         now = datetime.now(timezone.utc)
-        when = schedule.next_run(last_run, now, random)
+        # O sorteio dos 30–45 min é feito UMA vez, logo depois da busca anterior, e guardado: um reinício do contêiner
+        # não sorteia de novo (e o horário já foi informado à API para o menu mostrar).
+        base = status.get("last_run_at")
+        plan = status.get("plan")
+        if plan and plan.get("base") == base and datetime.fromisoformat(plan["when"]) > now:
+            when, deep = datetime.fromisoformat(plan["when"]), bool(plan["deep"])
+        else:
+            when, deep = schedule.plan(last_run, now, random)
+            status["plan"] = {"base": base, "when": when.isoformat(), "deep": deep}
         status["next_run_at"] = when.astimezone(schedule.TZ).isoformat()
+        status["next_mode"] = "deep" if deep else "normal"
         save_json(status_path, status)
-        log.info("próxima busca: %s", status["next_run_at"])
+        log.info("próxima busca: %s (%s)", status["next_run_at"], status["next_mode"])
+        await notify.publish_next(api_base, read_api_key(), when, deep, "scheduled")
         await sleep_until(when)
 
-        deep = schedule.is_deep(last_run, when)
         log.info("buscando novas (%s)…", "profunda" if deep else "normal")
         try:
             res = await runner.run_once(

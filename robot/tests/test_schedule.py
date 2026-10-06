@@ -101,3 +101,21 @@ def test_depois_de_reinicio_a_primeira_apos_4h45_tambem_e_profunda():
     now = at(7, 0)                                                         # contêiner ficou parado até as 07:00
     when = next_run(last, now, random.Random(11))
     assert when == now and schedule.is_deep(last, when) is True
+
+
+def test_primeira_busca_depois_das_12h30_e_profunda_e_a_seguinte_nao():
+    last = at(11, 55)
+    when = next_run(last, last, random.Random(12))            # 12:25..12:40
+    if when < at(12, 30):
+        last, when = when, next_run(when, when, random.Random(13))
+    assert when >= at(12, 30) and schedule.is_deep(last, when) is True
+    seguinte = next_run(when, when, random.Random(14))
+    assert schedule.is_deep(when, seguinte) is False
+
+
+def test_plan_sorteia_junto_e_informa_se_e_profunda():
+    last = at(12, 10)
+    when, deep = schedule.plan(last, last, random.Random(15))
+    assert 30 <= (when - last).total_seconds() / 60 <= 45
+    assert deep == schedule.is_deep(last, when)
+    assert schedule.plan(at(12, 31), at(12, 31), random.Random(16))[1] is False   # já passou das 12:30 nessa rodada

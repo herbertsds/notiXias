@@ -40,6 +40,14 @@ class RunFailIn(RunIn):
     error: str = Field(max_length=300)
 
 
+class RobotNextIn(BaseModel):
+    """O robô informa quando será a próxima busca automática (e de que tipo), ou por que não há próxima."""
+
+    at: datetime | None = None
+    mode: Literal["normal", "deep"] = "normal"
+    state: Literal["scheduled", "paused", "waiting_session"] = "scheduled"
+
+
 class AppendIn(BaseModel):
     """`items` na ordem do feed: o mais novo primeiro."""
 

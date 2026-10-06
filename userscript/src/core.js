@@ -82,6 +82,23 @@ const Core = (function () {
     return { main, sub: parts.join(' · '), tone: run.gap ? 'warn' : 'ok' };
   }
 
+  // Linha "próxima execução automática" no topo do histórico. `next` vem de GET /runs ({at, mode, state} ou null).
+  function formatNext(next, now) {
+    if (!next) return null;
+    if (next.state === 'paused') return { main: 'Robô pausado', sub: 'Falhas seguidas ou sessão do X expirada: envie uma sessão nova ou reinicie o contêiner (docs/11-robo.md).', tone: 'error' };
+    if (next.state === 'waiting_session') return { main: 'Robô aguardando a sessão do X', sub: 'Rode scripts/robot_login.sh e scripts/robot_install_session.sh no computador.', tone: 'warn' };
+    const d = new Date(next.at);
+    if (isNaN(d.getTime())) return null;
+    const when = pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const mins = Math.round((d.getTime() - (now || new Date()).getTime()) / 60000);
+    const rel = mins >= 60 ? 'em ' + Math.floor(mins / 60) + ' h ' + pad(mins % 60) + ' min' : mins >= 1 ? 'em ' + mins + ' min' : mins > -10 ? 'agora' : 'atrasada ' + Math.abs(mins) + ' min: confira o robô';
+    return {
+      main: 'Próxima automática: ' + when + ' · ' + (next.mode === 'deep' ? 'Profunda' : 'Normal'),
+      sub: rel,
+      tone: mins <= -10 ? 'warn' : 'next',
+    };
+  }
+
   // Thread: depois do post focal, posts do MESMO autor em sequência contígua, com IDs crescentes.
   // `items` = posts da página, em ordem de DOM: [{id, author}].
   // Devolve { target, chain } (target = último da cadeia) ou null.
@@ -234,7 +251,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

@@ -119,7 +119,7 @@ async function startApp() {
   setInterval(applyAges, 1500);
 
   // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
-  // o toque abre um menu de 0,25x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
+  // o toque abre um menu de 0,1x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
@@ -129,7 +129,8 @@ async function startApp() {
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
     if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
-    if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
+    // O navegador pode recusar velocidades muito baixas (o iOS limita): nesse caso o vídeo segue como estava.
+    if (rate !== 1 && v.video.playbackRate !== rate) { try { v.video.playbackRate = rate; } catch (e) { /* velocidade não suportada */ } }
     ui.showSpeed({
       label: Core.formatSpeed(rate),
       options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.0
+// @version      0.8.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -86,7 +86,7 @@ const Core = (function () {
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
-  const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
@@ -1411,7 +1411,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1529,7 +1529,7 @@ async function startApp() {
   setInterval(applyAges, 1500);
 
   // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
-  // o toque abre um menu de 0,25x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
+  // o toque abre um menu de 0,1x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
@@ -1539,7 +1539,8 @@ async function startApp() {
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
     if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
     const rate = cfg.videoSpeed || 1;
-    if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
+    // O navegador pode recusar velocidades muito baixas (o iOS limita): nesse caso o vídeo segue como estava.
+    if (rate !== 1 && v.video.playbackRate !== rate) { try { v.video.playbackRate = rate; } catch (e) { /* velocidade não suportada */ } }
     ui.showSpeed({
       label: Core.formatSpeed(rate),
       options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),

@@ -4,23 +4,31 @@ Abre um Chromium com janela; você entra na conta normalmente (usuário, senha, 
 carregar, a sessão (cookies) é salva em .secrets/x_state.json e a janela fecha. Depois: scripts/robot_install_session.sh
 """
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
 OUT = Path(__file__).resolve().parent.parent / ".secrets" / "x_state.json"
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 
 def main() -> int:
     OUT.parent.mkdir(exist_ok=True)
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        ctx = browser.new_context(
-            user_agent=USER_AGENT, viewport={"width": 1100, "height": 900}, locale="pt-BR", timezone_id="America/Sao_Paulo"
-        )
-        page = ctx.new_page()
+        # Usa o Google Chrome instalado (não o Chromium do Playwright, que o Google e o X reconhecem como automatizado)
+        # e sem a marca de automação. Perfil temporário: nada do seu Chrome de uso diário é tocado.
+        profile = tempfile.mkdtemp(prefix="notixias-login-")
+        try:
+            ctx = pw.chromium.launch_persistent_context(
+                profile, channel="chrome", headless=False, no_viewport=True,
+                ignore_default_args=["--enable-automation"], args=["--disable-blink-features=AutomationControlled"],
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"Não consegui abrir o Google Chrome ({str(e)[:120]}). Ele está instalado em /Applications?", file=sys.stderr)
+            return 1
+        browser = ctx
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto("https://x.com/login")
         print("Entre na conta do X na janela que abriu. Tenho 10 minutos; ao chegar na página inicial eu salvo e fecho.")
         deadline = time.time() + 600

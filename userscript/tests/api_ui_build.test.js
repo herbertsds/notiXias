@@ -184,6 +184,26 @@ test('Ui: overlay de busca e de erro; hideOverlay remove', () => {
   assert.equal(doc.getElementById('notixias-overlay').shadowRoot.querySelector('.ov'), null);
 });
 
+test('Ui: lista rolável de execuções (mais recente primeiro) e estado vazio', () => {
+  const { ui, doc } = mountUi();
+  ui.showOverlay({ title: 'Execuções', rows: [{ main: 'A', sub: 'a', tone: 'ok' }, { main: 'B', sub: 'b', tone: 'error' }], buttons: [] });
+  const root = doc.getElementById('notixias-overlay').shadowRoot;
+  assert.ok(root.querySelector('.ov.list .rows'));
+  assert.deepEqual([...root.querySelectorAll('.rw .m')].map((n) => n.textContent), ['A', 'B']);
+  assert.ok(root.querySelector('.rw.error'));
+  ui.showOverlay({ title: 'Execuções', rows: [], buttons: [] });
+  assert.match(root.textContent, /Nenhuma execução registrada/);
+});
+
+test('Api: runs e runFailed', async () => {
+  const { api, calls } = fakeApi(() => ({ status: 200, json: { items: [] } }));
+  await api.runs(50);
+  await api.runFailed({ source: 'manual', mode: 'normal', error: 'x' });
+  assert.equal(calls[0].url, 'http://localhost:8010/api/v1/runs?limit=50');
+  assert.equal(calls[1].method, 'POST');
+  assert.equal(calls[1].url, 'http://localhost:8010/api/v1/runs');
+});
+
 // ---------- Build ----------
 test('o userscript gerado está atualizado com src/ (rode `npm run build`)', () => {
   const onDisk = fs.readFileSync(path.join(__dirname, '..', 'notixias.user.js'), 'utf8');

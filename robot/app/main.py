@@ -90,13 +90,17 @@ async def main() -> None:
         log.info("próxima busca: %s", status["next_run_at"])
         await sleep_until(when)
 
-        log.info("buscando novas…")
+        deep = schedule.is_deep(last_run, when)
+        log.info("buscando novas (%s)…", "profunda" if deep else "normal")
         try:
-            res = await runner.run_once(api_base=api_base, api_key=read_api_key(), bundle=bundle, state_path=state_path)
+            res = await runner.run_once(
+                api_base=api_base, api_key=read_api_key(), bundle=bundle, state_path=state_path,
+                start_url=runner.DEEP_URL if deep else runner.HOME_URL,
+            )
         except Exception as e:  # noqa: BLE001
             res = runner.RunResult(ok=False, error=f"erro inesperado: {str(e)[:200]}")
         last_run = datetime.now(timezone.utc)
-        status.update(last_run_at=last_run.isoformat(), last_result=dict(res))
+        status.update(last_run_at=last_run.isoformat(), last_mode="deep" if deep else "normal", last_result=dict(res))
         if res.get("ok"):
             failures = 0
             status.update(consecutive_failures=0, last_error=None, last_ok_at=last_run.isoformat())

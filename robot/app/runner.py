@@ -14,6 +14,7 @@ from playwright.async_api import async_playwright
 log = logging.getLogger("robot")
 
 HOME_URL = "https://x.com/home?nx=update"
+DEEP_URL = "https://x.com/home?nx=deep"
 # Parecido com um Chrome comum de computador (sem "HeadlessChrome").
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"

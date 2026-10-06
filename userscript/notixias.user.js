@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.0
+// @version      0.7.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -75,6 +75,33 @@ const Core = (function () {
       pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() +
       ' às ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
     );
+  }
+
+  // ---- histórico de execuções (menu ⋯ -> Execuções) ----
+  const STOP_REASON = {
+    anchor: 'chegou ao que já estava salvo',
+    backfill: 'primeira carga',
+    max_steps: 'parou no limite de rolagem',
+    max_collect: 'parou no limite de posts',
+    end: 'chegou ao fim do feed',
+    gap_unresolved: 'ficou lacuna "Mostrar mais" sem abrir',
+  };
+
+  // Uma execução da API ({at, source, mode, ok, created, updated, gap, reason, steps, error}) em duas linhas de texto.
+  // Devolve { main, sub, tone } com tone = 'ok' | 'warn' | 'error'.
+  function formatRun(run) {
+    const d = new Date(run.at);
+    const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (run.mode === 'deep' ? 'Profunda' : 'Normal');
+    if (!run.ok) return { main, sub: '⚠ Falhou: ' + (run.error || 'erro desconhecido'), tone: 'error' };
+    const parts = [];
+    if (run.created) parts.push(run.created + (run.created === 1 ? ' novo' : ' novos'));
+    if (run.updated) parts.push(run.updated + ' com resposta nova');
+    if (!parts.length) parts.push('nada novo');
+    if (run.gap) parts.push('⚠ pode haver lacuna');
+    const why = STOP_REASON[run.reason];
+    if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
+    return { main, sub: parts.join(' · '), tone: run.gap ? 'warn' : 'ok' };
   }
 
   // Thread: depois do post focal, posts do MESMO autor em sequência contígua, com IDs crescentes.
@@ -229,7 +256,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
@@ -923,6 +950,8 @@ const Api = (function () {
       putState: (body) => call('PUT', '/state', { body }),
       anchor: (depth) => call('GET', '/queue/anchor', { params: { depth } }),
       append: (body) => call('POST', '/queue/append', { body }),
+      runs: (limit) => call('GET', '/runs', { params: { limit } }),
+      runFailed: (body) => call('POST', '/runs', { body }),
       queue: (params) => call('GET', '/queue', { params }),
       entry: (seq) => call('GET', '/entries/' + seq),
       patchEntry: (seq, body) => call('PATCH', '/entries/' + seq, { body }),
@@ -983,6 +1012,17 @@ const Ui = (function () {
     .ov p { margin: 0; color: #9aa0a6; max-width: 34em; line-height: 1.5; }
     .ov.error h1 { color: #f4212e; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .ov.list { justify-content: flex-start; align-items: stretch; text-align: left; padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
+    .ov.list h1 { text-align: center; }
+    .ov.list .btns { flex: none; }
+    .rows { flex: 1 1 auto; overflow-y: auto; min-height: 0; width: 100%; max-width: 42em; margin: 0 auto; -webkit-overflow-scrolling: touch;
+      border-top: 1px solid #2f3336; }
+    .rw { padding: 12px 6px; border-bottom: 1px solid #2f3336; }
+    .rw .m { font-size: 15px; font-weight: 600; }
+    .rw .s { font-size: 14px; color: #9aa0a6; margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; }
+    .rw.warn .s { color: #f0b429; }
+    .rw.error .s { color: #f4212e; }
+    .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
   `;
@@ -1129,13 +1169,18 @@ const Ui = (function () {
       reserve(null);
     }
 
-    // o: { title, detail, error, buttons[{label,onClick}] }
+    // o: { title, detail, error, rows[{main, sub, tone}] (lista rolável), buttons[{label,onClick}] }
     function showOverlay(o) {
       attach(ov);
       if (ovNode) ovNode.remove();
-      ovNode = el(doc, 'div', { class: 'ov' + (o.error ? ' error' : '') },
+      ovNode = el(doc, 'div', { class: 'ov' + (o.error ? ' error' : '') + (o.rows ? ' list' : '') },
         el(doc, 'h1', {}, o.title || ''),
         o.detail ? el(doc, 'p', {}, o.detail) : null,
+        o.rows
+          ? el(doc, 'div', { class: 'rows' }, o.rows.length
+              ? o.rows.map((r) => el(doc, 'div', { class: 'rw ' + (r.tone || '') }, el(doc, 'div', { class: 'm' }, r.main), r.sub ? el(doc, 'div', { class: 's' }, r.sub) : null))
+              : el(doc, 'div', { class: 'rw empty' }, 'Nenhuma execução registrada ainda.'))
+          : null,
         el(doc, 'div', { class: 'btns' }, (o.buttons || []).map((b) => el(doc, 'button', { onclick: b.onClick }, b.label))));
       ov.root.append(ovNode);
     }
@@ -1156,7 +1201,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1229,6 +1274,8 @@ async function startApp() {
   // ---------- utilidades ----------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Sinal para o robô do servidor (lido pelo navegador sem tela): a busca terminou, com sucesso ou erro.
+  // Identificação da execução (histórico): quem disparou e se foi normal ou profunda.
+  const runMeta = (deep) => ({ source: cfg.bot ? 'robot' : 'manual', mode: deep ? 'deep' : 'normal' });
   const botDone = (result) => { if (cfg.bot) window.__nxBotResult = Object.assign({ at: Date.now() }, result); };
   const rand = (a, b) => a + Math.random() * (b - a);
   async function waitFor(fn, timeout, every) {
@@ -1339,8 +1386,20 @@ async function startApp() {
     drawBar();
   }
 
+  // Histórico das execuções (manuais e do robô), da mais recente para a mais antiga, em tela cheia com rolagem.
+  async function showRuns() {
+    ui.showOverlay({ title: 'Execuções', detail: 'Carregando…', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    try {
+      const r = await api.runs(100);
+      ui.showOverlay({ title: 'Execuções', rows: r.items.map(Core.formatRun), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    } catch (e) {
+      ui.showOverlay({ title: 'Execuções', detail: '⚠ ' + (e && e.message ? e.message : 'Não consegui carregar.'), error: true, buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    }
+  }
+
   function menuItems(st) {
     return [
+      { label: 'Execuções…', onClick: showRuns },
       { label: 'Buscar novas agora', onClick: () => startFetch() },
       { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
       { label: followingLabel(st), onClick: () => startFollowingRefresh() },
@@ -1541,8 +1600,10 @@ async function startApp() {
   }
 
   async function failFetch(message, art) {
+    const wasDeep = !!getPhase().deep;
     botDone({ ok: false, error: message });
     setPhase('error');
+    try { await api.runFailed(Object.assign(runMeta(wasDeep), { error: message.slice(0, 300) })); } catch (e) { /* o histórico é só informativo */ }
     const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
     gm.set('nx_skeleton', sk);
     try {
@@ -1617,6 +1678,7 @@ async function startApp() {
       anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
       // diagnóstico: por que a busca parou (fica na lacuna e no lote, para a causa não precisar ser adivinhada)
+      run: runMeta(deep),
       scan: { reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length, gap_unresolved: scan.gapUnresolved || 0 },
     });
     setPhase('idle');

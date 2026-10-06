@@ -74,6 +74,8 @@ async function startApp() {
   // ---------- utilidades ----------
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Sinal para o robô do servidor (lido pelo navegador sem tela): a busca terminou, com sucesso ou erro.
+  // Identificação da execução (histórico): quem disparou e se foi normal ou profunda.
+  const runMeta = (deep) => ({ source: cfg.bot ? 'robot' : 'manual', mode: deep ? 'deep' : 'normal' });
   const botDone = (result) => { if (cfg.bot) window.__nxBotResult = Object.assign({ at: Date.now() }, result); };
   const rand = (a, b) => a + Math.random() * (b - a);
   async function waitFor(fn, timeout, every) {
@@ -184,8 +186,20 @@ async function startApp() {
     drawBar();
   }
 
+  // Histórico das execuções (manuais e do robô), da mais recente para a mais antiga, em tela cheia com rolagem.
+  async function showRuns() {
+    ui.showOverlay({ title: 'Execuções', detail: 'Carregando…', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    try {
+      const r = await api.runs(100);
+      ui.showOverlay({ title: 'Execuções', rows: r.items.map(Core.formatRun), buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    } catch (e) {
+      ui.showOverlay({ title: 'Execuções', detail: '⚠ ' + (e && e.message ? e.message : 'Não consegui carregar.'), error: true, buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+    }
+  }
+
   function menuItems(st) {
     return [
+      { label: 'Execuções…', onClick: showRuns },
       { label: 'Buscar novas agora', onClick: () => startFetch() },
       { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
       { label: followingLabel(st), onClick: () => startFollowingRefresh() },
@@ -386,8 +400,10 @@ async function startApp() {
   }
 
   async function failFetch(message, art) {
+    const wasDeep = !!getPhase().deep;
     botDone({ ok: false, error: message });
     setPhase('error');
+    try { await api.runFailed(Object.assign(runMeta(wasDeep), { error: message.slice(0, 300) })); } catch (e) { /* o histórico é só informativo */ }
     const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
     gm.set('nx_skeleton', sk);
     try {
@@ -462,6 +478,7 @@ async function startApp() {
       anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
       // diagnóstico: por que a busca parou (fica na lacuna e no lote, para a causa não precisar ser adivinhada)
+      run: runMeta(deep),
       scan: { reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length, gap_unresolved: scan.gapUnresolved || 0 },
     });
     setPhase('idle');

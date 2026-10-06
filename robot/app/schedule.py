@@ -2,10 +2,12 @@
 
 Regras (decididas pelo dono):
 - A cada X minutos, com X sorteado entre 30 e 45 a CADA execução, busca novas.
-- Madrugada: depois de 01:00 roda UMA única vez e fica parado até 05:20; às 05:20 volta a buscar.
+- Madrugada: depois de 01:00 roda UMA única vez e fica parado até 04:45; às 04:45 volta a buscar, e essa primeira
+  busca do dia é PROFUNDA (varredura mais longa, para recuperar algo que tenha ficado para trás durante a pausa).
 
-Leitura adotada da segunda regra: a execução "depois de 1h" é a primeira que cairia entre 01:00 e 05:20 pelo
-sorteio normal; ela roda no horário sorteado e, a partir daí, o próximo horário é 05:20. Fuso: America/Sao_Paulo.
+Leitura adotada da segunda regra: a execução "depois de 1h" é a primeira que cairia entre 01:00 e 04:45 pelo
+sorteio normal; ela roda no horário sorteado e, a partir daí, o próximo horário é 04:45. Fuso: America/Sao_Paulo.
+A execução é profunda quando é a primeira a partir das 04:45 (`is_deep`).
 """
 import random
 from datetime import datetime, time, timedelta
@@ -15,7 +17,7 @@ TZ = ZoneInfo("America/Sao_Paulo")
 MIN_MINUTES = 30
 MAX_MINUTES = 45
 NIGHT_START = time(1, 0)
-NIGHT_END = time(5, 20)
+NIGHT_END = time(4, 45)
 
 
 def in_night(t: datetime) -> bool:
@@ -24,9 +26,9 @@ def in_night(t: datetime) -> bool:
 
 
 def night_bounds(t: datetime) -> tuple[datetime, datetime]:
-    """Início (01:00) e fim (05:20) da madrugada do DIA de `t`, no fuso local."""
+    """Início (01:00) e fim (04:45) da madrugada do DIA de `t`, no fuso local."""
     lt = t.astimezone(TZ)
-    return lt.replace(hour=1, minute=0, second=0, microsecond=0), lt.replace(hour=5, minute=20, second=0, microsecond=0)
+    return lt.replace(hour=1, minute=0, second=0, microsecond=0), lt.replace(hour=NIGHT_END.hour, minute=NIGHT_END.minute, second=0, microsecond=0)
 
 
 def next_run(last_run: datetime | None, now: datetime, rng: random.Random | None = None) -> datetime:
@@ -46,3 +48,12 @@ def next_run(last_run: datetime | None, now: datetime, rng: random.Random | None
         if already:
             return end
     return candidate
+
+
+def is_deep(last_run: datetime | None, when: datetime) -> bool:
+    """Primeira busca a partir do fim da madrugada (04:45): a anterior foi antes dessa hora e esta é depois."""
+    if last_run is None:
+        return False
+    when = when.astimezone(TZ)
+    _, end = night_bounds(when)
+    return last_run.astimezone(TZ) < end <= when

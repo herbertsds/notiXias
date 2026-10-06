@@ -16,8 +16,8 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 ## Horários (`robot/app/schedule.py`, fuso America/Sao_Paulo)
 
 - A cada **X minutos**, X sorteado entre 30 e 45 **a cada execução**.
-- Madrugada: a primeira execução que cairia entre **01:00 e 05:20** roda (é a **única** da madrugada); depois disso nada até **05:20**, quando volta a buscar e retoma o ritmo normal.
-- Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 05:20).
+- Madrugada: a primeira execução que cairia entre **01:00 e 04:45** roda (é a **única** da madrugada); depois disso nada até **04:45**, quando volta a buscar e retoma o ritmo normal. **A primeira busca a partir das 04:45 é PROFUNDA** (rola mais, comparando com as últimas 100 entradas) para recuperar algo que tenha ficado para trás; as seguintes são normais.
+- Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 04:45).
 - Primeira vez (sem histórico): roda assim que houver sessão.
 
 ## Proteções
@@ -64,3 +64,7 @@ Os cookies do X rotacionam; o robô regrava `x_state.json` a cada execução bem
 6. A **conta** é a que você usar no `robot_login.sh` (a mesma da leitura, a menos que você escolha outra).
 7. O robô **não** lê a lista de contas seguidas sozinho: use o menu ⋯ do script (ou o atalho `?nx=following`) de vez em quando.
 8. Executa **uma busca por vez**; se você estiver lendo no celular ao mesmo tempo, não há conflito (o robô só acrescenta à fila).
+
+## Histórico de execuções
+
+Menu ⋯ do notiXias → **Execuções…**: tela cheia com rolagem, a mais recente no topo. Cada linha mostra data e hora, se foi **Manual** ou **Automática** (robô), **Normal** ou **Profunda**, quantos posts novos, se ficou lacuna e por que a busca parou. Falhas aparecem em vermelho. Fica na API (`GET /runs`, coleção `runs`, guardada por 90 dias); execuções canceladas por você não são registradas.

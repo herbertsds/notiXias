@@ -10,6 +10,7 @@ from .models import (
     EntryPatch,
     FollowAccount,
     FollowingPut,
+    RunFailIn,
     SettleIn,
     SkeletonIn,
     StateIn,
@@ -81,8 +82,19 @@ def get_gap(request: Request, depth: int = Query(25, ge=1, le=100), max_age_days
 @router.post("/queue/append")
 def post_append(body: AppendIn, request: Request):
     return svc.append_items(
-        _db(request), body.items, body.anchor_found, body.batch_id, gap_seq=body.gap_seq, scan=body.scan
+        _db(request), body.items, body.anchor_found, body.batch_id, gap_seq=body.gap_seq, scan=body.scan, run=body.run
     )
+
+
+@router.get("/runs")
+def get_runs(request: Request, limit: int = Query(100, ge=1, le=200)):
+    return svc.list_runs(_db(request), limit)
+
+
+@router.post("/runs", status_code=201)
+def post_run_failure(body: RunFailIn, request: Request):
+    svc.record_run(_db(request), body, ok=False, error=body.error)
+    return {"ok": True}
 
 
 @router.get("/queue")

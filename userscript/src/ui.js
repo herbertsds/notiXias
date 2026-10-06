@@ -37,6 +37,17 @@ const Ui = (function () {
     .ov p { margin: 0; color: #9aa0a6; max-width: 34em; line-height: 1.5; }
     .ov.error h1 { color: #f4212e; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .ov.list { justify-content: flex-start; align-items: stretch; text-align: left; padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
+    .ov.list h1 { text-align: center; }
+    .ov.list .btns { flex: none; }
+    .rows { flex: 1 1 auto; overflow-y: auto; min-height: 0; width: 100%; max-width: 42em; margin: 0 auto; -webkit-overflow-scrolling: touch;
+      border-top: 1px solid #2f3336; }
+    .rw { padding: 12px 6px; border-bottom: 1px solid #2f3336; }
+    .rw .m { font-size: 15px; font-weight: 600; }
+    .rw .s { font-size: 14px; color: #9aa0a6; margin-top: 4px; line-height: 1.4; overflow-wrap: anywhere; }
+    .rw.warn .s { color: #f0b429; }
+    .rw.error .s { color: #f4212e; }
+    .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
   `;
@@ -183,13 +194,18 @@ const Ui = (function () {
       reserve(null);
     }
 
-    // o: { title, detail, error, buttons[{label,onClick}] }
+    // o: { title, detail, error, rows[{main, sub, tone}] (lista rolável), buttons[{label,onClick}] }
     function showOverlay(o) {
       attach(ov);
       if (ovNode) ovNode.remove();
-      ovNode = el(doc, 'div', { class: 'ov' + (o.error ? ' error' : '') },
+      ovNode = el(doc, 'div', { class: 'ov' + (o.error ? ' error' : '') + (o.rows ? ' list' : '') },
         el(doc, 'h1', {}, o.title || ''),
         o.detail ? el(doc, 'p', {}, o.detail) : null,
+        o.rows
+          ? el(doc, 'div', { class: 'rows' }, o.rows.length
+              ? o.rows.map((r) => el(doc, 'div', { class: 'rw ' + (r.tone || '') }, el(doc, 'div', { class: 'm' }, r.main), r.sub ? el(doc, 'div', { class: 's' }, r.sub) : null))
+              : el(doc, 'div', { class: 'rw empty' }, 'Nenhuma execução registrada ainda.'))
+          : null,
         el(doc, 'div', { class: 'btns' }, (o.buttons || []).map((b) => el(doc, 'button', { onclick: b.onClick }, b.label))));
       ov.root.append(ovNode);
     }

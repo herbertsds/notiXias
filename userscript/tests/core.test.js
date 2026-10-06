@@ -196,3 +196,21 @@ test('texto do repost: "Fulano repostou" no singular, lista com "e" no plural', 
   assert.equal(t(['ana', 'beto', 'caio']), '↻ @ana, @beto e @caio repostaram');
   assert.equal(Core.buildBannerText({ reposters: ['ana', 'beto', 'caio'] }), '↻ @ana, @beto e @caio repostaram uma mensagem dessa thread');
 });
+
+test('formatRun: manual/automática, normal/profunda, horário e resultado', () => {
+  const at = new Date(2026, 9, 6, 7, 58).toISOString();
+  const ok = Core.formatRun({ at, source: 'robot', mode: 'deep', ok: true, created: 10, updated: 2, gap: false, reason: 'anchor', steps: 23 });
+  assert.equal(ok.main, '06/10/2026 07:58 · Automática · Profunda');
+  assert.equal(ok.sub, '10 novos · 2 com resposta nova · chegou ao que já estava salvo (23 passos)');
+  assert.equal(ok.tone, 'ok');
+  const man = Core.formatRun({ at, source: 'manual', mode: 'normal', ok: true, created: 1, updated: 0, gap: false });
+  assert.equal(man.main, '06/10/2026 07:58 · Manual · Normal');
+  assert.equal(man.sub, '1 novo');
+  assert.equal(Core.formatRun({ at, source: 'manual', mode: 'normal', ok: true, created: 0, updated: 0 }).sub, 'nada novo');
+  const gap = Core.formatRun({ at, source: 'manual', mode: 'normal', ok: true, created: 3, updated: 0, gap: true, reason: 'max_steps', steps: 150 });
+  assert.equal(gap.tone, 'warn');
+  assert.match(gap.sub, /⚠ pode haver lacuna · parou no limite de rolagem \(150 passos\)/);
+  const bad = Core.formatRun({ at, source: 'robot', mode: 'normal', ok: false, error: 'sessão expirada' });
+  assert.equal(bad.tone, 'error');
+  assert.equal(bad.sub, '⚠ Falhou: sessão expirada');
+});

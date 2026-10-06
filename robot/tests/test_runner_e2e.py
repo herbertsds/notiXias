@@ -83,3 +83,13 @@ def test_pagina_de_login_vira_erro_de_sessao(key, tmp_path):
     res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
                                       timeout_s=20, start_url="https://x.com/i/flow/login", route_hook=hook))
     assert res["ok"] is False and res.get("login") is True
+
+
+def test_execucao_profunda_entra_no_historico_como_automatica(key, tmp_path):
+    base = 2109000000000000000 + (int(time.time()) % 1_000_000) * 1000
+    holder = {"ids": [str(base + n) for n in range(10, 0, -1)]}
+    res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
+                                      timeout_s=60, start_url=runner.DEEP_URL, route_hook=make_hook(holder)))
+    assert res["ok"] is True, res
+    last = api("/runs?limit=1")["items"][0]
+    assert (last["source"], last["mode"], last["ok"]) == ("robot", "deep", True)

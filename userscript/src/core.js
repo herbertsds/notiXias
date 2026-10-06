@@ -55,6 +55,33 @@ const Core = (function () {
     );
   }
 
+  // ---- histórico de execuções (menu ⋯ -> Execuções) ----
+  const STOP_REASON = {
+    anchor: 'chegou ao que já estava salvo',
+    backfill: 'primeira carga',
+    max_steps: 'parou no limite de rolagem',
+    max_collect: 'parou no limite de posts',
+    end: 'chegou ao fim do feed',
+    gap_unresolved: 'ficou lacuna "Mostrar mais" sem abrir',
+  };
+
+  // Uma execução da API ({at, source, mode, ok, created, updated, gap, reason, steps, error}) em duas linhas de texto.
+  // Devolve { main, sub, tone } com tone = 'ok' | 'warn' | 'error'.
+  function formatRun(run) {
+    const d = new Date(run.at);
+    const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (run.mode === 'deep' ? 'Profunda' : 'Normal');
+    if (!run.ok) return { main, sub: '⚠ Falhou: ' + (run.error || 'erro desconhecido'), tone: 'error' };
+    const parts = [];
+    if (run.created) parts.push(run.created + (run.created === 1 ? ' novo' : ' novos'));
+    if (run.updated) parts.push(run.updated + ' com resposta nova');
+    if (!parts.length) parts.push('nada novo');
+    if (run.gap) parts.push('⚠ pode haver lacuna');
+    const why = STOP_REASON[run.reason];
+    if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
+    return { main, sub: parts.join(' · '), tone: run.gap ? 'warn' : 'ok' };
+  }
+
   // Thread: depois do post focal, posts do MESMO autor em sequência contígua, com IDs crescentes.
   // `items` = posts da página, em ordem de DOM: [{id, author}].
   // Devolve { target, chain } (target = último da cadeia) ou null.
@@ -207,7 +234,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

@@ -29,6 +29,17 @@ class ScanIn(BaseModel):
     gap_unresolved: int = Field(default=0, ge=0, le=100_000)  # lacunas "Mostrar mais" que ficaram sem abrir
 
 
+class RunIn(BaseModel):
+    """Quem disparou a execução e de que tipo (para o histórico de execuções)."""
+
+    source: Literal["manual", "robot"]
+    mode: Literal["normal", "deep"] = "normal"
+
+
+class RunFailIn(RunIn):
+    error: str = Field(max_length=300)
+
+
 class AppendIn(BaseModel):
     """`items` na ordem do feed: o mais novo primeiro."""
 
@@ -36,6 +47,7 @@ class AppendIn(BaseModel):
     anchor_found: bool
     gap_seq: int | None = Field(default=None, ge=1)  # busca que tentou preencher a lacuna que começa nesta entrada
     scan: ScanIn | None = None
+    run: RunIn | None = None  # se informado, a execução entra no histórico (GET /runs)
     batch_id: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[\w.:\-]+$")
 
 

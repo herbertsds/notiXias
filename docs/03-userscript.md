@@ -314,3 +314,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.6.7: o `@name` voltou a ser só `notiXias`. O gerenciador usa o nome para identificar o script e guardar a configuração; com a versão no nome, cada atualização criava um script novo e a API era pedida de novo. A versão agora aparece no `@description` e no último item do menu ⋯ ("notiXias versão X"). Nunca mais mude o `@name` nem o `@namespace`.
 
 0.6.8: ao terminar uma busca de novas, o script **não avança** para o primeiro post novo: volta para a entrada em que você estava (a posição de leitura) e mostra "N novos" na barra; você segue com ▶. Só abre o primeiro novo se ainda não existir posição de leitura.
+
+0.7.1: menu ⋯ → **Execuções…** (histórico em tela cheia, mais recente no topo: manual/automática, normal/profunda, horário e resultado). Cada busca informa `run: { source, mode }` à API; falhas vão para `POST /runs`.

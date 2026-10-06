@@ -26,6 +26,7 @@ def ensure_indexes(db) -> None:
     db.views.create_index([("tweet_id", ASCENDING), ("viewed_at", DESCENDING)])
     db.batches.create_index([("created_at", ASCENDING)], expireAfterSeconds=7 * 24 * 3600)
     db.skeletons.create_index([("created_at", ASCENDING)], expireAfterSeconds=90 * 24 * 3600)
+    db.runs.create_index([("at", DESCENDING)], expireAfterSeconds=90 * 24 * 3600)
     db.entries.create_index([("ord", ASCENDING)])
     migrate(db)
 
@@ -399,7 +400,7 @@ def _repost_anchor_id(rev, i):
 
 def append_items(
     db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None,
-    gap_seq: int | None = None, scan=None,
+    gap_seq: int | None = None, scan=None, run=None,
 ) -> dict:
     """`items` em ordem do feed (mais novo primeiro). Processa do mais antigo ao mais novo."""
     revisit_after = REVISIT_AFTER if revisit_after is None else revisit_after
@@ -457,6 +458,8 @@ def append_items(
         "first_new_seq": stats["first_new_seq"],
         "gap": gap,
     }
+    if run is not None:
+        record_run(db, run, ok=True, result=result, scan=scan, anchor_found=anchor_found)
     if batch_id:
         try:
             doc = {"_id": batch_id, "result": result, "created_at": now()}
@@ -492,6 +495,25 @@ def anchor_keys(db, depth: int) -> dict:
     for d in docs:
         keys.extend(d["appearance_keys"])
     return {"keys": keys, "last_seq": docs[0]["seq"] if docs else None}
+
+
+# ---------- histórico de execuções ----------
+def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anchor_found: bool | None = None, error: str | None = None) -> None:
+    doc = {"at": now(), "source": run.source, "mode": run.mode, "ok": ok}
+    if ok and result is not None:
+        doc.update(
+            created=result["created"], updated=result["updated"], gap=result["gap"], anchor_found=anchor_found,
+        )
+        if scan is not None:
+            doc.update(reason=scan.reason, steps=scan.steps, collected=scan.collected)
+    if not ok:
+        doc["error"] = (error or "")[:300]
+    db.runs.insert_one(doc)
+
+
+def list_runs(db, limit: int) -> dict:
+    docs = list(db.runs.find({}, {"_id": 0}).sort("at", DESCENDING).limit(limit))
+    return {"items": docs}
 
 
 def gap_info(db, depth: int, max_age_days: int) -> dict:

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.4
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.4
+// @version      0.7.5
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.5
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1286,7 +1286,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.4'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.7.5'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1501,9 +1501,7 @@ async function startApp() {
       { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
       { label: 'Ir para Explorar', onClick: () => go('https://x.com/explore') },
       { label: 'Trocar feed…', onClick: changeFeed },
-      { label: 'Reabrir posts cobertos', onClick: () => reopenCovered(st) },
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
-      { label: 'Exportar dados', onClick: exportData },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
@@ -1970,26 +1968,10 @@ async function startApp() {
     onRoute();
   }
 
-  async function reopenCovered(st) {
-    if (!st.current) return;
-    const r = await api.uncover({ covered_by: st.current.seq });
-    gm.set('nx_notice', r.reopened + ' posts reabertos (use ◀ para vê-los)');
-    onRoute();
-  }
-
   async function copySkeleton() {
     const sk = gm.get('nx_skeleton', '');
     try { await navigator.clipboard.writeText(sk); alert('Esqueleto copiado (' + sk.length + ' caracteres).'); }
     catch (e) { prompt('Copie o esqueleto:', sk.slice(0, 5000)); }
-  }
-
-  async function exportData() {
-    const data = await api.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'notixias-export-' + new Date().toISOString().slice(0, 10) + '.json';
-    a.click();
   }
 
   // Comando vindo da URL, válido por 2 minutos (uma busca nunca dispara por uma abertura antiga).

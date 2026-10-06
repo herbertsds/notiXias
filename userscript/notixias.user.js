@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.7.9
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.7.9
+// @version      0.8.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -85,13 +85,9 @@ const Core = (function () {
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
 
-  // Velocidades do vídeo (o X no celular não tem controle). Cada toque passa para a próxima, voltando a 1x.
-  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
-  function nextSpeed(cur) {
-    const i = SPEEDS.indexOf(cur);
-    return SPEEDS[(i + 1) % SPEEDS.length];
-  }
-  const formatSpeed = (r) => r + 'x';
+  // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
+  const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
   const STOP_REASON = {
@@ -289,7 +285,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, nextSpeed, formatSpeed,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, SPEEDS, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
@@ -1172,6 +1168,12 @@ const Ui = (function () {
       border: 1px solid rgba(255,255,255,.4); background: rgba(15,20,25,.82); color: #fff; cursor: pointer;
       font: 600 16px -apple-system, system-ui, "Segoe UI", sans-serif; -webkit-tap-highlight-color: transparent; }
   `;
+  const SPEED_MENU_CSS = `
+    .menu { position: absolute; top: 44px; left: 0; display: grid; grid-template-columns: repeat(2, minmax(70px, 1fr)); gap: 4px;
+      padding: 6px; background: rgba(15,20,25,.96); border: 1px solid rgba(255,255,255,.35); border-radius: 12px; overflow-y: auto; }
+    .menu button { height: 36px; min-width: 70px; padding: 0 10px; font-size: 15px; border-radius: 10px; font-weight: 500; }
+    .menu button.sel { background: #1d9bf0; border-color: #1d9bf0; font-weight: 700; }
+  `;
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -1206,9 +1208,11 @@ const Ui = (function () {
     const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
-    const spd = makeHost(doc, 'notixias-speed', SPEED_CSS);
+    const spd = makeHost(doc, 'notixias-speed', SPEED_CSS + SPEED_MENU_CSS);
     let spdNode = null;
-    let spdHandler = null;
+    let spdOpen = false;
+    let spdModel = null;
+    let spdMenu = null;
     let wrapNode = null;
     let ovNode = null;
     let menuOpen = false;
@@ -1339,19 +1343,36 @@ const Ui = (function () {
       ovNode = null;
     }
 
-    // Botão de velocidade do vídeo. o: { label, container?, visible?, top?, left?, onClick }
-    //  - com `container` (o player do X): o botão vai DENTRO dele, posicionado em absoluto, e portanto rola junto com
-    //    o vídeo sem nenhum atraso; `visible=false` esconde (os controles do X sumiram);
+    // Botão de velocidade do vídeo; ao tocar abre um menu com as opções.
+    // o: { label, options[{value,label,selected}], onPick(value), container?, visible?, maxHeight?, top?, left? }
+    //  - com `container` (o player do X): o botão vai DENTRO dele, em posição absoluta, e rola junto com o vídeo sem
+    //    atraso; `visible=false` esconde (os controles do X sumiram) e fecha o menu;
     //  - sem `container`: fixo na tela em top/left (quem chama o esconde enquanto a página rola).
+    function renderSpeedMenu() {
+      if (spdMenu) spdMenu.remove();
+      spdMenu = null;
+      if (!spdOpen || !spdModel || spdModel.visible === false) return;
+      spdMenu = el(doc, 'div', { class: 'menu', style: 'max-height:' + Math.max(120, Math.round(spdModel.maxHeight || 260)) + 'px' },
+        (spdModel.options || []).map((op) => el(doc, 'button', {
+          class: op.selected ? 'sel' : '',
+          onclick: (e) => { e.preventDefault(); e.stopPropagation(); spdOpen = false; renderSpeedMenu(); if (spdModel.onPick) spdModel.onPick(op.value); },
+        }, op.label)));
+      spd.root.append(spdMenu);
+    }
+
     function showSpeed(o) {
-      spdHandler = o.onClick;
+      spdModel = o;
       const host = spd.host;
       if (!spdNode) {
         spdNode = el(doc, 'button', {});
         const stop = (e) => { e.stopPropagation(); };
-        for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) spdNode.addEventListener(ev, stop);
-        spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (spdHandler) spdHandler(); });
+        for (const ev of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend']) host.addEventListener(ev, stop);
+        spdNode.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); spdOpen = !spdOpen; renderSpeedMenu(); });
         spd.root.append(spdNode);
+        // toque fora do botão/menu fecha o menu
+        doc.addEventListener('click', (e) => {
+          if (spdOpen && !(e.composedPath && e.composedPath().includes(host))) { spdOpen = false; renderSpeedMenu(); }
+        }, true);
       }
       if (spdNode.textContent !== o.label) spdNode.textContent = o.label;
       const hidden = o.visible === false ? 'display:none;' : '';
@@ -1363,9 +1384,19 @@ const Ui = (function () {
         if (host.parentElement !== root) root.append(host);
         host.style.cssText = 'position:fixed;top:' + Math.round(o.top) + 'px;left:' + Math.round(o.left) + 'px;z-index:2147483645;' + hidden;
       }
+      if (o.visible === false && spdOpen) { spdOpen = false; renderSpeedMenu(); }
+      else if (spdOpen && spdMenu) {
+        // mantém o menu em dia (opção marcada, altura máxima) sem fechá-lo
+        const sel = (o.options || []).map((x) => x.selected).join();
+        if (spdMenu.getAttribute('data-sel') !== sel) { renderSpeedMenu(); }
+      }
+      if (spdMenu) spdMenu.setAttribute('data-sel', (o.options || []).map((x) => x.selected).join());
     }
 
     function hideSpeed() {
+      spdOpen = false;
+      if (spdMenu) spdMenu.remove();
+      spdMenu = null;
       spd.host.remove();
     }
 
@@ -1380,7 +1411,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.7.9'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1498,7 +1529,7 @@ async function startApp() {
   setInterval(applyAges, 1500);
 
   // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
-  // cada toque passa para a próxima velocidade. Só mexe no vídeo quando a escolhida não é 1x.
+  // o toque abre um menu de 0,25x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
@@ -1511,10 +1542,12 @@ async function startApp() {
     if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
     ui.showSpeed({
       label: Core.formatSpeed(rate),
+      options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),
+      onPick: (s) => { cfg.videoSpeed = s; saveCfg(); applySpeed(); },
       container: v.component,
       visible: Xdom.controlsVisible(v.component, window),
+      maxHeight: v.rect.bottom - v.rect.top - 60,   // o menu cabe dentro do vídeo (rola se for pequeno)
       top: v.rect.top + 10, left: v.rect.left + 10,
-      onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
     });
   }
   setInterval(applySpeed, 300);

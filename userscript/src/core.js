@@ -63,13 +63,9 @@ const Core = (function () {
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
 
-  // Velocidades do vídeo (o X no celular não tem controle). Cada toque passa para a próxima, voltando a 1x.
-  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
-  function nextSpeed(cur) {
-    const i = SPEEDS.indexOf(cur);
-    return SPEEDS[(i + 1) % SPEEDS.length];
-  }
-  const formatSpeed = (r) => r + 'x';
+  // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
+  const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+  const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
 
   // ---- histórico de execuções (menu ⋯ -> Execuções) ----
   const STOP_REASON = {
@@ -267,7 +263,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, nextSpeed, formatSpeed,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, SPEEDS, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

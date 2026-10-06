@@ -243,10 +243,12 @@ test('ageLabel: só min ou h, nunca dias', () => {
   assert.equal(Core.ageLabel('abc', now), '');
 });
 
-test('velocidades do vídeo: ciclo 1x -> 1.25x -> 1.5x -> 2x -> 0.75x -> 1x', () => {
-  let s = 1;
-  const seen = [];
-  for (let i = 0; i < 5; i++) { s = Core.nextSpeed(s); seen.push(Core.formatSpeed(s)); }
-  assert.deepEqual(seen, ['1.25x', '1.5x', '2x', '0.75x', '1x']);
-  assert.equal(Core.nextSpeed(3), 1);                  // valor desconhecido volta ao normal
+test('velocidades do vídeo: de 0,25x a 3x, rótulo com vírgula', () => {
+  assert.deepEqual(Core.SPEEDS, [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]);
+  assert.equal(Core.SPEEDS[0], 0.25);
+  assert.equal(Core.SPEEDS[Core.SPEEDS.length - 1], 3);
+  assert.equal(Core.formatSpeed(0.25), '0,25x');
+  assert.equal(Core.formatSpeed(1), '1x');
+  assert.equal(Core.formatSpeed(1.75), '1,75x');
+  assert.equal(Core.formatSpeed(3), '3x');
 });

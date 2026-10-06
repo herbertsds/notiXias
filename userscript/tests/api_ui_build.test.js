@@ -237,21 +237,36 @@ test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "
 });
 
 
-test('Ui: botão de velocidade vai dentro do player e some com os controles; fora do player fica fixo', () => {
+test('Ui: botão de velocidade abre menu de opções, escolhe, fecha; some com os controles', () => {
   const { ui, doc } = mountUi();
   const vc = doc.createElement('div');
   doc.body.append(vc);
-  let taps = 0;
-  ui.showSpeed({ label: '1x', container: vc, visible: true, onClick: () => { taps++; } });
+  const picked = [];
+  const model = (visible = true, sel = 1) => ({
+    label: '1x', container: vc, visible, maxHeight: 200, onPick: (v) => picked.push(v),
+    options: [0.25, 1, 3].map((v) => ({ value: v, label: String(v), selected: v === sel })),
+  });
+  ui.showSpeed(model());
   const host = doc.getElementById('notixias-speed');
   assert.equal(host.parentElement, vc);                                            // dentro do player: rola junto
   assert.match(host.style.cssText, /position:\s*absolute/);
+  assert.equal(host.shadowRoot.querySelector('.menu'), null);                      // fechado no começo
+  host.shadowRoot.querySelector('button').click();                                 // toque no botão abre
+  const items = [...host.shadowRoot.querySelectorAll('.menu button')];
+  assert.deepEqual(items.map((b) => b.textContent), ['0.25', '1', '3']);
+  assert.ok(items[1].classList.contains('sel'));                                   // a atual vem marcada
+  items[2].click();                                                                // escolhe 3x
+  assert.deepEqual(picked, [3]);
+  assert.equal(host.shadowRoot.querySelector('.menu'), null);                      // fecha ao escolher
   host.shadowRoot.querySelector('button').click();
-  assert.equal(taps, 1);
-  ui.showSpeed({ label: '1.5x', container: vc, visible: false, onClick: () => {} });
+  assert.ok(host.shadowRoot.querySelector('.menu'));
+  doc.body.click();                                                                // toque fora fecha
+  assert.equal(host.shadowRoot.querySelector('.menu'), null);
+  host.shadowRoot.querySelector('button').click();
+  ui.showSpeed(model(false));                                                      // controles do X sumiram
   assert.match(host.style.cssText, /display:\s*none/);
-  assert.equal(host.shadowRoot.querySelector('button').textContent, '1.5x');
-  ui.showSpeed({ label: '1x', top: 40, left: 8, onClick: () => {} });             // sem player: fixo na tela
+  assert.equal(host.shadowRoot.querySelector('.menu'), null);
+  ui.showSpeed({ label: '1x', top: 40, left: 8, options: [], onPick: () => {} });  // sem player: fixo na tela
   assert.equal(host.parentElement, doc.documentElement);
   assert.match(host.style.cssText, /position:\s*fixed/);
   ui.hideSpeed();

@@ -119,7 +119,7 @@ async function startApp() {
   setInterval(applyAges, 1500);
 
   // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
-  // cada toque passa para a próxima velocidade. Só mexe no vídeo quando a escolhida não é 1x.
+  // o toque abre um menu de 0,25x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
   // Sem o player conhecido (página diferente), usa um botão fixo que some enquanto a página rola.
   let scrollingUntil = 0;
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
@@ -132,10 +132,12 @@ async function startApp() {
     if (rate !== 1 && v.video.playbackRate !== rate) v.video.playbackRate = rate;
     ui.showSpeed({
       label: Core.formatSpeed(rate),
+      options: Core.SPEEDS.map((s) => ({ value: s, label: Core.formatSpeed(s), selected: s === rate })),
+      onPick: (s) => { cfg.videoSpeed = s; saveCfg(); applySpeed(); },
       container: v.component,
       visible: Xdom.controlsVisible(v.component, window),
+      maxHeight: v.rect.bottom - v.rect.top - 60,   // o menu cabe dentro do vídeo (rola se for pequeno)
       top: v.rect.top + 10, left: v.rect.left + 10,
-      onClick: () => { cfg.videoSpeed = Core.nextSpeed(cfg.videoSpeed || 1); saveCfg(); applySpeed(); },
     });
   }
   setInterval(applySpeed, 300);

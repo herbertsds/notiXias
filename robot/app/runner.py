@@ -15,6 +15,8 @@ log = logging.getLogger("robot")
 
 HOME_URL = "https://x.com/home?nx=update"
 DEEP_URL = "https://x.com/home?nx=deep"
+NORMAL_TIMEOUT_S = 25 * 60
+DEEP_TIMEOUT_S = 120 * 60  # feed (até 45 min) + perfil de cada conta seguida, aba Posts e aba Respostas
 # Parecido com um Chrome comum de computador (sem "HeadlessChrome").
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -49,7 +51,7 @@ async def run_once(
     api_key: str,
     bundle: str,
     state_path: Path,
-    timeout_s: int = 25 * 60,
+    timeout_s: int = NORMAL_TIMEOUT_S,
     start_url: str = HOME_URL,
     headless: bool = True,
     route_hook=None,

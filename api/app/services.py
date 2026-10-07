@@ -511,6 +511,24 @@ def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anch
     db.runs.insert_one(doc)
 
 
+def record_run_report(db, body) -> None:
+    doc = {"at": now(), "source": body.source, "mode": body.mode, "ok": True, "started_at": body.started_at}
+    doc.update(
+        created=body.created, updated=body.updated, gap=body.gap, reason=body.reason, steps=body.steps,
+        collected=body.collected, profiles_done=body.profiles_done, profiles_skipped=body.profiles_skipped,
+        profile_created=body.profile_created,
+    )
+    db.runs.insert_one(doc)
+
+
+def deep_last(db) -> dict:
+    """Quando COMEÇOU a última verificação profunda concluída (fronteira da próxima). `null` se nunca houve."""
+    run = db.runs.find_one({"mode": "deep", "ok": True}, sort=[("at", DESCENDING)])
+    if not run:
+        return {"started_at": None}
+    return {"started_at": run.get("started_at") or run["at"]}
+
+
 def list_runs(db, limit: int) -> dict:
     docs = list(db.runs.find({}, {"_id": 0}).sort("at", DESCENDING).limit(limit))
     return {"items": docs, "next": db.meta.find_one({"_id": "robot_next"}, {"_id": 0})}

@@ -107,6 +107,7 @@ async def main() -> None:
             res = await runner.run_once(
                 api_base=api_base, api_key=read_api_key(), bundle=bundle, state_path=state_path,
                 start_url=runner.DEEP_URL if deep else runner.HOME_URL,
+                timeout_s=runner.DEEP_TIMEOUT_S if deep else runner.NORMAL_TIMEOUT_S,
             )
         except Exception as e:  # noqa: BLE001
             res = runner.RunResult(ok=False, error=f"erro inesperado: {str(e)[:200]}")

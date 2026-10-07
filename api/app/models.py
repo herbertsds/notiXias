@@ -36,6 +36,21 @@ class RunIn(BaseModel):
     mode: Literal["normal", "deep"] = "normal"
 
 
+class RunReportIn(RunIn):
+    """Fecha uma execução PROFUNDA composta (feed + perfis): totais e quando ela começou."""
+
+    started_at: datetime
+    created: int = Field(ge=0, le=1_000_000)
+    updated: int = Field(ge=0, le=1_000_000)
+    gap: bool = False
+    reason: str | None = Field(default=None, max_length=30, pattern=r"^[\w\-]+$")
+    steps: int = Field(default=0, ge=0, le=1_000_000)
+    collected: int = Field(default=0, ge=0, le=1_000_000)
+    profiles_done: int = Field(default=0, ge=0, le=100_000)
+    profiles_skipped: int = Field(default=0, ge=0, le=100_000)
+    profile_created: int = Field(default=0, ge=0, le=1_000_000)
+
+
 class RunFailIn(RunIn):
     error: str = Field(max_length=300)
 

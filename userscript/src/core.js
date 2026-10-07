@@ -55,10 +55,15 @@ const Core = (function () {
     );
   }
 
+  // Horário de criação (ms desde 1970) a partir do ID do post (snowflake do X); null se o ID for inválido.
+  function snowflakeMs(id) {
+    try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
+  }
+
   // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Sempre "N min" ou "N h", nunca dias.
   function ageLabel(id, nowMs) {
-    let created;
-    try { created = Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return ''; }
+    const created = snowflakeMs(id);
+    if (created === null) return '';
     const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
@@ -75,6 +80,8 @@ const Core = (function () {
     max_collect: 'parou no limite de posts',
     end: 'chegou ao fim do feed',
     gap_unresolved: 'ficou lacuna "Mostrar mais" sem abrir',
+    time_boundary: 'chegou à última verificação profunda',
+    max_time: 'parou no limite de tempo',
   };
 
   // Uma execução da API ({at, source, mode, ok, created, updated, gap, reason, steps, error}) em duas linhas de texto.
@@ -88,6 +95,7 @@ const Core = (function () {
     if (run.created) parts.push(run.created + (run.created === 1 ? ' novo' : ' novos'));
     if (run.updated) parts.push(run.updated + ' com resposta nova');
     if (!parts.length) parts.push('nada novo');
+    if (run.profiles_done) parts.push(run.profiles_done + ' perfis verificados' + (run.profile_created ? ' (' + run.profile_created + ' novos neles)' : '') + (run.profiles_skipped ? ', ' + run.profiles_skipped + ' sem leitura' : ''));
     if (run.gap) parts.push('⚠ pode haver lacuna');
     const why = STOP_REASON[run.reason];
     if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
@@ -263,7 +271,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, SPEEDS, formatSpeed,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();

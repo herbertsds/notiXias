@@ -20,11 +20,15 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 - Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 05:10).
 - Primeira vez (sem histórico): roda assim que houver sessão.
 
+## Busca profunda (feed + perfis)
+
+Na profunda o robô lê o Seguindo até a **última verificação profunda** (no máximo 24 h atrás) e depois **entra no perfil de cada conta seguida** (aba Posts e aba Respostas), incluindo o que faltar na fila. Detalhes e decisões em `docs/03-userscript.md` (0.9.0). Isso são ~2 páginas por conta seguida (hoje ~57 contas, mais de 110 páginas) duas vezes ao dia (a primeira a partir das 05:10 e das 12:30) mais as profundas manuais: **é o trecho de maior risco para a conta**.
+
 ## Proteções
 
 - Falhas seguidas: após **3**, o robô **pausa** (não insiste na conta). Sessão expirada (tela de login) pausa na hora.
 - Pausado volta sozinho quando você envia uma **sessão nova** (o arquivo `x_state.json` muda; checagem a cada 60 s) ou ao reiniciar o contêiner.
-- Tempo máximo por execução: 25 min.
+- Tempo máximo por execução: 25 min (profunda: 120 min).
 - A chave da API **não passa pela página**: o Python coloca o cabeçalho; a rede do robô só alcança a API do notiXias; as funções expostas têm nome aleatório por execução.
 - Sem login automático: você entra **manualmente** (passo abaixo).
 
@@ -53,6 +57,15 @@ Quando algo falha por tempo esgotado, `last_result.diag` traz a URL, o texto da 
 ## Sessão e conta
 
 Os cookies do X rotacionam; o robô regrava `x_state.json` a cada execução bem-sucedida. Entrar de outro IP (o do servidor) pode fazer o X pedir verificação ou invalidar a sessão: nesse caso o robô pausa e registra "sessão do X expirada"; rode de novo `robot_login.sh` + `robot_install_session.sh`.
+
+## Decisões da profunda (2026-10-07, revisar)
+
+1. "Vai parar quando achar post antes da última profunda": uso **3 posts comuns seguidos** (não 1) no feed, por causa de raízes antigas de conversas.
+2. "Não vai incluir post depois da última verificação… para quando achar 5 anteriores": li como **não incluir post ANTERIOR à última verificação** (a frase dizia "depois"; o resto só faz sentido assim).
+3. Nos perfis, **reposts e o post fixado não entram nem contam**; o post respondido (de outra conta) também não.
+4. Janela máxima de **24 h** mesmo que a última profunda seja mais antiga.
+5. Limite de passos removido; ficam o fim do feed, 900 posts e 45 min no feed (e 150 passos por aba de perfil).
+6. Âncora **50** só serve de contexto; não encerra a profunda.
 
 ## Decisões tomadas sem perguntar (revisar)
 

@@ -85,11 +85,71 @@ def test_pagina_de_login_vira_erro_de_sessao(key, tmp_path):
     assert res["ok"] is False and res.get("login") is True
 
 
-def test_execucao_profunda_entra_no_historico_como_automatica(key, tmp_path):
-    base = 2109000000000000000 + (int(time.time()) % 1_000_000) * 1000
-    holder = {"ids": [str(base + n) for n in range(10, 0, -1)]}
+# ---------- profunda: feed até a fronteira + perfil de cada conta seguida (Posts e Respostas) ----------
+def snow(ms):
+    return str((int(ms) - 1288834974657) << 22)
+
+
+def art(ms, author, reply_to=None):
+    i = snow(ms)
+    return (
+        f'<div data-testid="cellInnerDiv"><article data-testid="tweet" role="article">'
+        f'<div data-testid="User-Name"><a href="/{author}"><span>{author}</span></a></div>'
+        f'<a href="/{author}/status/{i}" role="link"><time datetime="2026-10-06T10:00:00.000Z">x</time></a>'
+        f'<div data-testid="tweetText"><span>t</span></div></article></div>'
+    )
+
+
+def page(cells, tabs=False):
+    tl = ('<div role="tablist"><div role="tab" aria-selected="false">Para você</div>'
+          '<div role="tab" aria-selected="true">Seguindo</div></div>') if tabs else ""
+    return f'<!doctype html><html lang="pt"><body><main>{tl}<div data-testid="primaryColumn">{"".join(cells)}</div></main></body></html>'
+
+
+def test_profunda_percorre_feed_e_perfis_e_registra_uma_execucao(key, tmp_path):
+    now = time.time() * 1000
+    H = 3600 * 1000
+    uniq = int(time.time()) % 100000                                   # ids novos a cada rodada do teste
+    off = uniq % 50                                                    # ms de diferença entre rodadas (ids únicos)
+    api("/accounts/following", "PUT", json={"accounts": [{"handle": "conta_a"}, {"handle": "conta_b"}]})
+    deep_last = api("/runs/deep-last")["started_at"]
+    boundary = max(now - 24 * H, __import__("datetime").datetime.fromisoformat(deep_last).timestamp() * 1000 if deep_last else 0)
+    span = now - boundary                                                  # posts "novos" ficam entre a fronteira e agora
+    def new_at(frac):
+        return boundary + span * frac - off
+    feed = [art(new_at(0.95), "conta_c"), art(new_at(0.90), "conta_c")]
+    feed += [art(boundary - n * 60000 - off, "conta_c") for n in range(1, 6)]                 # antigos: fronteira
+    profiles = {
+        "/conta_a": [art(new_at(0.85), "conta_a"), art(new_at(0.80), "conta_a")]
+                    + [art(boundary - (60 + n) * 60000 - off, "conta_a") for n in range(1, 8)],
+        "/conta_a/with_replies": [art(new_at(0.75), "conta_a"), art(new_at(0.70), "outra")]
+                                 + [art(boundary - (60 + n) * 60000 - off, "conta_a") for n in range(1, 8)],
+        "/conta_b": [art(new_at(0.65), "conta_b")] + [art(boundary - (60 + n) * 60000 - off, "conta_b") for n in range(1, 8)],
+        "/conta_b/with_replies": [],
+    }
+    visited = []
+
+    async def hook(context):
+        async def handle(route):
+            path = route.request.url.split("x.com", 1)[1].split("?")[0].rstrip("/") or "/"
+            if route.request.resource_type == "document":
+                visited.append(path)
+            if path == "/home":
+                body = page(feed, tabs=True)
+            elif path in profiles:
+                body = page(profiles[path])
+            else:
+                body = page([])
+            await route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
+        await context.route("https://x.com/**", handle)
+
+    st0 = api("/state")
     res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
-                                      timeout_s=60, start_url=runner.DEEP_URL, route_hook=make_hook(holder)))
+                                      timeout_s=300, start_url=runner.DEEP_URL, route_hook=hook))
     assert res["ok"] is True, res
-    last = api("/runs?limit=1")["items"][0]
-    assert (last["source"], last["mode"], last["ok"]) == ("robot", "deep", True)
+    assert res["profiles_done"] == 2 and res["profile_created"] == 4, res            # a:2 posts + 1 resposta, b:1
+    assert [v for v in visited if v != "/home"] == ["/conta_a", "/conta_a/with_replies", "/conta_b", "/conta_b/with_replies"]
+    run = api("/runs?limit=1")["items"][0]
+    assert (run["source"], run["mode"], run["profiles_done"]) == ("robot", "deep", 2) and run["reason"] == "time_boundary"
+    assert api("/runs/deep-last")["started_at"] is not None
+    assert api("/state")["cursor_seq"] == st0["cursor_seq"]                           # não mexeu na posição de leitura

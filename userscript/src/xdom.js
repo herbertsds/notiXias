@@ -44,7 +44,9 @@ const Xdom = (function () {
     if (!st) return null; // anúncios e cartões sem link de post caem aqui
     const rp = reposterOf(art, st.author);
     const reposter = rp ? rp.handle : null;
+    const sc = art.querySelector('[data-testid="socialContext"]');
     return {
+      pinned: !rp && !!sc && /fixad|pinned/i.test(sc.textContent || ''),
       id: st.id,
       author: st.author,
       reposter,

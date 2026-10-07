@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.5
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.5
+// @version      0.9.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.9.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -77,10 +77,15 @@ const Core = (function () {
     );
   }
 
+  // Horário de criação (ms desde 1970) a partir do ID do post (snowflake do X); null se o ID for inválido.
+  function snowflakeMs(id) {
+    try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
+  }
+
   // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Sempre "N min" ou "N h", nunca dias.
   function ageLabel(id, nowMs) {
-    let created;
-    try { created = Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return ''; }
+    const created = snowflakeMs(id);
+    if (created === null) return '';
     const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
     return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
   }
@@ -97,6 +102,8 @@ const Core = (function () {
     max_collect: 'parou no limite de posts',
     end: 'chegou ao fim do feed',
     gap_unresolved: 'ficou lacuna "Mostrar mais" sem abrir',
+    time_boundary: 'chegou à última verificação profunda',
+    max_time: 'parou no limite de tempo',
   };
 
   // Uma execução da API ({at, source, mode, ok, created, updated, gap, reason, steps, error}) em duas linhas de texto.
@@ -110,6 +117,7 @@ const Core = (function () {
     if (run.created) parts.push(run.created + (run.created === 1 ? ' novo' : ' novos'));
     if (run.updated) parts.push(run.updated + ' com resposta nova');
     if (!parts.length) parts.push('nada novo');
+    if (run.profiles_done) parts.push(run.profiles_done + ' perfis verificados' + (run.profile_created ? ' (' + run.profile_created + ' novos neles)' : '') + (run.profiles_skipped ? ', ' + run.profiles_skipped + ' sem leitura' : ''));
     if (run.gap) parts.push('⚠ pode haver lacuna');
     const why = STOP_REASON[run.reason];
     if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
@@ -285,7 +293,7 @@ const Core = (function () {
   }
 
   return {
-    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, SPEEDS, formatSpeed,
+    parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
     pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
@@ -338,7 +346,9 @@ const Xdom = (function () {
     if (!st) return null; // anúncios e cartões sem link de post caem aqui
     const rp = reposterOf(art, st.author);
     const reposter = rp ? rp.handle : null;
+    const sc = art.querySelector('[data-testid="socialContext"]');
     return {
+      pinned: !rp && !!sc && /fixad|pinned/i.test(sc.textContent || ''),
       id: st.id,
       author: st.author,
       reposter,
@@ -948,7 +958,16 @@ const Scanner = (function () {
     settlePolls: 4, // esperas extras (pollMs) por itens novos quando o X ainda não desenhou nada
     pollMs: 500,
     maxExpand: 40, // cliques máximos em "Mostrar mais" (lacunas) por busca
+    // Busca profunda: em vez da âncora, vai até a fronteira de TEMPO (a última verificação profunda).
+    olderThanMs: 0, // horário (ms) da fronteira; 0 = desligado
+    olderRun: 3, // posts comuns (sem repost, sem fixado) seguidos mais antigos que a fronteira para parar
+    ignoreAnchor: false, // true: itens conhecidos não encerram a busca (só a fronteira, o fim do feed ou os limites)
+    maxMs: 0, // limite de tempo total da busca (0 = sem limite)
   };
+
+  function snowflakeMs(id) {
+    try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
+  }
 
   // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(),
   //        sleep(ms), rand(a,b), onProgress(n, steps), isCancelled(),
@@ -964,6 +983,9 @@ const Scanner = (function () {
   // cada um com `known` (já está na fila); os conhecidos servem de contexto para reconhecer conversas.
   async function run(env, options, anchorKeys) {
     const o = Object.assign({}, DEFAULTS, options || {});
+    const t0 = Date.now();
+    let olderStreak = 0;
+    let boundaryReached = false;
     const known = new Set(anchorKeys || []);
     const need = Math.max(1, Math.min(o.knownRun, known.size || 1));
     const needTotal = Math.min(o.minKnown, known.size);
@@ -1006,7 +1028,16 @@ const Scanner = (function () {
           consecutive = 0;
           fresh++;
         }
-        if (known.size && consecutive >= need && knownTotal >= needTotal) {
+        if (o.olderThanMs && !it.reposter && !it.pinned) {
+          const created = snowflakeMs(it.id);
+          if (created !== null) olderStreak = created < o.olderThanMs ? olderStreak + 1 : 0;
+          if (olderStreak >= o.olderRun) {
+            boundaryReached = true;
+            anchorFound = true;
+            break;
+          }
+        }
+        if (!o.ignoreAnchor && known.size && consecutive >= need && knownTotal >= needTotal) {
           anchorFound = true;
           break;
         }
@@ -1025,11 +1056,12 @@ const Scanner = (function () {
         gapUnresolved += ex.found;
       }
 
-      if (anchorFound) { reason = 'anchor'; break; }
+      if (anchorFound) { reason = boundaryReached ? 'time_boundary' : 'anchor'; break; }
       if (env.isCancelled()) { reason = 'cancelled'; break; }
-      if (known.size === 0 && fresh >= o.initialBackfill) { reason = 'backfill'; break; }
+      if (!o.olderThanMs && known.size === 0 && fresh >= o.initialBackfill) { reason = 'backfill'; break; }
       if (seq.length >= o.maxCollect) { reason = 'max_collect'; break; }
       if (steps >= o.maxSteps) { reason = 'max_steps'; break; }
+      if (o.maxMs && Date.now() - t0 > o.maxMs) { reason = 'max_time'; break; }
 
       const before = env.scrollHeight();
       env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
@@ -1053,6 +1085,75 @@ const Scanner = (function () {
   return { run, DEFAULTS };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Scanner;
+
+// ---- profiles.js ----
+// profiles: verificação de UM perfil (aba Posts ou Respostas) na busca profunda. Lê só o que a própria conta publicou,
+// do mais novo para o mais antigo, e para ao achar `olderStop` posts feitos ANTES da última verificação profunda.
+// Nunca clica em nada: só rola e lê. Todo efeito colateral passa por `env` (testável com um perfil simulado).
+const Profiles = (function () {
+  const C = () => (typeof Core !== 'undefined' ? Core : require('./core.js'));
+  const DEFAULTS = {
+    olderStop: 5, // posts mais antigos que a fronteira para encerrar
+    maxSteps: 150,
+    stepFraction: 0.7,
+    stepDelayMs: [800, 1500],
+    settleMs: 800,
+    settlePolls: 4,
+    pollMs: 500,
+  };
+
+  // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(), sleep(ms),
+  //        rand(a,b), isCancelled() }
+  // Devolve { items, reason, steps, older }:
+  //   items  = posts da conta com horário >= fronteira (sem reposts, sem fixado), do mais novo ao mais antigo;
+  //   reason = 'older' (achou os posts antigos) | 'end' (fim da página) | 'max_steps' | 'cancelled'.
+  // Posts de OUTRAS contas (a resposta mostra o post respondido acima, por exemplo) e reposts não contam nem entram:
+  // o horário de um repost não está no ID, e quem reposta já aparece no Seguindo.
+  async function scan(env, handle, boundaryMs, options) {
+    const o = Object.assign({}, DEFAULTS, options || {});
+    const me = String(handle).toLowerCase();
+    const seen = new Set();
+    const items = [];
+    let older = 0;
+    let steps = 0;
+    let stagnant = 0;
+    env.scrollToTop();
+    await env.sleep(o.settleMs);
+    for (;;) {
+      for (const it of env.readItems()) {
+        if (seen.has(it.key)) continue;
+        seen.add(it.key);
+        if (it.author.toLowerCase() !== me || it.reposter || it.pinned) continue;
+        const created = C().snowflakeMs(it.id);
+        if (created !== null && created < boundaryMs) {
+          older++;
+          if (older >= o.olderStop) return { items, reason: 'older', steps, older };
+        } else {
+          items.push(it);
+        }
+      }
+      if (env.isCancelled()) return { items, reason: 'cancelled', steps, older };
+      if (steps >= o.maxSteps) return { items, reason: 'max_steps', steps, older };
+      const before = env.scrollHeight();
+      env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));
+      await env.sleep(env.rand(o.stepDelayMs[0], o.stepDelayMs[1]));
+      // o X desenha aos poucos (e carrega mais no fim da página): espera antes de contar como parado
+      for (let p = 0; p < o.settlePolls; p++) {
+        if (env.readItems().some((x) => !seen.has(x.key))) break;
+        await env.sleep(o.pollMs);
+      }
+      steps++;
+      if (env.atBottom() && env.scrollHeight() === before) {
+        if (++stagnant >= 3) return { items, reason: 'end', steps, older };
+      } else {
+        stagnant = 0;
+      }
+    }
+  }
+
+  return { scan };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = Profiles;
 
 // ---- api.js ----
 // api: cliente da API do notiXias. `request` é injetado (GM_xmlhttpRequest no navegador, fake nos testes).
@@ -1099,6 +1200,8 @@ const Api = (function () {
       append: (body) => call('POST', '/queue/append', { body }),
       runs: (limit) => call('GET', '/runs', { params: { limit } }),
       runFailed: (body) => call('POST', '/runs', { body }),
+      runReport: (body) => call('POST', '/runs/report', { body }),
+      deepLast: () => call('GET', '/runs/deep-last'),
       queue: (params) => call('GET', '/queue', { params }),
       entry: (seq) => call('GET', '/entries/' + seq),
       patchEntry: (seq, body) => call('PATCH', '/entries/' + seq, { body }),
@@ -1425,7 +1528,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.5'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.9.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1440,7 +1543,14 @@ async function startApp() {
   const SCAN = { initialBackfill: 40, maxSteps: 150, maxCollect: 400, stepDelayMs: [900, 1700], stepFraction: 0.7, anchorDepth: 100, knownRun: 5, minKnown: 25 };
   // O robô roda sem pessoa olhando e com intervalos longos entre as buscas: aceita rolar mais antes de desistir.
   const BOT_SCAN = { maxSteps: 400, maxCollect: 800 };
-  const FETCH_STALE_MS = 30 * 60 * 1000;
+  // Busca profunda: sem limite de passos. Para na fronteira de TEMPO (3 posts comuns seguidos mais antigos que a última
+  // verificação profunda), no fim do feed, em 900 posts (teto da API: 1000 por envio) ou em 45 min. Âncoras: 50.
+  const DEEP_SCAN = { maxSteps: 1e9, maxCollect: 900, ignoreAnchor: true, olderRun: 3, maxMs: 45 * 60 * 1000 };
+  const DEEP_ANCHOR_DEPTH = 50;
+  const PROFILE_PAUSE_MS = [1500, 4000]; // pausa entre um perfil e o seguinte
+  const PROFILE_MAX_FAILS = 5; // perfis seguidos sem conseguir ler antes de desistir da verificação
+  const FETCH_STALE_MS = 60 * 60 * 1000; // uma busca profunda no feed pode durar até 45 min
+  const PROFILES_STALE_MS = 3 * 60 * 60 * 1000; // a verificação de perfis atravessa dezenas de páginas
   const ERROR_STALE_MS = 5 * 60 * 1000;
   const NOTICE_MS = 6000;
 
@@ -1525,6 +1635,7 @@ async function startApp() {
     if (p.name === 'fetching' && age > FETCH_STALE_MS) return { name: 'idle' };
     if (p.name === 'error' && age > ERROR_STALE_MS) return { name: 'idle' };
     if (p.name === 'following' && age > FETCH_STALE_MS) return { name: 'idle' };
+    if (p.name === 'profiles' && age > PROFILES_STALE_MS) return { name: 'idle' };
     return p;
   };
   const setPhase = (name, extra) => gm.set('nx_phase', Object.assign({ name, at: Date.now() }, extra || {}));
@@ -1847,7 +1958,17 @@ async function startApp() {
       const failedRecently = Date.now() - gm.get('nx_follow_fail_at', 0) < 24 * 3600 * 1000;
       if (!f.last_full_at && !failedRecently && !cfg.bot) return startFollowingRefresh({ then: 'fetch', deep: !!deep });
     } catch (e) { /* sem a lista, a busca ainda funciona (usa o aprendido do feed) */ }
-    setPhase('fetching', { deep: !!deep });
+    if (deep) {
+      // Fronteira da verificação profunda: o começo da última concluída, no máximo 24 h atrás.
+      let boundary = Date.now() - 24 * 3600 * 1000;
+      try {
+        const last = await api.deepLast();
+        if (last.started_at) boundary = Math.max(boundary, new Date(last.started_at).getTime());
+      } catch (e) { /* sem a data da última: usa as 24 h */ }
+      setPhase('fetching', { deep: true, boundary, startedAt: new Date().toISOString() });
+    } else {
+      setPhase('fetching', { deep: false });
+    }
     if (Core.isFeedPath(feed.url, location.pathname)) onRoute();
     else go(feed.url);
   }
@@ -1897,7 +2018,9 @@ async function startApp() {
     if (!first) return failFetch('Nenhum post carregou no feed.');
     if (!Xdom.readItems(document).length) return failFetch('Há posts na tela, mas nenhum link de post foi reconhecido.', first);
 
-    const anchor = await api.anchor(SCAN.anchorDepth);
+    const ph = getPhase();
+    const deep = !!ph.deep;
+    const anchor = await api.anchor(deep ? DEEP_ANCHOR_DEPTH : SCAN.anchorDepth);
     const env = {
       readItems: () => Xdom.readItems(document),
       scrollToTop: () => window.scrollTo(0, 0),
@@ -1920,9 +2043,8 @@ async function startApp() {
         return false;
       },
     };
-    const deep = !!getPhase().deep;
     const base = cfg.bot ? Object.assign({}, SCAN, BOT_SCAN) : SCAN;
-    const scan = await Scanner.run(env, deep ? Object.assign({}, base, { minKnown: 100, maxSteps: 400, maxCollect: 600 }) : base, anchor.keys);
+    const scan = await Scanner.run(env, deep ? Object.assign({}, base, DEEP_SCAN, { olderThanMs: ph.boundary }) : base, anchor.keys);
     if (token !== routeToken) return;
 
     if (scan.reason === 'cancelled') {
@@ -1939,9 +2061,10 @@ async function startApp() {
       anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
       // diagnóstico: por que a busca parou (fica na lacuna e no lote, para a causa não precisar ser adivinhada)
-      run: runMeta(deep),
+      run: deep ? undefined : runMeta(false), // a profunda registra UMA execução ao fim (feed + perfis)
       scan: { reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length, gap_unresolved: scan.gapUnresolved || 0 },
     });
+    if (deep) return startProfiles(ph, res, scan);
     setPhase('idle');
     if (cfg.bot) {
       // Robô: não abre nada (abrir uma entrada registraria leitura e mexeria na posição). Só informa o resultado.
@@ -1966,6 +2089,126 @@ async function startApp() {
     ui.hideOverlay();
     if (st.current) return openEntry(st.current);
     ui.showOverlay({ title: 'Nada para ler', detail: 'O feed não trouxe posts.', buttons: [{ label: 'Fechar', onClick: ui.hideOverlay }] });
+  }
+
+  // ---------- verificação profunda: perfis de quem você segue ----------
+  // Depois do feed, a busca profunda abre o perfil de cada conta seguida (aba Posts e aba Respostas) e confere se há
+  // posts da conta, feitos DEPOIS da última verificação profunda, que ainda não estão na fila. Para cada aba, para ao achar
+  // 5 posts anteriores a essa verificação. Um perfil por página (navegação completa); o andamento fica na fase 'profiles'.
+  const profileUrl = (p) => 'https://x.com/' + p.handles[p.i] + (p.tab === 'replies' ? '/with_replies' : '');
+
+  async function startProfiles(ph, res, scan) {
+    let handles = [];
+    try {
+      const f = await api.following(true);
+      handles = (f.accounts || []).map((a) => a.handle).filter(Boolean);
+    } catch (e) { /* sem a lista: só o feed */ }
+    const feedPart = { created: res.created, updated: res.updated, gap: !!res.gap, reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length };
+    setPhase('profiles', { deep: true, boundary: ph.boundary, startedAt: ph.startedAt, handles, i: 0, tab: 'posts', feed: feedPart, done: 0, skipped: 0, pcreated: 0, pupdated: 0, failRun: 0, nav: 0 });
+    return advanceProfile(getPhase());
+  }
+
+  // Abre o perfil/aba atual (ou encerra se acabaram os perfis).
+  function advanceProfile(p) {
+    if (p.i >= p.handles.length) return finishDeep(p);
+    location.assign(profileUrl(p));
+  }
+
+  async function runProfiles(token, p) {
+    if (p.i >= p.handles.length) return finishDeep(p);
+    const handle = p.handles[p.i];
+    const here = location.pathname.replace(/\/+$/, '').toLowerCase();
+    const want = new URL(profileUrl(p)).pathname.toLowerCase();
+    if (here !== want) {
+      // Não está na página esperada (o X redirecionou ou a navegação falhou): tenta de novo uma vez, depois pula o perfil.
+      if ((p.nav || 0) >= 2) return nextProfile(p, { skipped: true });
+      setPhase('profiles', Object.assign({}, p, { nav: (p.nav || 0) + 1 }));
+      return advanceProfile(getPhase());
+    }
+    cancelled = false;
+    ui.hideBar();
+    ui.showOverlay({
+      title: 'Verificação profunda',
+      detail: 'Perfil ' + (p.i + 1) + ' de ' + p.handles.length + ': @' + handle + (p.tab === 'replies' ? ' (respostas)' : ' (posts)'),
+      buttons: [{ label: 'Cancelar', onClick: () => { cancelled = true; } }],
+    });
+    try {
+      await waitFor(() => document.querySelector('article'), 12000); // perfil vazio/privado/suspenso: segue sem posts
+      if (token !== routeToken) return;
+      const env = {
+        readItems: () => Xdom.readItems(document),
+        scrollToTop: () => window.scrollTo(0, 0),
+        scrollBy: (px) => window.scrollBy(0, px),
+        scrollHeight: () => document.documentElement.scrollHeight,
+        viewportHeight: () => window.innerHeight,
+        atBottom: () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4,
+        sleep, rand,
+        isCancelled: () => cancelled || token !== routeToken,
+      };
+      const r = await Profiles.scan(env, handle, p.boundary);
+      if (token !== routeToken) return;
+      if (r.reason === 'cancelled') {
+        setPhase('idle');
+        ui.hideOverlay();
+        const st = await api.state();
+        if (st.current) await openEntry(st.current);
+        return;
+      }
+      let created = 0;
+      let updated = 0;
+      if (r.items.length) {
+        const res = await api.append({ items: r.items.map(Core.toApiItem), anchor_found: true, batch_id: Core.newBatchId() });
+        created = res.created;
+        updated = res.updated;
+      }
+      return nextProfile(p, { created, updated });
+    } catch (e) {
+      if (token !== routeToken) return;
+      if (e && e.status === 401) return handleError(e);
+      return nextProfile(p, { skipped: true });
+    }
+  }
+
+  // Registra o resultado do perfil/aba e abre o seguinte (ou fecha a verificação).
+  async function nextProfile(p, r) {
+    const q = Object.assign({}, p, { nav: 0, pcreated: p.pcreated + (r.created || 0), pupdated: p.pupdated + (r.updated || 0) });
+    q.failRun = r.skipped ? (p.failRun || 0) + 1 : 0;
+    if (q.failRun >= PROFILE_MAX_FAILS) {
+      setPhase('profiles', q);
+      return failFetch('A verificação de perfis falhou: ' + PROFILE_MAX_FAILS + ' perfis seguidos sem leitura.');
+    }
+    if (r.skipped) { q.skipped = p.skipped + 1; q.tab = 'posts'; q.i = p.i + 1; }       // pula a conta inteira
+    else if (p.tab === 'posts') { q.tab = 'replies'; }
+    else { q.done = p.done + 1; q.tab = 'posts'; q.i = p.i + 1; }
+    setPhase('profiles', q);
+    await sleep(rand(PROFILE_PAUSE_MS[0], PROFILE_PAUSE_MS[1]));
+    return advanceProfile(getPhase());
+  }
+
+  async function finishDeep(p) {
+    const created = p.feed.created + p.pcreated;
+    const updated = p.feed.updated + p.pupdated;
+    try {
+      await api.runReport({
+        source: cfg.bot ? 'robot' : 'manual', mode: 'deep', started_at: p.startedAt,
+        created, updated, gap: p.feed.gap, reason: p.feed.reason, steps: p.feed.steps, collected: p.feed.collected,
+        profiles_done: p.done, profiles_skipped: p.skipped, profile_created: p.pcreated,
+      });
+    } catch (e) { /* o histórico é só informativo; a fronteira só avança se o relatório chegar */ }
+    setPhase('idle');
+    if (cfg.bot) {
+      botDone({ ok: true, created, updated, gap: p.feed.gap, reason: p.feed.reason, steps: p.feed.steps, profiles_done: p.done, profiles_skipped: p.skipped, profile_created: p.pcreated });
+      return;
+    }
+    const parts = [];
+    if (created > 0) parts.push(created + ' novos' + (p.pcreated ? ' (' + p.pcreated + ' nos perfis)' : ''));
+    if (updated > 0) parts.push(updated + ' com resposta nova');
+    parts.push(p.done + ' perfis verificados' + (p.skipped ? ' (' + p.skipped + ' sem leitura)' : ''));
+    gm.set('nx_notice', 'Profunda: ' + parts.join(' · ') + (p.feed.gap ? ' · ⚠ pode haver lacuna' : ''));
+    ui.hideOverlay();
+    const st = await api.state();
+    if (st.current) return openEntry(st.current);
+    return go('https://x.com/home');
   }
 
   // ---------- contas seguidas ----------
@@ -2190,6 +2433,7 @@ async function startApp() {
         if (feedHere) return await runFetch(token);
         return renderSideBar('Busca em andamento', st);
       }
+      if (phase.name === 'profiles') return await runProfiles(token, phase);
       if (phase.name === 'following') {
         if (location.pathname.toLowerCase() === '/' + String(phase.handle).toLowerCase() + '/following') return await runFollowingScan(token, phase);
         return renderSideBar('Atualização das contas seguidas em andamento', st);

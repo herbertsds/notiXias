@@ -69,3 +69,32 @@ def test_proxima_execucao_do_robo_aparece_no_historico(client):
 def test_proxima_execucao_validacao_e_chave(client, anon):
     assert client.put("/api/v1/robot/next", json={"state": "outro"}).status_code == 422
     assert anon.put("/api/v1/robot/next", json={"state": "paused"}).status_code == 401
+
+
+def test_relatorio_da_profunda_e_horario_da_ultima(client):
+    assert client.get("/api/v1/runs/deep-last").json() == {"started_at": None}
+    body = {"source": "robot", "mode": "deep", "started_at": "2026-10-06T08:10:00+00:00", "created": 12, "updated": 1,
+            "gap": False, "reason": "time_boundary", "steps": 90, "collected": 140,
+            "profiles_done": 55, "profiles_skipped": 2, "profile_created": 4}
+    assert client.post("/api/v1/runs/report", json=body).status_code == 201
+    last = client.get("/api/v1/runs/deep-last").json()
+    assert last["started_at"].startswith("2026-10-06T08:10:00")
+    run = client.get("/api/v1/runs").json()["items"][0]
+    assert run["mode"] == "deep" and run["profiles_done"] == 55 and run["profile_created"] == 4 and run["created"] == 12
+
+
+def test_so_a_profunda_concluida_conta_para_a_fronteira(client):
+    client.post("/api/v1/runs", json={"source": "robot", "mode": "deep", "error": "falhou"})        # falha: não conta
+    client.post("/api/v1/runs/report", json={"source": "manual", "mode": "normal", "started_at": "2026-10-06T09:00:00+00:00",
+                                              "created": 1, "updated": 0})                            # normal: não conta
+    assert client.get("/api/v1/runs/deep-last").json() == {"started_at": None}
+    client.post("/api/v1/runs/report", json={"source": "manual", "mode": "deep", "started_at": "2026-10-06T10:00:00+00:00",
+                                              "created": 0, "updated": 0})
+    client.post("/api/v1/runs/report", json={"source": "robot", "mode": "deep", "started_at": "2026-10-06T15:00:00+00:00",
+                                              "created": 0, "updated": 0})
+    assert client.get("/api/v1/runs/deep-last").json()["started_at"].startswith("2026-10-06T15:00:00")      # a mais recente
+
+
+def test_relatorio_validacao_e_chave(client, anon):
+    assert client.post("/api/v1/runs/report", json={"source": "robot", "mode": "deep"}).status_code == 422
+    assert anon.get("/api/v1/runs/deep-last").status_code == 401

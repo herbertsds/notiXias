@@ -13,7 +13,16 @@ const Scanner = (function () {
     settlePolls: 4, // esperas extras (pollMs) por itens novos quando o X ainda não desenhou nada
     pollMs: 500,
     maxExpand: 40, // cliques máximos em "Mostrar mais" (lacunas) por busca
+    // Busca profunda: em vez da âncora, vai até a fronteira de TEMPO (a última verificação profunda).
+    olderThanMs: 0, // horário (ms) da fronteira; 0 = desligado
+    olderRun: 3, // posts comuns (sem repost, sem fixado) seguidos mais antigos que a fronteira para parar
+    ignoreAnchor: false, // true: itens conhecidos não encerram a busca (só a fronteira, o fim do feed ou os limites)
+    maxMs: 0, // limite de tempo total da busca (0 = sem limite)
   };
+
+  function snowflakeMs(id) {
+    try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
+  }
 
   // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(),
   //        sleep(ms), rand(a,b), onProgress(n, steps), isCancelled(),
@@ -29,6 +38,9 @@ const Scanner = (function () {
   // cada um com `known` (já está na fila); os conhecidos servem de contexto para reconhecer conversas.
   async function run(env, options, anchorKeys) {
     const o = Object.assign({}, DEFAULTS, options || {});
+    const t0 = Date.now();
+    let olderStreak = 0;
+    let boundaryReached = false;
     const known = new Set(anchorKeys || []);
     const need = Math.max(1, Math.min(o.knownRun, known.size || 1));
     const needTotal = Math.min(o.minKnown, known.size);
@@ -71,7 +83,16 @@ const Scanner = (function () {
           consecutive = 0;
           fresh++;
         }
-        if (known.size && consecutive >= need && knownTotal >= needTotal) {
+        if (o.olderThanMs && !it.reposter && !it.pinned) {
+          const created = snowflakeMs(it.id);
+          if (created !== null) olderStreak = created < o.olderThanMs ? olderStreak + 1 : 0;
+          if (olderStreak >= o.olderRun) {
+            boundaryReached = true;
+            anchorFound = true;
+            break;
+          }
+        }
+        if (!o.ignoreAnchor && known.size && consecutive >= need && knownTotal >= needTotal) {
           anchorFound = true;
           break;
         }
@@ -90,11 +111,12 @@ const Scanner = (function () {
         gapUnresolved += ex.found;
       }
 
-      if (anchorFound) { reason = 'anchor'; break; }
+      if (anchorFound) { reason = boundaryReached ? 'time_boundary' : 'anchor'; break; }
       if (env.isCancelled()) { reason = 'cancelled'; break; }
-      if (known.size === 0 && fresh >= o.initialBackfill) { reason = 'backfill'; break; }
+      if (!o.olderThanMs && known.size === 0 && fresh >= o.initialBackfill) { reason = 'backfill'; break; }
       if (seq.length >= o.maxCollect) { reason = 'max_collect'; break; }
       if (steps >= o.maxSteps) { reason = 'max_steps'; break; }
+      if (o.maxMs && Date.now() - t0 > o.maxMs) { reason = 'max_time'; break; }
 
       const before = env.scrollHeight();
       env.scrollBy(Math.round(env.viewportHeight() * o.stepFraction));

@@ -11,6 +11,7 @@ from .models import (
     FollowAccount,
     FollowingPut,
     RobotNextIn,
+    RunReportIn,
     RunFailIn,
     SettleIn,
     SkeletonIn,
@@ -90,6 +91,17 @@ def post_append(body: AppendIn, request: Request):
 @router.get("/runs")
 def get_runs(request: Request, limit: int = Query(100, ge=1, le=200)):
     return svc.list_runs(_db(request), limit)
+
+
+@router.get("/runs/deep-last")
+def get_deep_last(request: Request):
+    return svc.deep_last(_db(request))
+
+
+@router.post("/runs/report", status_code=201)
+def post_run_report(body: RunReportIn, request: Request):
+    svc.record_run_report(_db(request), body)
+    return {"ok": True}
 
 
 @router.put("/robot/next")

@@ -12,6 +12,7 @@ from app import runner
 
 REAL_SLEEP = asyncio.sleep
 published = []  # (quando, profunda?, estado) informados à API
+run_kwargs = []  # argumentos de cada execução simulada
 
 
 @pytest.fixture
@@ -40,11 +41,13 @@ def _patch(monkeypatch, results):
 
     async def fake_run(**kw):
         calls.append(1)
+        run_kwargs.append(kw)
         await real_sleep(0.01)  # o navegador de verdade leva tempo; sem isto o laço nunca cederia ao relógio
         return runner.RunResult(results[min(len(calls) - 1, len(results) - 1)])
 
     real_sleep = asyncio.sleep
     published.clear()
+    run_kwargs.clear()
 
     async def fake_publish(api_base, key, when, deep, state):
         published.append((when, deep, state))
@@ -132,3 +135,14 @@ def test_sorteio_e_guardado_e_reaproveitado_apos_reinicio(env, monkeypatch):
     asyncio.run(_run_for(0.3))
     assert sorteios == [] and calls == []                          # não sorteou de novo nem rodou antes da hora
     assert published[0][0] == futuro and published[0][1] is True   # informou o horário já guardado
+
+
+def test_busca_profunda_tem_mais_tempo_que_a_normal(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    _patch(monkeypatch, [{"ok": True}])
+    seq = iter([True, False])
+    monkeypatch.setattr(robot_main.schedule, "plan", lambda *a, **k: (datetime.now(timezone.utc), next(seq, False)))
+    asyncio.run(_run_for(0.25))
+    assert run_kwargs[0]["timeout_s"] == runner.DEEP_TIMEOUT_S and run_kwargs[0]["start_url"] == runner.DEEP_URL
+    assert run_kwargs[1]["timeout_s"] == runner.NORMAL_TIMEOUT_S and run_kwargs[1]["start_url"] == runner.HOME_URL
+    assert runner.DEEP_TIMEOUT_S > runner.NORMAL_TIMEOUT_S

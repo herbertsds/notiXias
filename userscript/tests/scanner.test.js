@@ -263,3 +263,65 @@ test('duas lacunas no feed são abertas uma a uma e nada fica de fora', async ()
   assert.equal(r.gapUnresolved, 0);
   assert.deepEqual(ids(fresh(r)), ids(full.slice(0, 60)));
 });
+
+
+// ---------- busca profunda: fronteira de tempo ----------
+const idAt = (ms) => String(BigInt(ms - 1288834974657) << 22n);
+const H = 3600 * 1000;
+const T0 = Date.UTC(2026, 9, 6, 12, 0);
+// feed do mais novo ao mais antigo; o post i tem `i * 10 min` de idade em relação a T0
+const timed = (n, repostAt = {}) => Array.from({ length: n }, (_, i) => {
+  const id = idAt(T0 - i * 600000);
+  const reposter = repostAt[i] || null;
+  return { id, author: 'a', reposter, pinned: false, key: id + '|' + (reposter || '') };
+});
+
+test('profunda: para na fronteira de tempo (3 posts comuns seguidos mais antigos), sem limite de passos', async () => {
+  const feed = timed(120);                                                       // 20 h de feed
+  const boundary = T0 - 5 * H;                                                  // até 5 h atrás: 30 posts
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: boundary }, []);
+  assert.equal(r.reason, 'time_boundary');
+  assert.equal(r.anchorFound, true);                                             // chegou à verificação anterior: sem lacuna
+  const newer = r.seq.filter((i) => Number(BigInt(i.id) >> 22n) + 1288834974657 >= boundary);
+  assert.equal(newer.length, 31);                                                // todos até a fronteira (inclusive o exato)
+  assert.ok(r.steps > 150 * 0 && r.seq.length <= 31 + 3 + 6);                    // parou logo depois, não varreu as 20 h
+});
+
+test('profunda: itens conhecidos não encerram a busca (ignoreAnchor); só a fronteira', async () => {
+  const feed = timed(80);
+  const known = keys(feed.slice(0, 60));                                         // 60 conhecidos seguidos (isso pararia a normal)
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: T0 - 9 * H }, known);
+  assert.equal(r.reason, 'time_boundary');
+  assert.ok(r.seq.length > 54);                                                  // passou dos conhecidos até a fronteira
+  const normal = await Scanner.run(fakeEnv(feed, { win: 6 }), OPTS, known);
+  assert.equal(normal.reason, 'anchor');                                         // a normal continua parando pela âncora
+});
+
+test('profunda: repost e post fixado não contam para a fronteira (o horário do repost não está no ID)', async () => {
+  const feed = timed(60, { 20: 'zeca', 21: 'zeca', 22: 'zeca' });               // 3 reposts de tweets antigos em sequência
+  feed[23].pinned = true;                                                        // e um fixado antigo
+  const boundary = T0 - 40 * 600000;                                             // ~6,7 h: o item 40
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: boundary }, []);
+  assert.equal(r.reason, 'time_boundary');
+  assert.ok(r.seq.some((i) => i.id === feed[39].id), 'os itens depois dos reposts/fixado foram lidos');
+});
+
+test('profunda: um post antigo isolado (raiz de conversa) não encerra; só 3 seguidos', async () => {
+  const feed = timed(60);
+  const old = idAt(T0 - 30 * H);
+  feed[10] = { ...feed[10], id: old, key: old + '|' };                           // raiz antiga no meio de posts novos
+  const r = await Scanner.run(fakeEnv(feed, { win: 6 }), { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: T0 - 6 * H }, []);
+  assert.equal(r.reason, 'time_boundary');
+  assert.ok(r.seq.some((i) => i.id === feed[30].id));                            // seguiu depois do isolado
+});
+
+test('profunda: limite de tempo (maxMs) e fim do feed encerram sem âncora', async () => {
+  const feed = timed(20);
+  const end = await Scanner.run(fakeEnv(feed, { win: 6 }), { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: T0 - 99 * H }, []);
+  assert.equal(end.reason, 'end');
+  assert.equal(end.anchorFound, false);                                          // sem fronteira: pode haver lacuna
+  const env = fakeEnv(timed(500), { win: 6 });
+  env.sleep = async () => { await new Promise((r) => setTimeout(r, 2)); };
+  const timeout = await Scanner.run(env, { ...OPTS, maxSteps: 1e9, ignoreAnchor: true, olderThanMs: T0 - 999 * H, maxMs: 30 }, []);
+  assert.equal(timeout.reason, 'max_time');
+});

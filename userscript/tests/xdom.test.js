@@ -9,7 +9,7 @@ const dom = (html) => new JSDOM(html, { url: 'https://x.com/home' }).window.docu
 test('parseArticle: post comum', () => {
   const d = dom(page(article({ id: '100', author: 'conta_a' })));
   const [it] = Xdom.readItems(d);
-  assert.deepEqual(it, { id: '100', author: 'conta_a', reposter: null, reposterName: null, key: '100|', url: 'https://x.com/conta_a/status/100' });
+  assert.deepEqual(it, { id: '100', author: 'conta_a', reposter: null, reposterName: null, pinned: false, key: '100|', url: 'https://x.com/conta_a/status/100' });
 });
 
 test('repost: reposter lido pelo href do perfil (os dois formatos de markup)', () => {
@@ -418,4 +418,16 @@ test('applyPlaybackRate: 1x devolve o vídeo ao normal depois de outra velocidad
   assert.equal(video.playbackRate, 1.5);
   const recusa = { get playbackRate() { return 1; }, set playbackRate(v) { throw new Error('não suportado'); } };
   assert.equal(Xdom.applyPlaybackRate(recusa, 0.1, new WeakSet()), false);      // o navegador recusou: não quebra
+});
+
+
+test('parseArticle: marca post fixado (contexto social sem link) e não confunde com repost', () => {
+  const html = (ctx) => `<body><article data-testid="tweet">${ctx}<a href="/fulano/status/55"><time>1</time></a></article></body>`;
+  const w = (ctx) => new JSDOM(html(ctx), { url: 'https://x.com/fulano' }).window.document.querySelector('article');
+  assert.equal(Xdom.parseArticle(w('<div data-testid="socialContext"><span>Fixado</span></div>')).pinned, true);
+  assert.equal(Xdom.parseArticle(w('<div data-testid="socialContext"><span>Pinned</span></div>')).pinned, true);
+  assert.equal(Xdom.parseArticle(w('')).pinned, false);
+  const rp = Xdom.parseArticle(w('<a href="/zeca"><span data-testid="socialContext"><span dir="ltr">Zeca</span> repostou</span></a>'));
+  assert.equal(rp.pinned, false);
+  assert.equal(rp.reposter, 'zeca');
 });

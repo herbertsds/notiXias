@@ -344,3 +344,21 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.8.4: correção do **1x** no menu de velocidade: o script só alterava o vídeo quando a escolha não era 1x, então voltar a 1x depois de outra velocidade não fazia nada. Agora o vídeo que o script já alterou volta ao normal ao escolher 1x; um vídeo nunca alterado continua sem ser tocado. Regra em `Xdom.applyPlaybackRate` (testada).
 
 0.8.5: **fim do scroll ao topo** ao abrir uma resposta ou a continuação de uma thread: o script não força mais a página para o topo (`pinTop` removido); ela fica do jeito que o X a abriu (normalmente com o post aberto à vista). A busca de novas e a leitura das contas seguidas continuam rolando por conta própria, como antes.
+
+## 0.9.0: nova política da busca profunda
+
+**Feed.** Em vez de parar por âncora e por 400 passos, a profunda agora para por **tempo**:
+- Fronteira = `max(começo da última verificação profunda concluída, agora − 24 h)` (a API guarda isso: `GET /runs/deep-last`).
+- Lê o Seguindo até achar **3 posts comuns seguidos** (sem repost e sem fixado) feitos antes da fronteira. (O pedido era "um post antes"; usei 3 seguidos porque o X às vezes mostra a raiz antiga de uma conversa no meio de posts novos e um único post pararia cedo demais.)
+- **Sem limite de passos.** Outras paradas: fim do feed, 900 posts (a API aceita 1000 por envio) ou 45 min.
+- Itens já conhecidos **não** encerram mais a busca. A âncora passou de 100 para **50** entradas (só contexto/contagem).
+
+**Perfis.** Depois do feed, a profunda abre o perfil de **cada conta que você segue** (lista da API), a aba **Posts** e a aba **Respostas** (`/usuario` e `/usuario/with_replies`), uma página por vez:
+- Só entram posts **da própria conta**, feitos **depois** da fronteira (o post respondido que aparece acima de uma resposta, reposts e o fixado ficam de fora; o horário de um repost não está no ID).
+- Cada aba para ao achar **5 posts anteriores** à fronteira (ou no fim da página, ou em 150 passos).
+- Pausa de 1,5 a 4 s entre páginas; conta que não carrega é pulada; **5 perfis seguidos sem leitura** abortam a verificação (registrada como falha).
+- Os posts novos vão para a fila pela mesma regra de sempre (horário do post entre os não lidos) e o que já existe é ignorado (dedupe por `id|quem repostou`).
+
+**Registro.** A profunda registra **uma** execução ao final (`POST /runs/report`): totais, quantos novos vieram dos perfis, perfis verificados/sem leitura. **A fronteira só avança se o relatório chegar**: uma profunda interrompida não encurta a próxima.
+
+**Robô.** Tempo máximo de uma profunda: 120 min (a normal continua em 25).

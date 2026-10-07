@@ -254,3 +254,13 @@ test('velocidades do vídeo: de 0,1x a 3x, rótulo com vírgula', () => {
   assert.equal(Core.formatSpeed(2.75), '2,75x');
   assert.equal(Core.formatSpeed(3), '3x');
 });
+
+test('snowflakeMs e formatRun da profunda (perfis verificados)', () => {
+  const ms = Date.UTC(2026, 9, 6, 12, 0);
+  assert.equal(Core.snowflakeMs(String(BigInt(ms - 1288834974657) << 22n)), ms);
+  assert.equal(Core.snowflakeMs('abc'), null);
+  const at = new Date(2026, 9, 6, 13, 5).toISOString();
+  const r = Core.formatRun({ at, source: 'robot', mode: 'deep', ok: true, created: 9, updated: 0, gap: false, reason: 'time_boundary', steps: 80, profiles_done: 55, profiles_skipped: 2, profile_created: 4 });
+  assert.equal(r.main, '06/10/2026 13:05 · Automática · Profunda');
+  assert.match(r.sub, /9 novos · 55 perfis verificados \(4 novos neles\), 2 sem leitura · chegou à última verificação profunda \(80 passos\)/);
+});

@@ -85,6 +85,10 @@ Histórico de execuções, da mais recente para a mais antiga: `{ items: [{ at, 
 
 `GET /runs` também devolve `next`: `{ at, mode, state: "scheduled"|"paused"|"waiting_session", updated_at }` ou `null`, informado pelo robô em `PUT /api/v1/robot/next` `{ at, mode, state }`.
 
+### `GET /api/v1/runs/deep-last` e `POST /api/v1/runs/report`
+
+`deep-last` → `{ started_at }`: o começo da última busca **profunda concluída** (`null` se nunca houve): é a fronteira da próxima. `POST /runs/report` `{ source, mode, started_at, created, updated, gap, reason, steps, collected, profiles_done, profiles_skipped, profile_created }` fecha uma execução profunda composta (feed + perfis) e a registra no histórico; só relatórios com `mode: "deep"` movem a fronteira.
+
 ### `GET /api/v1/queue/gap?depth=25&max_age_days=3`
 
 A lacuna aberta mais antiga ainda alcançável: `{ seq, keys, reason }` (`keys` = aparições das `depth` entradas capturadas antes dela; `seq: null` se não houver). `POST /queue/append` aceita `gap_seq`: uma busca que reencontrou esse "outro lado" fecha a lacuna; uma parcial a desloca para antes do item mais antigo que criou. (Preparado na API; o script ainda não usa.)

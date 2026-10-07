@@ -18,10 +18,19 @@
       .then((r) => (r.error ? (r.error === 'timeout' && o.ontimeout ? o.ontimeout() : o.onerror && o.onerror(r)) : o.onload && o.onload({ status: r.status, responseText: r.text })))
       .catch((e) => o.onerror && o.onerror(e));
   };
-  const start = () => setTimeout(() => {
-    (function (GM_xmlhttpRequest, GM_getValue, GM_setValue, GM) {
+  // Começa quando o HTML está pronto (DOMContentLoaded), sem esperar o evento `load`: uma página do X com um recurso
+  // pendurado nunca dispara `load` e o script jamais começaria (o robô ficaria parado ali).
+  let started = false;
+  const start = () => {
+    if (started) return;
+    started = true;
+    setTimeout(() => {
+      (function (GM_xmlhttpRequest, GM_getValue, GM_setValue, GM) {
 __BUNDLE__
-    })(GM_xmlhttpRequest, GM_getValue, GM_setValue, GM);
-  }, 800);
-  if (document.readyState === 'complete') start(); else window.addEventListener('load', start, { once: true });
+      })(GM_xmlhttpRequest, GM_getValue, GM_setValue, GM);
+    }, 800);
+  };
+  if (document.readyState !== 'loading') start();
+  else document.addEventListener('DOMContentLoaded', start, { once: true });
+  setTimeout(start, 20000); // rede de segurança: se DOMContentLoaded também não vier
 })();

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.9.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.9.0
+// @version      0.9.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.9.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1103,7 +1103,7 @@ const Profiles = (function () {
   };
 
   // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(), sleep(ms),
-  //        rand(a,b), isCancelled() }
+  //        rand(a,b), isCancelled(), onStep(steps)? }
   // Devolve { items, reason, steps, older }:
   //   items  = posts da conta com horário >= fronteira (sem reposts, sem fixado), do mais novo ao mais antigo;
   //   reason = 'older' (achou os posts antigos) | 'end' (fim da página) | 'max_steps' | 'cancelled'.
@@ -1143,6 +1143,7 @@ const Profiles = (function () {
         await env.sleep(o.pollMs);
       }
       steps++;
+      if (env.onStep) env.onStep(steps);
       if (env.atBottom() && env.scrollHeight() === before) {
         if (++stagnant >= 3) return { items, reason: 'end', steps, older };
       } else {
@@ -1528,7 +1529,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.9.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.9.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1557,7 +1558,7 @@ async function startApp() {
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
   // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
-  const GM_KEYS = ['nx_cfg', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
+  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
   const gmCache = new Map();
   // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
   const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
@@ -1611,6 +1612,8 @@ async function startApp() {
   // Sinal para o robô do servidor (lido pelo navegador sem tela): a busca terminou, com sucesso ou erro.
   // Identificação da execução (histórico): quem disparou e se foi normal ou profunda.
   const runMeta = (deep) => ({ source: cfg.bot ? 'robot' : 'manual', mode: deep ? 'deep' : 'normal' });
+  // Batimento de progresso (só no robô): o robô do servidor lê isto para saber se a busca está andando ou travou.
+  const beat = () => { if (cfg.bot) gm.set('nx_beat', Date.now()); };
   const botDone = (result) => { if (cfg.bot) window.__nxBotResult = Object.assign({ at: Date.now() }, result); };
   const rand = (a, b) => a + Math.random() * (b - a);
   async function waitFor(fn, timeout, every) {
@@ -2005,11 +2008,11 @@ async function startApp() {
   async function runFetch(token) {
     cancelled = false;
     ui.hideBar();
-    const progress = (n, steps) => ui.showOverlay({
+    const progress = (n, steps) => { beat(); ui.showOverlay({
       title: 'Buscando novas…',
       detail: n + ' posts lidos · passo ' + steps,
       buttons: [{ label: 'Cancelar', onClick: () => { cancelled = true; } }],
-    });
+    }); };
     progress(0, 0);
 
     await ensureFeedTab();
@@ -2115,6 +2118,7 @@ async function startApp() {
   }
 
   async function runProfiles(token, p) {
+    beat();
     if (p.i >= p.handles.length) return finishDeep(p);
     const handle = p.handles[p.i];
     const here = location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -2133,7 +2137,7 @@ async function startApp() {
       buttons: [{ label: 'Cancelar', onClick: () => { cancelled = true; } }],
     });
     try {
-      await waitFor(() => document.querySelector('article'), 12000); // perfil vazio/privado/suspenso: segue sem posts
+      await waitFor(() => { beat(); return document.querySelector('article'); }, 12000); // perfil vazio/privado/suspenso: segue sem posts
       if (token !== routeToken) return;
       const env = {
         readItems: () => Xdom.readItems(document),
@@ -2144,6 +2148,7 @@ async function startApp() {
         atBottom: () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4,
         sleep, rand,
         isCancelled: () => cancelled || token !== routeToken,
+        onStep: beat,
       };
       const r = await Profiles.scan(env, handle, p.boundary);
       if (token !== routeToken) return;
@@ -2181,7 +2186,9 @@ async function startApp() {
     else if (p.tab === 'posts') { q.tab = 'replies'; }
     else { q.done = p.done + 1; q.tab = 'posts'; q.i = p.i + 1; }
     setPhase('profiles', q);
+    beat();
     await sleep(rand(PROFILE_PAUSE_MS[0], PROFILE_PAUSE_MS[1]));
+    beat();
     return advanceProfile(getPhase());
   }
 

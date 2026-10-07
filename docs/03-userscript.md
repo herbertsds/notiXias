@@ -362,3 +362,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 **Registro.** A profunda registra **uma** execução ao final (`POST /runs/report`): totais, quantos novos vieram dos perfis, perfis verificados/sem leitura. **A fronteira só avança se o relatório chegar**: uma profunda interrompida não encurta a próxima.
 
 **Robô.** Tempo máximo de uma profunda: 120 min (a normal continua em 25).
+
+0.9.1: no modo robô o script emite um batimento de progresso (`nx_beat`) em cada passo, para o robô do servidor detectar travamento (ver `docs/11-robo.md`). Sem mudança para você.

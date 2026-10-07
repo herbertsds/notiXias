@@ -14,7 +14,7 @@ const Profiles = (function () {
   };
 
   // env: { readItems(), scrollToTop(), scrollBy(px), scrollHeight(), viewportHeight(), atBottom(), sleep(ms),
-  //        rand(a,b), isCancelled() }
+  //        rand(a,b), isCancelled(), onStep(steps)? }
   // Devolve { items, reason, steps, older }:
   //   items  = posts da conta com horário >= fronteira (sem reposts, sem fixado), do mais novo ao mais antigo;
   //   reason = 'older' (achou os posts antigos) | 'end' (fim da página) | 'max_steps' | 'cancelled'.
@@ -54,6 +54,7 @@ const Profiles = (function () {
         await env.sleep(o.pollMs);
       }
       steps++;
+      if (env.onStep) env.onStep(steps);
       if (env.atBottom() && env.scrollHeight() === before) {
         if (++stagnant >= 3) return { items, reason: 'end', steps, older };
       } else {

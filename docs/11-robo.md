@@ -29,6 +29,7 @@ Na profunda o robô lê o Seguindo até a **última verificação profunda** (no
 - Falhas seguidas: após **3**, o robô **pausa** (não insiste na conta). Sessão expirada (tela de login) pausa na hora.
 - Pausado volta sozinho quando você envia uma **sessão nova** (o arquivo `x_state.json` muda; checagem a cada 60 s) ou ao reiniciar o contêiner.
 - Tempo máximo por execução: 25 min (profunda: 120 min).
+- **Vigia de travamento (desde 2026-10-07):** o script emite um batimento a cada passo; se o robô não vê progresso por **5 min**, a página travou. Na verificação de perfis ele **pula a conta travada** (até 4 por execução) e segue para a próxima; fora disso encerra a execução com erro "travou". Todas as leituras do navegador têm prazo, para um navegador pendurado nunca prender o robô. O script também começa sem esperar o evento `load` da página.
 - A chave da API **não passa pela página**: o Python coloca o cabeçalho; a rede do robô só alcança a API do notiXias; as funções expostas têm nome aleatório por execução.
 - Sem login automático: você entra **manualmente** (passo abaixo).
 
@@ -85,3 +86,7 @@ Menu ⋯ do notiXias → **Execuções…**: tela cheia com rolagem, a mais rece
 ### Próxima execução automática
 
 O sorteio dos 10–25 minutos é feito **logo depois de cada busca** (e guardado em `robot_data/status.json`, campo `plan`: um reinício não sorteia de novo). O robô informa à API o horário e o tipo (`PUT /robot/next`), e o topo da tela **Execuções…** mostra "Próxima automática: dd/mm/aaaa hh:mm · Normal|Profunda" com o tempo que falta. Se o robô estiver pausado ou sem sessão, a linha avisa isso; se o horário já passou há mais de 10 min, aparece "atrasada: confira o robô".
+
+## Incidente de 2026-10-07 (profunda travada)
+
+A profunda das 12:50 travou em torno da 13:00 (cerca da conta 27 de 57, página que nunca terminou de carregar) e o robô ficou **mais de 2 horas** parado nela, sem erro nem registro: o prazo de 120 min foi vencido, mas a leitura de diagnóstico (`page.evaluate`) também ficou pendurada. Corrigido com o vigia de travamento, prazos em todas as leituras e início do script sem depender do evento `load`.

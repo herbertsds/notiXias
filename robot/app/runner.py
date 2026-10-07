@@ -25,6 +25,32 @@ VIEWPORT = {"width": 1280, "height": 1400}
 SHIM_PATH = Path(__file__).with_name("shim.js")
 
 
+STALL_S = 300  # sem sinal de progresso do script por tanto tempo = travou
+MAX_STALL_SKIPS = 4  # perfis que o robô pula (por travamento) antes de desistir da execução
+
+
+def skip_profile(phase: dict) -> dict:
+    """Fase 'profiles' com a conta atual pulada (a página dela travou): segue para a próxima conta, na aba Posts."""
+    q = dict(phase)
+    q.update(nav=0, skipped=int(phase.get("skipped", 0)) + 1, tab="posts", i=int(phase["i"]) + 1,
+             failRun=int(phase.get("failRun", 0)) + 1, at=int(time.time() * 1000))
+    return q
+
+
+def profile_url(phase: dict) -> str:
+    if phase["i"] >= len(phase["handles"]):
+        return "https://x.com/home"
+    return "https://x.com/" + phase["handles"][phase["i"]] + ("/with_replies" if phase.get("tab") == "replies" else "")
+
+
+async def bounded_eval(page, expr: str, timeout: float = 10):
+    """`page.evaluate` com prazo: numa página travada ele pode nunca voltar (foi o que prendeu o robô por horas)."""
+    try:
+        return await asyncio.wait_for(page.evaluate(expr), timeout)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class RunResult(dict):
     """{ok: bool, error?: str, login?: bool, created?, updated?, gap?, reason?, steps?, duration_s}"""
 
@@ -52,6 +78,7 @@ async def run_once(
     bundle: str,
     state_path: Path,
     timeout_s: int = NORMAL_TIMEOUT_S,
+    stall_s: int = STALL_S,
     start_url: str = HOME_URL,
     headless: bool = True,
     route_hook=None,
@@ -115,28 +142,53 @@ async def run_once(
                 result = RunResult(ok=False, error=f"não abriu o X: {str(e)[:150]}")
                 return result
             deadline = time.monotonic() + timeout_s
+            skips = 0
+            kick = time.time()  # último momento em que o robô mexeu na página (conta como sinal de vida)
             while time.monotonic() < deadline:
                 await asyncio.sleep(2)
-                if "/i/flow/login" in page.url or page.url.rstrip("/").endswith("/login"):
+                url = page.url
+                if "/i/flow/login" in url or url.rstrip("/").endswith("/login"):
                     result = RunResult(ok=False, error="sessão do X expirada (tela de login)", login=True)
                     break
-                try:
-                    r = await page.evaluate("window.__nxBotResult || null")
-                except Exception:  # noqa: BLE001  (a página está navegando: tenta de novo)
-                    continue
+                r = await bounded_eval(page, "window.__nxBotResult || null")
                 if r:
                     result = RunResult(r)
                     break
+                try:
+                    beat = int(store.get("nx_beat") or 0) / 1000
+                except ValueError:
+                    beat = 0
+                if time.time() - max(beat, kick) <= stall_s:
+                    continue
+                # Sem sinal de progresso: a página travou (navegação pendurada, script que não iniciou...).
+                phase = {}
+                try:
+                    phase = json.loads(store.get("nx_phase") or "{}")
+                except ValueError:
+                    pass
+                if phase.get("name") == "profiles" and skips < MAX_STALL_SKIPS:
+                    skips += 1
+                    nxt = skip_profile(phase)
+                    store["nx_phase"] = json.dumps(nxt)
+                    log.warning("sem progresso há %ss em %s: pulando @%s", stall_s, url, phase["handles"][phase["i"]] if phase["i"] < len(phase["handles"]) else "?")
+                    kick = time.time()
+                    try:
+                        await asyncio.wait_for(page.goto(profile_url(nxt), wait_until="domcontentloaded", timeout=45_000), 60)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue
+                result = RunResult(ok=False, error=f"travou: sem progresso por {stall_s // 60} min", stalled=True, skipped_stalled=skips)
+                break
             else:
                 result = RunResult(ok=False, error=f"tempo esgotado ({timeout_s // 60} min)")
-                try:  # diagnóstico: onde a página parou (sem texto de posts: só o início do corpo)
-                    body = (await page.evaluate("document.body ? document.body.innerText.slice(0, 300) : ''")).replace("\n", " ")
-                    ui = await page.evaluate(
-                        "[...document.querySelectorAll('*')].filter(e=>e.shadowRoot).map(e=>[...e.shadowRoot.children].filter(c=>c.tagName!=='STYLE').map(c=>c.textContent).join(' ').replace(/\\s+/g,' ').slice(0,300))"
-                    )
-                    result["diag"] = {"url": page.url, "ui": ui, "body": body[:120], "console": console[-8:]}
-                except Exception:  # noqa: BLE001
-                    result["diag"] = {"url": page.url, "console": console[-8:]}
+            if not result.get("ok"):
+                # diagnóstico: onde a página parou (sem texto de posts: só o início do corpo); cada leitura com prazo
+                body = await bounded_eval(page, "document.body ? document.body.innerText.slice(0, 200) : ''")
+                ui = await bounded_eval(
+                    page,
+                    "[...document.querySelectorAll('*')].filter(e=>e.shadowRoot).map(e=>[...e.shadowRoot.children].filter(c=>c.tagName!=='STYLE').map(c=>c.textContent).join(' ').replace(/\\s+/g,' ').slice(0,300))",
+                )
+                result["diag"] = {"url": page.url, "ui": ui, "body": (body or "").replace("\n", " ")[:120], "console": console[-8:]}
             if result.get("ok"):
                 # guarda os cookies renovados (o X rotaciona alguns)
                 try:
@@ -146,5 +198,8 @@ async def run_once(
                     log.warning("não consegui salvar a sessão: %s", e)
             return result
         finally:
-            await browser.close()
+            try:
+                await asyncio.wait_for(browser.close(), 30)
+            except Exception:  # noqa: BLE001  (navegador pendurado: o contêiner do robô o encerra ao reiniciar)
+                pass
             result["duration_s"] = round(time.monotonic() - t0, 1)

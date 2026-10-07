@@ -153,3 +153,59 @@ def test_profunda_percorre_feed_e_perfis_e_registra_uma_execucao(key, tmp_path):
     assert (run["source"], run["mode"], run["profiles_done"]) == ("robot", "deep", 2) and run["reason"] == "time_boundary"
     assert api("/runs/deep-last")["started_at"] is not None
     assert api("/state")["cursor_seq"] == st0["cursor_seq"]                           # não mexeu na posição de leitura
+
+
+def test_profunda_pula_perfil_travado_e_comeca_mesmo_sem_evento_load(key, tmp_path):
+    """Uma página que nunca responde (navegação pendurada) não pode prender o robô: ele pula a conta. E uma página cujo
+    evento `load` nunca dispara (recurso pendurado) ainda roda o script."""
+    now = time.time() * 1000
+    span_start = max(now - 24 * 3600 * 1000, 0)
+    last = api("/runs/deep-last")["started_at"]
+    if last:
+        span_start = max(span_start, __import__("datetime").datetime.fromisoformat(last).timestamp() * 1000)
+    boundary = span_start
+    off = (int(time.time()) % 50) + 100
+    api("/accounts/following", "PUT", json={"accounts": [{"handle": "conta_a"}, {"handle": "conta_hang"}, {"handle": "conta_b"}]})
+    feed = [art(boundary + (now - boundary) * 0.9 - off, "conta_c")] + [art(boundary - n * 60000 - off, "conta_c") for n in range(1, 6)]
+    old = [art(boundary - (60 + n) * 60000 - off, "conta_a") for n in range(1, 8)]
+    old_b = [art(boundary - (60 + n) * 60000 - off, "conta_b") for n in range(1, 8)]
+    profiles = {
+        "/conta_a": [art(boundary + (now - boundary) * 0.8 - off, "conta_a")] + old,
+        "/conta_a/with_replies": [],
+        "/conta_b": [art(boundary + (now - boundary) * 0.7 - off, "conta_b")] + old_b,
+        "/conta_b/with_replies": [],
+    }
+    visited = []
+
+    async def hook(context):
+        async def handle(route):
+            path = route.request.url.split("x.com", 1)[1].split("?")[0].rstrip("/") or "/"
+            if route.request.resource_type == "document":
+                visited.append(path)
+            if path == "/hang.png" or path.startswith("/conta_hang"):
+                await asyncio.sleep(3600)                                  # nunca responde
+                return
+            if path == "/home":
+                body = page(feed, tabs=True)
+            elif path == "/conta_b":
+                body = page(profiles[path]).replace("</main>", '<img src="https://x.com/hang.png"></main>')   # `load` nunca dispara
+            else:
+                body = page(profiles.get(path, []))
+            await route.fulfill(status=200, content_type="text/html; charset=utf-8", body=body)
+        await context.route("https://x.com/**", handle)
+
+    res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
+                                      timeout_s=300, stall_s=25, start_url=runner.DEEP_URL, route_hook=hook))
+    assert res["ok"] is True, res
+    assert res["profiles_done"] == 2 and res["profiles_skipped"] == 1 and res["profile_created"] == 2, res
+    assert "/conta_hang" in visited and visited.count("/conta_b") >= 1
+
+
+def test_travamento_fora_dos_perfis_encerra_a_execucao_com_erro(key, tmp_path):
+    async def hook(context):
+        async def handle(route):
+            await asyncio.sleep(3600)
+        await context.route("https://x.com/**", handle)
+    res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
+                                      timeout_s=300, stall_s=10, route_hook=hook, start_url="https://x.com/home?nx=update"))
+    assert res["ok"] is False and res.get("error")

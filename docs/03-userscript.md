@@ -117,13 +117,13 @@ O feed é virtualizado (só os posts perto da tela estão no DOM), por isso a le
 
 ### Threads e respostas (cobertura)
 
-Preferência do dono: abrir o **último post** da thread; o mesmo para respostas (a resposta mostra o post respondido acima). A tela sempre rola ao topo para revelar a cadeia.
+Preferência do dono: abrir o **último post** da thread; o mesmo para respostas (a resposta mostra o post respondido acima). (Atualizado na 0.8.5: o script não rola mais ao topo; a página fica como o X a abriu.)
 
 Verificação na hora de exibir a entrada `E`:
 
 1. Aguarda a página de `E` renderizar (`article` presente) e ~2 s adicionais.
 2. Lê, em ordem de DOM, os posts da página. A partir do post focal (`E.tweet_id`), percorre os seguintes **enquanto o autor for o mesmo** (cadeia contígua do autor).
-3. Se há pelo menos um pedaço após o focal, o **último** da cadeia é o destino: navega para ele e rola ao topo.
+3. Se há pelo menos um pedaço após o focal, o **último** da cadeia é o destino: navega para ele (sem rolar ao topo desde a 0.8.5).
 4. Depois de a página de destino renderizar, coleta os IDs de posts **efetivamente presentes** no DOM. Para cada entrada **não lida** da fila com esse ID e mesmo autor: `covered = true`, `covered_by = <entrada de destino>`.
 5. A barra mostra "inclui N posts desta thread".
 
@@ -149,7 +149,7 @@ Regras de segurança contra pular posts:
 
 ### Pós-carregamento de uma página de post
 
-- Esperar o `article` principal; rolar ao topo repetidamente por ~3 s a cada ~150 ms, **parando assim que o dono interagir** (roda, toque, tecla, clique), para não brigar com ele nem com o X (que rola até o post focal sozinho).
+- Esperar o `article` principal. (Até a 0.8.4 o script rolava ao topo por ~3 s; **removido na 0.8.5**: a página fica como o X a abriu, que rola até o post focal sozinho.)
 
 ## Máquina de fases
 
@@ -191,7 +191,7 @@ Estilo do "fulano repostou" nativo do X: **texto cinza discreto, largura inteira
 - **Aviso de repost no topo da tela:** se o post repostado **não** é o primeiro da página (há cadeia acima), o primeiro post ganha "↻ Fulano repostou uma mensagem dessa thread". Se o primeiro já é o repostado, só a faixa dele aparece.
 - **Posição no DOM:** a faixa é **irmã imediatamente anterior ao `<article>`**, e não filha. Os filhos do `article` do X ficam lado a lado, então um filho novo virava uma coluna estreita (defeito visto na 0.2.0 e corrigido na 0.2.1).
 - O X redesenha posts o tempo todo: um `MutationObserver` reexecuta `Labels.sync`, que é **idempotente** (só escreve no DOM se algo mudou), então não há laço de mutação.
-- A página sempre abre e rola ao topo (`pinTop`).
+- (Removido na 0.8.5) A página não é mais rolada ao topo pelo script.
 
 ### Datas
 
@@ -342,3 +342,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.8.3: o botão de velocidade foi para o **canto superior direito** do vídeo (no esquerdo coincidia com o botão de voltar), **menor** (28 px) e **mais translúcido**; o menu abre alinhado à direita, com botões também menores.
 
 0.8.4: correção do **1x** no menu de velocidade: o script só alterava o vídeo quando a escolha não era 1x, então voltar a 1x depois de outra velocidade não fazia nada. Agora o vídeo que o script já alterou volta ao normal ao escolher 1x; um vídeo nunca alterado continua sem ser tocado. Regra em `Xdom.applyPlaybackRate` (testada).
+
+0.8.5: **fim do scroll ao topo** ao abrir uma resposta ou a continuação de uma thread: o script não força mais a página para o topo (`pinTop` removido); ela fica do jeito que o X a abriu (normalmente com o post aberto à vista). A busca de novas e a leitura das contas seguidas continuam rolando por conta própria, como antes.

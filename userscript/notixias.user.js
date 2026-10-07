@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.8.4
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.4
+// @version      0.8.5
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.8.5
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1425,7 +1425,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.8.4'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.8.5'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1620,19 +1620,6 @@ async function startApp() {
     if (!ok && location.pathname === u.pathname) location.assign(u.href);
   }
 
-  // Rola ao topo por alguns segundos, parando assim que o dono interage.
-  function pinTop(ms) {
-    let stop = false;
-    const off = () => { stop = true; };
-    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach((ev) => window.addEventListener(ev, off, { once: true, passive: true }));
-    const t0 = Date.now();
-    (function tick() {
-      if (stop || Date.now() - t0 > (ms || 3000)) return;
-      if (window.scrollY > 0) window.scrollTo(0, 0);
-      setTimeout(tick, 150);
-    })();
-  }
-
   // ---------- barra ----------
   const CYCLE = {
     layout: { order: ['full', 'left', 'right'], label: { full: 'ambas (largura total)', left: 'esquerda', right: 'direita' } },
@@ -1795,7 +1782,6 @@ async function startApp() {
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
     renderEntryBar(st, notice);
-    pinTop(3000);
 
     const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000);
     if (token !== routeToken || !ready) return;

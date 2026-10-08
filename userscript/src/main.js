@@ -206,6 +206,18 @@ async function startApp() {
     if (!ok && location.pathname === u.pathname) location.assign(u.href);
   }
 
+  // Espera a página "assentar": o número de posts desenhados fica igual por `stableMs`, ou passa `maxMs`.
+  async function waitSettled(maxMs, stableMs) {
+    const t0 = Date.now();
+    let last = -1;
+    let since = Date.now();
+    while (Date.now() - t0 < maxMs) {
+      const n = document.querySelectorAll('article').length;
+      if (n !== last) { last = n; since = Date.now(); } else if (Date.now() - since >= stableMs) return;
+      await sleep(100);
+    }
+  }
+
   // Rola ao topo repetidamente por alguns segundos (o X rola sozinho até o post aberto), parando se o dono interagir.
   // Fica escondido atrás da tela de carregamento, então a página não "pula" diante dos olhos. Devolve { stop }.
   function pinTop(ms) {
@@ -394,11 +406,12 @@ async function startApp() {
     const pin = pinTop(8000); // enquanto a tela de carregamento cobre a página
     const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
-    const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000);
+    const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000, 100);
     if (token !== routeToken) return stale();
     if (!ready) { pin.stop(); return 'done'; }
     syncLabels();
-    await sleep(2000);
+    // Em vez de uma pausa fixa, espera a conversa parar de mudar (o X desenha os posts de cima aos poucos).
+    await waitSettled(2500, 450);
     if (token !== routeToken) return stale();
 
     // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
@@ -407,13 +420,13 @@ async function startApp() {
     const clickedMore = new WeakSet();
     for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
       const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
-      if (!btn) { idle++; await sleep(700); if (token !== routeToken) return stale(); continue; }
+      if (!btn) { idle++; await sleep(250); if (token !== routeToken) return stale(); continue; }
       idle = 0;
       clickedMore.add(btn);
       clicks++;
       const href = location.href;
       btn.click();
-      await sleep(500);
+      await sleep(300);
       if (token !== routeToken) return stale();
       if (location.href !== href) { history.back(); await sleep(800); break; }
     }

@@ -204,6 +204,27 @@ test('Api: runs e runFailed', async () => {
   assert.equal(calls[1].url, 'http://localhost:8010/api/v1/runs');
 });
 
+test('Ui: tela de carregamento cobre a página, some em fade e se remove; reabrir durante o fade cancela a remoção', async () => {
+  const { ui, doc } = mountUi();
+  ui.showLoading('Abrindo…');
+  const host = doc.getElementById('notixias-loading');
+  assert.ok(host, 'entra na página');
+  const node = () => host.shadowRoot.querySelector('.ld');
+  assert.ok(node() && !node().classList.contains('out'));
+  assert.ok(host.shadowRoot.querySelector('.sp'), 'animação de carregamento');
+  assert.match(host.shadowRoot.textContent, /Abrindo/);
+  ui.hideLoading();
+  assert.ok(node().classList.contains('out'), 'fade out (opacidade 0 por transição)');
+  ui.showLoading();                                                    // abriu outro post durante o fade
+  assert.ok(!node().classList.contains('out'));
+  await new Promise((r) => setTimeout(r, 600));
+  assert.ok(doc.getElementById('notixias-loading'), 'não foi removida: voltou a ser usada');
+  ui.hideLoading();
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(doc.getElementById('notixias-loading'), null, 'removida depois do fade');
+  ui.hideLoading();                                                    // chamar de novo é inofensivo
+});
+
 // ---------- Build ----------
 test('o userscript gerado está atualizado com src/ (rode `npm run build`)', () => {
   const onDisk = fs.readFileSync(path.join(__dirname, '..', 'notixias.user.js'), 'utf8');

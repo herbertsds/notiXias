@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.9.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.9.1
+// @version      0.9.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.9.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1292,6 +1292,20 @@ const Ui = (function () {
       background: rgba(255,255,255,.06); color: #fff; }
     .menu button.sel { background: #1d9bf0; border-color: #1d9bf0; font-weight: 700; }
   `;
+  // Tela de carregamento ao abrir um post da fila: cobre a página enquanto o script a arruma (rola ao topo, abre os
+  // "Mostrar mais", confere a conversa) e some num fade suave, deixando o post já na posição certa.
+  const LOADING_CSS = `
+    :host { all: initial; }
+    .ld { position: fixed; inset: 0; z-index: 2147483647; background: #000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; opacity: 1; transition: opacity .45s ease; }
+    .ld.out { opacity: 0; pointer-events: none; }
+    .sp { width: 44px; height: 44px; border-radius: 50%; border: 4px solid rgba(255,255,255,.14); border-top-color: #1d9bf0;
+      animation: nxspin .9s linear infinite; }
+    .tx { color: #71767b; font: 500 14px -apple-system, system-ui, "Segoe UI", sans-serif; letter-spacing: .02em; }
+    @keyframes nxspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .sp { animation-duration: 2.6s; } .ld { transition-duration: .2s; } }
+  `;
+  const LOADING_FAILSAFE_MS = 25000; // se algo der errado, a tela nunca fica presa
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -1327,6 +1341,10 @@ const Ui = (function () {
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
     const spd = makeHost(doc, 'notixias-speed', SPEED_CSS + SPEED_MENU_CSS);
+    const ld = makeHost(doc, 'notixias-loading', LOADING_CSS);
+    let ldNode = null;
+    let ldRemoveTimer = null;
+    let ldFailTimer = null;
     let spdNode = null;
     let spdOpen = false;
     let spdModel = null;
@@ -1518,7 +1536,34 @@ const Ui = (function () {
       spd.host.remove();
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };
+    function showLoading(label) {
+      attach(ld);
+      clearTimeout(ldRemoveTimer);
+      if (!ldNode) {
+        ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…'));
+        ld.root.append(ldNode);
+      }
+      ldNode.classList.remove('out');
+      clearTimeout(ldFailTimer);
+      ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
+    }
+
+    // Fade out suave; depois remove da página.
+    function hideLoading() {
+      if (!ldNode) return;
+      clearTimeout(ldFailTimer);
+      const node = ldNode;
+      node.classList.add('out');
+      clearTimeout(ldRemoveTimer);
+      ldRemoveTimer = setTimeout(() => {
+        if (ldNode !== node) return;
+        node.remove();
+        ldNode = null;
+        ld.host.remove();
+      }, 520);
+    }
+
+    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
   }
 
   return { create, readWidths };
@@ -1529,7 +1574,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.9.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.9.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1734,6 +1779,28 @@ async function startApp() {
     if (!ok && location.pathname === u.pathname) location.assign(u.href);
   }
 
+  // Rola ao topo repetidamente por alguns segundos (o X rola sozinho até o post aberto), parando se o dono interagir.
+  // Fica escondido atrás da tela de carregamento, então a página não "pula" diante dos olhos. Devolve { stop }.
+  function pinTop(ms) {
+    let stop = false;
+    const off = () => { stop = true; };
+    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach((ev) => window.addEventListener(ev, off, { once: true, passive: true }));
+    const t0 = Date.now();
+    (function tick() {
+      if (stop || Date.now() - t0 > (ms || 3000)) return;
+      if (window.scrollY > 0) window.scrollTo(0, 0);
+      setTimeout(tick, 150);
+    })();
+    return { stop: () => { stop = true; } };
+  }
+
+  // O post da fila que está sendo aberto? (o `nx_view` guardado ao abrir bate com o endereço)
+  function isEntryPath() {
+    const s = Core.parseStatusPath(location.pathname);
+    const v = gm.get('nx_view', null);
+    return !!(s && v && (s.id === v.tweetId || s.id === v.targetId));
+  }
+
   // ---------- barra ----------
   const CYCLE = {
     layout: { order: ['full', 'left', 'right'], label: { full: 'ambas (largura total)', left: 'esquerda', right: 'direita' } },
@@ -1845,6 +1912,7 @@ async function startApp() {
 
   // ---------- leitura ----------
   async function openEntry(entry) {
+    if (!cfg.bot) ui.showLoading(); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
     gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null });
     gm.set('nx_mode', 'read');
@@ -1891,17 +1959,20 @@ async function startApp() {
     const view = gm.get('nx_view', null);
     const openId = cur && (cur.open_id || cur.tweet_id);
     const inQueue = cur && view && view.seq === cur.seq && (status.id === cur.tweet_id || status.id === openId || status.id === view.targetId);
-    if (!inQueue) { renderSideBar('Fora da fila', st); return; }
+    if (!inQueue) { renderSideBar('Fora da fila', st); return 'out'; }
 
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
     renderEntryBar(st, notice);
+    const pin = pinTop(8000); // enquanto a tela de carregamento cobre a página
+    const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
     const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000);
-    if (token !== routeToken || !ready) return;
+    if (token !== routeToken) return stale();
+    if (!ready) { pin.stop(); return 'done'; }
     syncLabels();
     await sleep(2000);
-    if (token !== routeToken) return;
+    if (token !== routeToken) return stale();
 
     // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
     // os posts aos poucos, então olha de novo algumas vezes. Cada botão é clicado uma vez só; se um clique levar a
@@ -1909,14 +1980,14 @@ async function startApp() {
     const clickedMore = new WeakSet();
     for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
       const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
-      if (!btn) { idle++; await sleep(700); if (token !== routeToken) return; continue; }
+      if (!btn) { idle++; await sleep(700); if (token !== routeToken) return stale(); continue; }
       idle = 0;
       clickedMore.add(btn);
       clicks++;
       const href = location.href;
       btn.click();
       await sleep(500);
-      if (token !== routeToken) return;
+      if (token !== routeToken) return stale();
       if (location.href !== href) { history.back(); await sleep(800); break; }
     }
 
@@ -1928,10 +1999,17 @@ async function startApp() {
       if (pick && pick.target.id !== status.id) {
         view.targetId = pick.target.id;
         gm.set('nx_view', view);
+        pin.stop();
         go('https://x.com/' + pick.target.author + '/status/' + pick.target.id);
-        return;
+        return 'jump'; // a tela de carregamento continua até a página de destino ficar pronta
       }
     }
+
+    // Tudo o que mexe no que se vê terminou: fixa no topo e revela o post pronto (a conferência da conversa, abaixo,
+    // só fala com a API e não muda a tela).
+    pin.stop();
+    window.scrollTo(0, 0);
+    ui.hideLoading();
 
     // Cobertura: só o que está de fato desenhado na conversa da página.
     //  - pedaços do mesmo autor (thread) e
@@ -1943,14 +2021,15 @@ async function startApp() {
     const sameAuthorIds = items.map((i) => i.id).filter((id) => !own.has(id));
     if (ancestorIds.length || sameAuthorIds.length) {
       const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
-      if (token !== routeToken) return;
+      if (token !== routeToken) return stale();
       // Confirma a cobertura provisória do que esta página mostra; o que não aparece volta à fila.
       const st2 = await api.settle({ covered_by: cur.seq, present_ids: items.map((i) => i.id) });
-      if (token !== routeToken) return;
+      if (token !== routeToken) return stale();
       if (res.covered > 0 || st2.confirmed > 0 || st2.released > 0) renderEntryBar(await api.state(), notice);
     } else {
       await api.settle({ covered_by: cur.seq, present_ids: [] });
     }
+    return 'done';
   }
 
   // ---------- busca de novas ----------
@@ -2404,6 +2483,7 @@ async function startApp() {
 
   // ---------- roteamento ----------
   function handleError(e) {
+    ui.hideLoading();
     botDone({ ok: false, error: (e && e.message) || 'erro', status: e && e.status });
     if (e && e.status === 401) {
       if (promptConfig()) onRoute();
@@ -2417,6 +2497,8 @@ async function startApp() {
   async function onRoute() {
     const token = ++routeToken;
     setLabels(null);
+    // Abrindo um post da fila: cobre a página já (antes de falar com a API); em qualquer outra página, descobre.
+    if (!cfg.bot && isEntryPath()) ui.showLoading(); else ui.hideLoading();
     try {
       if (Xdom.isLoginPath(location.pathname)) { botDone({ ok: false, error: 'sessão do X expirada (tela de login)', login: true }); return; }
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));
@@ -2451,7 +2533,11 @@ async function startApp() {
       if (feedHere && cfg.autoResume) return await resumeReading();
 
       const status = Core.parseStatusPath(location.pathname);
-      if (status) return await onStatusPage(token, status, st);
+      if (status) {
+        const r = await onStatusPage(token, status, st);
+        if (r !== 'jump' && r !== 'stale') ui.hideLoading();
+        return;
+      }
       return renderSideBar('Notixias pronto', st);
     } catch (e) {
       handleError(e);

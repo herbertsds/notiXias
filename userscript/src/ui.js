@@ -66,6 +66,20 @@ const Ui = (function () {
       background: rgba(255,255,255,.06); color: #fff; }
     .menu button.sel { background: #1d9bf0; border-color: #1d9bf0; font-weight: 700; }
   `;
+  // Tela de carregamento ao abrir um post da fila: cobre a página enquanto o script a arruma (rola ao topo, abre os
+  // "Mostrar mais", confere a conversa) e some num fade suave, deixando o post já na posição certa.
+  const LOADING_CSS = `
+    :host { all: initial; }
+    .ld { position: fixed; inset: 0; z-index: 2147483647; background: #000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; opacity: 1; transition: opacity .45s ease; }
+    .ld.out { opacity: 0; pointer-events: none; }
+    .sp { width: 44px; height: 44px; border-radius: 50%; border: 4px solid rgba(255,255,255,.14); border-top-color: #1d9bf0;
+      animation: nxspin .9s linear infinite; }
+    .tx { color: #71767b; font: 500 14px -apple-system, system-ui, "Segoe UI", sans-serif; letter-spacing: .02em; }
+    @keyframes nxspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .sp { animation-duration: 2.6s; } .ld { transition-duration: .2s; } }
+  `;
+  const LOADING_FAILSAFE_MS = 25000; // se algo der errado, a tela nunca fica presa
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -101,6 +115,10 @@ const Ui = (function () {
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
     const spd = makeHost(doc, 'notixias-speed', SPEED_CSS + SPEED_MENU_CSS);
+    const ld = makeHost(doc, 'notixias-loading', LOADING_CSS);
+    let ldNode = null;
+    let ldRemoveTimer = null;
+    let ldFailTimer = null;
     let spdNode = null;
     let spdOpen = false;
     let spdModel = null;
@@ -292,7 +310,34 @@ const Ui = (function () {
       spd.host.remove();
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed };
+    function showLoading(label) {
+      attach(ld);
+      clearTimeout(ldRemoveTimer);
+      if (!ldNode) {
+        ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…'));
+        ld.root.append(ldNode);
+      }
+      ldNode.classList.remove('out');
+      clearTimeout(ldFailTimer);
+      ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
+    }
+
+    // Fade out suave; depois remove da página.
+    function hideLoading() {
+      if (!ldNode) return;
+      clearTimeout(ldFailTimer);
+      const node = ldNode;
+      node.classList.add('out');
+      clearTimeout(ldRemoveTimer);
+      ldRemoveTimer = setTimeout(() => {
+        if (ldNode !== node) return;
+        node.remove();
+        ldNode = null;
+        ld.host.remove();
+      }, 520);
+    }
+
+    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
   }
 
   return { create, readWidths };

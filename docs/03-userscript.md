@@ -364,3 +364,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 **Robô.** Tempo máximo de uma profunda: 120 min (a normal continua em 25).
 
 0.9.1: no modo robô o script emite um batimento de progresso (`nx_beat`) em cada passo, para o robô do servidor detectar travamento (ver `docs/11-robo.md`). Sem mudança para você.
+
+0.9.2: **rolagem ao topo de volta, mas escondida atrás de uma tela de carregamento.** Ao abrir um post da fila, uma tela preta de tela inteira com um indicador girando cobre a página (já na saída do post anterior, em `openEntry`) enquanto o script faz tudo o que mexe no que se vê: rola ao topo, abre os "Mostrar mais" e, se for o caso, salta para o fim de uma thread. Só então fixa o topo e revela o post pronto num **fade out suave** (0,45 s). A conferência da conversa (cobertura) roda depois, sem mudar a tela. Se o post for uma continuação de thread, a tela de carregamento continua até a página de destino ficar pronta. Páginas fora da fila não ganham tela de carregamento. Rede de segurança: some sozinha em 25 s.

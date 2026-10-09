@@ -444,3 +444,25 @@ test('pageMissing: reconhece página/post que não existe, sem confundir com a p
   // frase "não existe" DENTRO de um post (ou de uma recomendação) não conta
   assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><article data-testid="tweet">isso não existe mais, sério</article></div>')), false);
 });
+
+
+test('setHeaderStatic: solta a barra "← Post" (sticky) para fazer parte da página; não mexe no que não é fixo', () => {
+  const w = new JSDOM(
+    '<body><div data-testid="primaryColumn"><div id="sticky" style="position:sticky;top:0"><div id="mid" style="position:relative">' +
+    '<button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div><div id="posts"><article data-testid="tweet"></article></div></div></body>',
+    { url: 'https://x.com/a/status/1' }
+  ).window;
+  const d = w.document;
+  assert.equal(Xdom.setHeaderStatic(d, w), 1);
+  assert.ok(d.getElementById('sticky').hasAttribute('data-nx-static'));
+  assert.ok(!d.getElementById('mid').hasAttribute('data-nx-static'));                 // só o que é sticky/fixed
+  assert.ok(!d.getElementById('posts').hasAttribute('data-nx-static'));
+  assert.match(d.getElementById('nx-style').textContent, /\[data-nx-static\]\{position:static!important\}/);
+  assert.equal(Xdom.setHeaderStatic(d, w), 0);                                        // idempotente
+  // sem botão de voltar: usa o título; o X pode recriar a barra e ela volta a ser solta
+  d.getElementById('sticky').remove();
+  d.querySelector('[data-testid="primaryColumn"]').insertAdjacentHTML('afterbegin', '<div id="s2" style="position:fixed"><h2 role="heading">Post</h2></div>');
+  assert.equal(Xdom.setHeaderStatic(d, w), 1);
+  assert.ok(d.getElementById('s2').hasAttribute('data-nx-static'));
+  assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);   // sem coluna principal
+});

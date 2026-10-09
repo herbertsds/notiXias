@@ -132,6 +132,7 @@ async function startApp() {
   // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
   function applyAges() {
     if (cfg.bot || !Core.parseStatusPath(location.pathname)) return;
+    try { Xdom.setHeaderStatic(document, window); } catch (e) { /* melhor esforço */ }
     try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyAges, 1500);
@@ -235,6 +236,7 @@ async function startApp() {
     const t0 = Date.now();
     (function tick() {
       if (stop || Date.now() - t0 > (ms || 3000)) return;
+      try { Xdom.setHeaderStatic(document, window); } catch (e) { /* melhor esforço */ } // a barra do topo deixa de ficar fixa
       if (window.scrollY > 0) window.scrollTo(0, 0);
       setTimeout(tick, 150);
     })();

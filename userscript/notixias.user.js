@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.3
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.3
+// @version      0.10.4
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.4
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -526,7 +526,8 @@ const Xdom = (function () {
   }
 
   const HIDE_ATTR = 'data-nx-hidden';
-  const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}';
+  const STATIC_ATTR = 'data-nx-static';
+  const HIDE_CSS = '[' + HIDE_ATTR + ']{display:none!important}[' + STATIC_ATTR + ']{position:static!important}';
 
   function ensureStyle(doc) {
     if (doc.getElementById('nx-style')) return;
@@ -546,6 +547,27 @@ const Xdom = (function () {
     const bars = findBottomBars(root, win).concat(findAppBanners(root, win));
     bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
     return bars.length;
+  }
+
+  // ---- barra do topo ("← Post") ----
+  // No X ela é `position: sticky; top: 0` (com fundo translúcido): ao rolar ao topo ela fica NA FRENTE do primeiro post.
+  // Aqui ela passa a fazer parte da página, no topo, rolando junto (position: static). Reconhecida pelo botão de voltar
+  // (`app-bar-back`) ou, sem ele, pelo primeiro título da coluna; sobe pelos ancestrais até a coluna e solta os que são
+  // sticky/fixed. Idempotente. Devolve quantos elementos soltou nesta chamada.
+  function setHeaderStatic(root, win) {
+    const col = root.querySelector('[data-testid="primaryColumn"]');
+    if (!col) return 0;
+    ensureStyle(root.ownerDocument || root);
+    const anchor = col.querySelector('[data-testid="app-bar-back"]') || col.querySelector('h2[role="heading"], [role="heading"]');
+    let n = 0;
+    for (let el = anchor; el && el !== col; el = el.parentElement) {
+      const pos = win.getComputedStyle(el).position;
+      if ((pos === 'sticky' || pos === 'fixed') && !el.hasAttribute(STATIC_ATTR)) {
+        el.setAttribute(STATIC_ATTR, '1');
+        n++;
+      }
+    }
+    return n;
   }
 
   // ---- página de post que não existe mais ----
@@ -724,7 +746,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1620,7 +1642,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.3'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.4'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1751,6 +1773,7 @@ async function startApp() {
   // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
   function applyAges() {
     if (cfg.bot || !Core.parseStatusPath(location.pathname)) return;
+    try { Xdom.setHeaderStatic(document, window); } catch (e) { /* melhor esforço */ }
     try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyAges, 1500);
@@ -1854,6 +1877,7 @@ async function startApp() {
     const t0 = Date.now();
     (function tick() {
       if (stop || Date.now() - t0 > (ms || 3000)) return;
+      try { Xdom.setHeaderStatic(document, window); } catch (e) { /* melhor esforço */ } // a barra do topo deixa de ficar fixa
       if (window.scrollY > 0) window.scrollTo(0, 0);
       setTimeout(tick, 150);
     })();

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.5
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.5
+// @version      0.10.6
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.6
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -83,8 +83,8 @@ const Core = (function () {
   }
 
   // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Escala:
-  //   menos de 1 h: "N min" | até 47 h: "N h" | 2 dias ou mais: "N d" | 1 mês ou mais: "N mês(es) e N d" |
-  //   1 ano ou mais: "N ano(s) e N mês(es)". Meses e anos são de calendário (dia do mês do post até hoje).
+  //   menos de 1 h: "N min" | até 47 h: "N h" | 2 dias ou mais: "Nd" | 1 mês ou mais: "Nm Nd" | 1 ano ou mais: "Na Nm"
+  //   (d = dias, m = meses, a = anos; abreviado, sem plural). Meses e anos são de calendário (dia do mês do post até hoje).
   function ageLabel(id, nowMs) {
     const created = snowflakeMs(id);
     if (created === null) return '';
@@ -110,10 +110,9 @@ const Core = (function () {
     const years = Math.floor(total / 12);
     const months = total % 12;
     const days = Math.floor((end - addMonths(start, total)) / 86400000);
-    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-    if (years >= 1) return plural(years, 'ano', 'anos') + (months ? ' e ' + plural(months, 'mês', 'meses') : '');
-    if (months >= 1) return plural(months, 'mês', 'meses') + (days ? ' e ' + days + ' d' : '');
-    return Math.floor(hours / 24) + ' d';
+    if (years >= 1) return years + 'a' + (months ? ' ' + months + 'm' : '');
+    if (months >= 1) return months + 'm' + (days ? ' ' + days + 'd' : '');
+    return Math.floor(hours / 24) + 'd';
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
@@ -1680,7 +1679,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.5'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.6'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

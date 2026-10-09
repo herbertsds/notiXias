@@ -386,3 +386,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.10.5: dois ajustes na idade do post ao lado do nome.
 - **Horário duplicado corrigido.** O horário próprio do X ("· 16 h") era escondido só uma vez, na criação do nosso; ao redesenhar uma resposta o X recriava o elemento e ele reaparecia ao lado do nosso ("· 16 h · 16 h"). Agora a esconde a cada passada e de forma independente do aninhamento (computador ou celular): para cada `<time>` do cabeçalho, sobe até o maior ancestral que ainda não contém o link do @ e esconde esse ancestral e o "·" logo antes.
 - **Nova escala:** menos de 1 h `N min`; até 47 h `N h`; **2 dias ou mais `N d`**; **1 mês ou mais `N mês(es) e N d`**; **1 ano ou mais `N ano(s) e N mês(es)`**. Meses e anos são de calendário (com o dia ajustado ao tamanho do mês, ex.: 31/jan → 1/mar = "1 mês e 1 d"); sem resto, o resto some ("1 mês", "1 ano").
+
+0.10.6: a escala de dias, meses e anos fica **abreviada**: `4d`, `1m 5d`, `2m 16d`, `1a`, `1a 2m` (d = dias, m = meses, a = anos; sem plural nem por extenso). Minutos e horas seguem como `35 min` e `35 h`. Sem resto, ele some (`1m`, `1a`).

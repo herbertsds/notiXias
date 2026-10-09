@@ -231,7 +231,7 @@ test('formatNext: próxima automática com tipo e tempo restante; pausa e espera
   assert.equal(Core.formatNext(null, now), null);
 });
 
-test('ageLabel: min, h, depois dias, depois mês e dias, depois ano e meses', () => {
+test('ageLabel: min, h, depois Nd, depois Nm Nd, depois Na Nm', () => {
   const idAt = (ms) => String(BigInt(ms - 1288834974657) << 22n);
   const now = Date.UTC(2026, 9, 6, 12, 0);
   assert.equal(Core.ageLabel(idAt(now - 20 * 1000), now), '1 min');
@@ -240,19 +240,19 @@ test('ageLabel: min, h, depois dias, depois mês e dias, depois ano e meses', ()
   assert.equal(Core.ageLabel(idAt(now - 119 * 60000), now), '1 h');
   assert.equal(Core.ageLabel(idAt(now - 35 * 3600000), now), '35 h');
   assert.equal(Core.ageLabel(idAt(now - 47 * 3600000), now), '47 h');                 // até 2 dias ainda é em horas
-  assert.equal(Core.ageLabel(idAt(now - 48 * 3600000), now), '2 d');                  // dois dias ou mais: dias
-  assert.equal(Core.ageLabel(idAt(now - 100 * 3600000), now), '4 d');
-  assert.equal(Core.ageLabel(idAt(now - 29 * 24 * 3600000), now), '29 d');
+  assert.equal(Core.ageLabel(idAt(now - 48 * 3600000), now), '2d');                  // dois dias ou mais: dias
+  assert.equal(Core.ageLabel(idAt(now - 100 * 3600000), now), '4d');
+  assert.equal(Core.ageLabel(idAt(now - 29 * 24 * 3600000), now), '29d');
   // 1 mês ou mais: mês(es) e dias (de calendário, ao meio-dia para não depender do fuso)
   const d = (y, m, dd) => Date.UTC(y, m, dd, 12, 0);
-  assert.equal(Core.ageLabel(idAt(d(2026, 8, 6)), d(2026, 9, 6)), '1 mês');            // 6/set -> 6/out
-  assert.equal(Core.ageLabel(idAt(d(2026, 8, 1)), d(2026, 9, 6)), '1 mês e 5 d');
-  assert.equal(Core.ageLabel(idAt(d(2026, 6, 20)), d(2026, 9, 6)), '2 meses e 16 d');
-  assert.equal(Core.ageLabel(idAt(d(2026, 0, 31)), d(2026, 2, 1)), '1 mês e 1 d');   // 31/jan -> 1/mar: fevereiro tem 28 dias, o dia é ajustado
+  assert.equal(Core.ageLabel(idAt(d(2026, 8, 6)), d(2026, 9, 6)), '1m');            // 6/set -> 6/out
+  assert.equal(Core.ageLabel(idAt(d(2026, 8, 1)), d(2026, 9, 6)), '1m 5d');
+  assert.equal(Core.ageLabel(idAt(d(2026, 6, 20)), d(2026, 9, 6)), '2m 16d');
+  assert.equal(Core.ageLabel(idAt(d(2026, 0, 31)), d(2026, 2, 1)), '1m 1d');   // 31/jan -> 1/mar: fevereiro tem 28 dias, o dia é ajustado
   // 1 ano ou mais: ano(s) e mês(es)
-  assert.equal(Core.ageLabel(idAt(d(2025, 9, 6)), d(2026, 9, 6)), '1 ano');
-  assert.equal(Core.ageLabel(idAt(d(2025, 7, 2)), d(2026, 9, 6)), '1 ano e 2 meses');
-  assert.equal(Core.ageLabel(idAt(d(2023, 9, 20)), d(2026, 9, 6)), '2 anos e 11 meses');
+  assert.equal(Core.ageLabel(idAt(d(2025, 9, 6)), d(2026, 9, 6)), '1a');
+  assert.equal(Core.ageLabel(idAt(d(2025, 7, 2)), d(2026, 9, 6)), '1a 2m');
+  assert.equal(Core.ageLabel(idAt(d(2023, 9, 20)), d(2026, 9, 6)), '2a 11m');
   assert.equal(Core.ageLabel('abc', now), '');
 });
 

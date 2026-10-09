@@ -120,3 +120,7 @@ A profunda das 12:50 travou em torno da 13:00 (cerca da conta 27 de 57, página 
 5. O pedido de busca por limiar (30/15/6) respeita um intervalo mínimo de 3 minutos depois de outra execução, e vira a profunda do feed se for a primeira depois de 05:10/12:30.
 6. Os três limiares só disparam ao **diminuir** a contagem (voltar uma mensagem ou chegarem novas não pedem busca); um salto grande que atravessa dois limiares gera um único pedido (o motivo cita o menor).
 7. A verificação de perfis é um horário próprio e **não conta** como "busca única depois de 01:00".
+
+## Ordem de entrada na fila (buscas profundas)
+
+Tudo o que a profunda do feed ou a verificação de perfis captura entra na fila de **não lidas pela data do post** (a data está no ID do post, nos bits altos): fica **antes da primeira não lida mais nova que ele**; só vai para o **começo** das não lidas se for mais antigo que a primeira delas (mesmo que seja mais antigo até do que o que você já leu), e vai para o fim se for mais novo que todas. Comentários (aba Respostas) valem pela data do próprio comentário; uma conversa inteira vale pelo horário da primeira resposta nova de conta seguida. Conferido em produção em 2026-10-09: das 534 não lidas, **nenhuma inversão** de horário entre vizinhas. Regra travada por testes (`api/tests/test_ordem_profunda.py`).

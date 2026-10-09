@@ -200,7 +200,7 @@ test('texto do repost: "Fulano repostou" no singular, lista com "e" no plural', 
 test('formatRun: manual/automática, normal/profunda, horário e resultado', () => {
   const at = new Date(2026, 9, 6, 7, 58).toISOString();
   const ok = Core.formatRun({ at, source: 'robot', mode: 'deep', ok: true, created: 10, updated: 2, gap: false, reason: 'anchor', steps: 23 });
-  assert.equal(ok.main, '06/10/2026 07:58 · Automática · Profunda');
+  assert.equal(ok.main, '06/10/2026 07:58 · Automática · Profunda (feed)');
   assert.equal(ok.sub, '10 novos · 2 com resposta nova · chegou ao que já estava salvo (23 passos)');
   assert.equal(ok.tone, 'ok');
   const man = Core.formatRun({ at, source: 'manual', mode: 'normal', ok: true, created: 1, updated: 0, gap: false });
@@ -219,7 +219,7 @@ test('formatNext: próxima automática com tipo e tempo restante; pausa e espera
   const now = new Date(2026, 9, 6, 8, 0);
   const at = new Date(2026, 9, 6, 8, 38).toISOString();
   const n = Core.formatNext({ at, mode: 'deep', state: 'scheduled' }, now);
-  assert.equal(n.main, 'Próxima automática: 06/10/2026 08:38 · Profunda');
+  assert.equal(n.main, 'Próxima automática: 06/10/2026 08:38 · Profunda (feed)');
   assert.equal(n.sub, 'em 38 min');
   assert.equal(n.tone, 'next');
   assert.equal(Core.formatNext({ at: new Date(2026, 9, 6, 12, 5).toISOString(), mode: 'normal', state: 'scheduled' }, now).sub, 'em 4 h 05 min');
@@ -261,6 +261,28 @@ test('snowflakeMs e formatRun da profunda (perfis verificados)', () => {
   assert.equal(Core.snowflakeMs('abc'), null);
   const at = new Date(2026, 9, 6, 13, 5).toISOString();
   const r = Core.formatRun({ at, source: 'robot', mode: 'deep', ok: true, created: 9, updated: 0, gap: false, reason: 'time_boundary', steps: 80, profiles_done: 55, profiles_skipped: 2, profile_created: 4 });
-  assert.equal(r.main, '06/10/2026 13:05 · Automática · Profunda');
+  assert.equal(r.main, '06/10/2026 13:05 · Automática · Profunda (feed)');
   assert.match(r.sub, /9 novos · 55 perfis verificados \(4 novos neles\), 2 sem leitura · chegou à última verificação profunda \(80 passos\)/);
+});
+
+test('formatRun: verificação de perfis, motivo de uma busca pedida, pedidos e antecipações no histórico', () => {
+  const at = new Date(2026, 9, 9, 3, 12).toISOString();
+  const p = Core.formatRun({ at, source: 'robot', mode: 'profiles', ok: true, created: 3, updated: 0, profiles_done: 55, profiles_skipped: 1, profile_created: 3 });
+  assert.equal(p.main, '09/10/2026 03:12 · Automática · Profunda (perfis)');
+  assert.match(p.sub, /3 novos · 55 perfis verificados \(3 novos neles\), 1 sem leitura/);
+  const gatilho = Core.formatRun({ at, source: 'robot', mode: 'normal', ok: true, created: 0, updated: 0, trigger: 'restam 29 não lidas (abaixo de 30)' });
+  assert.equal(gatilho.sub, 'Motivo: restam 29 não lidas (abaixo de 30) · nada novo');
+  const req = Core.formatRun({ at, kind: 'request', source: 'reading', reason: 'restam 14 não lidas (abaixo de 15)' });
+  assert.equal(req.main, '09/10/2026 03:12 · Busca solicitada (leitura)');
+  assert.equal(req.sub, 'Motivo: restam 14 não lidas (abaixo de 15)');
+  assert.equal(req.tone, 'event');
+  const re = Core.formatRun({ at, kind: 'reschedule', reason: 'restam 99 não lidas: próxima busca antecipada (55 min -> 37 min)' });
+  assert.equal(re.main, '09/10/2026 03:12 · Próxima busca antecipada');
+  assert.equal(re.tone, 'event');
+  const falha = Core.formatRun({ at, source: 'robot', mode: 'normal', ok: false, error: 'travou', trigger: 'x' });
+  assert.equal(falha.sub, 'Motivo: x · ⚠ Falhou: travou');
+  const nx = Core.formatNext({ at: new Date(2026, 9, 9, 3, 20).toISOString(), mode: 'profiles', state: 'scheduled', unread: 42 }, new Date(2026, 9, 9, 3, 0));
+  assert.equal(nx.main, 'Próxima automática: 09/10/2026 03:20 · Profunda (perfis)');
+  assert.equal(nx.sub, 'em 20 min · 42 não lidas');
+  assert.deepEqual(Core.parseLaunch('?nx=profiles'), { cmd: 'profiles', search: '' });
 });

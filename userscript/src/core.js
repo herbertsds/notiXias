@@ -84,21 +84,28 @@ const Core = (function () {
     max_time: 'parou no limite de tempo',
   };
 
-  // Uma execução da API ({at, source, mode, ok, created, updated, gap, reason, steps, error}) em duas linhas de texto.
-  // Devolve { main, sub, tone } com tone = 'ok' | 'warn' | 'error'.
+  const MODE_LABEL = { normal: 'Normal', deep: 'Profunda (feed)', profiles: 'Profunda (perfis)' };
+
+  // Uma linha do histórico da API em duas linhas de texto. Pode ser uma execução ({at, source, mode, ok, created, updated,
+  // gap, reason, steps, error, trigger}) ou um evento ({kind: 'request'|'reschedule', at, reason}): pedido de busca
+  // por causa da leitura, ou horário da próxima busca antecipado. Devolve { main, sub, tone }.
   function formatRun(run) {
     const d = new Date(run.at);
     const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (run.mode === 'deep' ? 'Profunda' : 'Normal');
-    if (!run.ok) return { main, sub: '⚠ Falhou: ' + (run.error || 'erro desconhecido'), tone: 'error' };
+    if (run.kind === 'request') return { main: when + ' · Busca solicitada (leitura)', sub: 'Motivo: ' + run.reason, tone: 'event' };
+    if (run.kind === 'reschedule') return { main: when + ' · Próxima busca antecipada', sub: run.reason, tone: 'event' };
+    const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (MODE_LABEL[run.mode] || 'Normal');
+    const why = run.trigger ? 'Motivo: ' + run.trigger : null;
+    if (!run.ok) return { main, sub: [why, '⚠ Falhou: ' + (run.error || 'erro desconhecido')].filter(Boolean).join(' · '), tone: 'error' };
     const parts = [];
+    if (why) parts.push(why);
     if (run.created) parts.push(run.created + (run.created === 1 ? ' novo' : ' novos'));
     if (run.updated) parts.push(run.updated + ' com resposta nova');
-    if (!parts.length) parts.push('nada novo');
+    if (parts.length === (why ? 1 : 0)) parts.push('nada novo');
     if (run.profiles_done) parts.push(run.profiles_done + ' perfis verificados' + (run.profile_created ? ' (' + run.profile_created + ' novos neles)' : '') + (run.profiles_skipped ? ', ' + run.profiles_skipped + ' sem leitura' : ''));
     if (run.gap) parts.push('⚠ pode haver lacuna');
-    const why = STOP_REASON[run.reason];
-    if (why) parts.push(why + (run.steps ? ' (' + run.steps + ' passos)' : ''));
+    const stop = STOP_REASON[run.reason];
+    if (stop) parts.push(stop + (run.steps ? ' (' + run.steps + ' passos)' : ''));
     return { main, sub: parts.join(' · '), tone: run.gap ? 'warn' : 'ok' };
   }
 
@@ -113,8 +120,8 @@ const Core = (function () {
     const mins = Math.round((d.getTime() - (now || new Date()).getTime()) / 60000);
     const rel = mins >= 60 ? 'em ' + Math.floor(mins / 60) + ' h ' + pad(mins % 60) + ' min' : mins >= 1 ? 'em ' + mins + ' min' : mins > -10 ? 'agora' : 'atrasada ' + Math.abs(mins) + ' min: confira o robô';
     return {
-      main: 'Próxima automática: ' + when + ' · ' + (next.mode === 'deep' ? 'Profunda' : 'Normal'),
-      sub: rel,
+      main: 'Próxima automática: ' + when + ' · ' + (MODE_LABEL[next.mode] || 'Normal'),
+      sub: rel + (typeof next.unread === 'number' ? ' · ' + next.unread + ' não lidas' : ''),
       tone: mins <= -10 ? 'warn' : 'next',
     };
   }
@@ -214,7 +221,7 @@ const Core = (function () {
   //   following -> lê as contas seguidas;  read -> continua a leitura.
   // Devolve o comando (ou null, se ausente/desconhecido) e a query SEM o parâmetro, para limpar a barra de endereço
   // (recarregar a página não repete a ação).
-  const LAUNCH_CMDS = ['update', 'deep', 'following', 'read'];
+  const LAUNCH_CMDS = ['update', 'deep', 'profiles', 'following', 'read'];
   function parseLaunch(search) {
     const p = new URLSearchParams(search || '');
     const raw = p.get('nx');

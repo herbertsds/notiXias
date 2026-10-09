@@ -33,7 +33,8 @@ class RunIn(BaseModel):
     """Quem disparou a execução e de que tipo (para o histórico de execuções)."""
 
     source: Literal["manual", "robot"]
-    mode: Literal["normal", "deep"] = "normal"
+    mode: Literal["normal", "deep", "profiles"] = "normal"  # deep = busca profunda do FEED; profiles = verificação dos perfis
+    trigger: str | None = Field(default=None, max_length=200)  # por que o robô rodou fora de hora (ex.: pedido por leitura)
 
 
 class RunReportIn(RunIn):
@@ -59,8 +60,9 @@ class RobotNextIn(BaseModel):
     """O robô informa quando será a próxima busca automática (e de que tipo), ou por que não há próxima."""
 
     at: datetime | None = None
-    mode: Literal["normal", "deep"] = "normal"
+    mode: Literal["normal", "deep", "profiles"] = "normal"
     state: Literal["scheduled", "paused", "waiting_session"] = "scheduled"
+    unread: int | None = Field(default=None, ge=0)  # não lidas quando o horário foi sorteado (informativo)
 
 
 class AppendIn(BaseModel):

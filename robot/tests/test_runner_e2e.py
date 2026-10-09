@@ -106,13 +106,13 @@ def page(cells, tabs=False):
     return f'<!doctype html><html lang="pt"><body><main>{tl}<div data-testid="primaryColumn">{"".join(cells)}</div></main></body></html>'
 
 
-def test_profunda_percorre_feed_e_perfis_e_registra_uma_execucao(key, tmp_path):
+def test_verificacao_de_perfis_percorre_cada_conta_e_registra_uma_execucao(key, tmp_path):
     now = time.time() * 1000
     H = 3600 * 1000
     uniq = int(time.time()) % 100000                                   # ids novos a cada rodada do teste
     off = uniq % 50                                                    # ms de diferença entre rodadas (ids únicos)
     api("/accounts/following", "PUT", json={"accounts": [{"handle": "conta_a"}, {"handle": "conta_b"}]})
-    deep_last = api("/runs/deep-last")["started_at"]
+    deep_last = api("/runs/deep-last?mode=profiles")["started_at"]
     boundary = max(now - 24 * H, __import__("datetime").datetime.fromisoformat(deep_last).timestamp() * 1000 if deep_last else 0)
     span = now - boundary                                                  # posts "novos" ficam entre a fronteira e agora
     def new_at(frac):
@@ -145,13 +145,13 @@ def test_profunda_percorre_feed_e_perfis_e_registra_uma_execucao(key, tmp_path):
 
     st0 = api("/state")
     res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
-                                      timeout_s=300, start_url=runner.DEEP_URL, route_hook=hook))
+                                      timeout_s=300, start_url=runner.PROFILES_URL, route_hook=hook))
     assert res["ok"] is True, res
     assert res["profiles_done"] == 2 and res["profile_created"] == 4, res            # a:2 posts + 1 resposta, b:1
-    assert [v for v in visited if v != "/home"] == ["/conta_a", "/conta_a/with_replies", "/conta_b", "/conta_b/with_replies"]
+    assert visited == ["/home", "/conta_a", "/conta_a/with_replies", "/conta_b", "/conta_b/with_replies"]   # sem ler o feed
     run = api("/runs?limit=1")["items"][0]
-    assert (run["source"], run["mode"], run["profiles_done"]) == ("robot", "deep", 2) and run["reason"] == "time_boundary"
-    assert api("/runs/deep-last")["started_at"] is not None
+    assert (run["source"], run["mode"], run["profiles_done"]) == ("robot", "profiles", 2)
+    assert api("/runs/deep-last?mode=profiles")["started_at"] is not None
     assert api("/state")["cursor_seq"] == st0["cursor_seq"]                           # não mexeu na posição de leitura
 
 
@@ -160,7 +160,7 @@ def test_profunda_pula_perfil_travado_e_comeca_mesmo_sem_evento_load(key, tmp_pa
     evento `load` nunca dispara (recurso pendurado) ainda roda o script."""
     now = time.time() * 1000
     span_start = max(now - 24 * 3600 * 1000, 0)
-    last = api("/runs/deep-last")["started_at"]
+    last = api("/runs/deep-last?mode=profiles")["started_at"]
     if last:
         span_start = max(span_start, __import__("datetime").datetime.fromisoformat(last).timestamp() * 1000)
     boundary = span_start
@@ -195,7 +195,7 @@ def test_profunda_pula_perfil_travado_e_comeca_mesmo_sem_evento_load(key, tmp_pa
         await context.route("https://x.com/**", handle)
 
     res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
-                                      timeout_s=300, stall_s=25, start_url=runner.DEEP_URL, route_hook=hook))
+                                      timeout_s=300, stall_s=25, start_url=runner.PROFILES_URL, route_hook=hook))
     assert res["ok"] is True, res
     assert res["profiles_done"] == 2 and res["profiles_skipped"] == 1 and res["profile_created"] == 2, res
     assert "/conta_hang" in visited and visited.count("/conta_b") >= 1
@@ -209,3 +209,40 @@ def test_travamento_fora_dos_perfis_encerra_a_execucao_com_erro(key, tmp_path):
     res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
                                       timeout_s=300, stall_s=10, route_hook=hook, start_url="https://x.com/home?nx=update"))
     assert res["ok"] is False and res.get("error")
+
+
+def test_profunda_do_feed_le_so_o_feed_e_registra_a_execucao(key, tmp_path):
+    now = time.time() * 1000
+    last = api("/runs/deep-last")["started_at"]
+    boundary = max(now - 24 * 3600 * 1000, __import__("datetime").datetime.fromisoformat(last).timestamp() * 1000 if last else 0)
+    off = (int(time.time()) % 50) + 200
+    api("/accounts/following", "PUT", json={"accounts": [{"handle": "conta_a"}]})
+    feed = [art(boundary + (now - boundary) * 0.9 - off, "conta_c"), art(boundary + (now - boundary) * 0.8 - off, "conta_c")]
+    feed += [art(boundary - n * 60000 - off, "conta_c") for n in range(1, 6)]
+    visited = []
+
+    async def hook(context):
+        async def handle(route):
+            path = route.request.url.split("x.com", 1)[1].split("?")[0].rstrip("/") or "/"
+            if route.request.resource_type == "document":
+                visited.append(path)
+            await route.fulfill(status=200, content_type="text/html; charset=utf-8", body=page(feed, tabs=True))
+        await context.route("https://x.com/**", handle)
+
+    res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
+                                      timeout_s=120, start_url=runner.DEEP_URL, route_hook=hook))
+    assert res["ok"] is True and not res.get("profiles_done"), res
+    assert set(visited) == {"/home"}                                       # nenhum perfil visitado
+    run = api("/runs?limit=1")["items"][0]
+    assert (run["source"], run["mode"]) == ("robot", "deep") and run["reason"] == "time_boundary"
+    assert api("/runs/deep-last")["started_at"] is not None
+
+
+def test_busca_pedida_pela_leitura_registra_o_motivo_na_execucao(key, tmp_path):
+    base = 2110000000000000000 + (int(time.time()) % 1_000_000) * 1000
+    holder = {"ids": [str(base + n) for n in range(6, 0, -1)]}
+    res = asyncio.run(runner.run_once(api_base=API, api_key=KEY, bundle=BUNDLE, state_path=tmp_path / "s.json",
+                                      timeout_s=90, why="restam 29 não lidas (abaixo de 30)", route_hook=make_hook(holder)))
+    assert res["ok"] is True, res
+    run = api("/runs?limit=1")["items"][0]
+    assert run["trigger"] == "restam 29 não lidas (abaixo de 30)" and run["mode"] == "normal"

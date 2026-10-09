@@ -15,20 +15,40 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 
 ## Horários (`robot/app/schedule.py`, fuso America/Sao_Paulo)
 
-- A cada **X minutos**, X sorteado entre 10 e 25 (era 30 a 45 até 2026-10-06; o dono aceitou o risco extra para a conta) **a cada execução**.
-- Madrugada: a primeira execução que cairia entre **01:00 e 05:10** roda (é a **única** da madrugada); depois disso nada até **05:10**, quando volta a buscar e retoma o ritmo normal. **A primeira busca a partir das 05:10 é PROFUNDA** (rola mais, comparando com as últimas 100 entradas) para recuperar algo que tenha ficado para trás; **a primeira a partir das 12:30 também é profunda**; as demais são normais.
-- Reinício do contêiner: não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada (se já rodou naquela madrugada, espera 05:10).
-- Primeira vez (sem histórico): roda assim que houver sessão.
+**Busca normal** — a cada X minutos, X sorteado **a cada execução**, com a faixa conforme quantas mensagens ainda não foram lidas (a API calcula, `GET /robot/policy`):
 
-## Busca profunda (feed + perfis)
+| Não lidas | Intervalo |
+|---|---|
+| menos de 50 | 10 a 25 min |
+| de 50 a 99 | 30 a 45 min |
+| 100 ou mais | 45 a 60 min |
 
-Na profunda o robô lê o Seguindo até a **última verificação profunda** (no máximo 24 h atrás) e depois **entra no perfil de cada conta seguida** (aba Posts e aba Respostas), incluindo o que faltar na fila. Detalhes e decisões em `docs/03-userscript.md` (0.9.0). Isso são ~2 páginas por conta seguida (hoje ~57 contas, mais de 110 páginas) duas vezes ao dia (a primeira a partir das 05:10 e das 12:30) mais as profundas manuais: **é o trecho de maior risco para a conta**.
+(Os valores exatos 50 e 100 caem na faixa de cima; o pedido dizia "mais de"/"menos de" sem tratar a igualdade.)
+
+**Madrugada** — a primeira execução que cairia entre **01:00 e 05:10** roda (é a **única** da madrugada); depois disso nada até **05:10**.
+
+**Busca profunda do feed** — a primeira busca a partir das **05:10** e a primeira a partir das **12:30** (todo dia). Lê o Seguindo até a fronteira de tempo (a última profunda do feed, no máximo 24 h). **Não entra mais nos perfis.**
+
+**Verificação dos perfis** — **uma por dia**, num horário sorteado entre **03:00 e 03:30** (um sorteio por dia, guardado). Roda dentro da parada da madrugada e **não conta** como a busca única dela. Abre o perfil de cada conta seguida (aba Posts e aba Respostas). Se o robô estiver parado nessa janela, a verificação **não é recuperada fora de hora**: fica para o dia seguinte.
+
+**Reinício do contêiner** — não "recupera" horários perdidos (roda na hora se já passou da vez); respeita a regra da madrugada. Primeira vez (sem histórico): roda assim que houver sessão.
+
+### Reação à leitura (a API vigia a contagem de não lidas)
+
+Toda vez que você avança (ou cobre/descobre posts, ou chegam novos), a API compara a contagem com a anterior. Só quando ela **diminui**:
+
+1. **Mudou para uma faixa de intervalo menor** (de 100+ para 50-99, ou para menos de 50) e o horário da próxima busca está **mais longe que o máximo da nova faixa**: a API sorteia um novo horário dentro da nova faixa, a partir de agora, e registra "Próxima busca antecipada" no histórico. O robô adota o horário novo em até 15 s (só se ele respeitar a parada da madrugada; a verificação de perfis nunca é antecipada).
+2. **Atravessou 30, 15 ou 6 para baixo** (30→29, 15→14, 6→5): a API **pede ao robô uma busca imediata** e registra "Busca solicitada (leitura)" com o motivo ("restam 29 não lidas (abaixo de 30)"). O robô confere a cada 15 s, roda a busca (normal, ou profunda do feed se for a primeira depois das 05:10/12:30) e guarda o motivo na execução ("Motivo: …"). Intervalo mínimo de 3 min depois de outra execução.
+
+## Busca profunda do feed e verificação dos perfis
+
+Desde 2026-10-09 são **duas execuções separadas**. A profunda do feed (acima) só lê o Seguindo. A verificação dos perfis **entra no perfil de cada conta seguida** (aba Posts e aba Respostas) e inclui o que faltar na fila: ~2 páginas por conta (hoje ~57 contas, mais de 110 páginas), **uma vez por dia**, de madrugada. É o trecho de maior risco para a conta. Cada uma tem a sua fronteira de tempo (última concluída, máximo 24 h). Detalhes em `docs/03-userscript.md` (0.9.0 e 0.10.0).
 
 ## Proteções
 
 - Falhas seguidas: após **3**, o robô **pausa** (não insiste na conta). Sessão expirada (tela de login) pausa na hora.
 - Pausado volta sozinho quando você envia uma **sessão nova** (o arquivo `x_state.json` muda; checagem a cada 60 s) ou ao reiniciar o contêiner.
-- Tempo máximo por execução: 25 min (profunda: 120 min).
+- Tempo máximo por execução: 25 min (profunda do feed: 60 min; verificação de perfis: 120 min).
 - **Vigia de travamento (desde 2026-10-07):** o script emite um batimento a cada passo; se o robô não vê progresso por **5 min**, a página travou. Na verificação de perfis ele **pula a conta travada** (até 4 por execução) e segue para a próxima; fora disso encerra a execução com erro "travou". Todas as leituras do navegador têm prazo, para um navegador pendurado nunca prender o robô. O script também começa sem esperar o evento `load` da página.
 - A chave da API **não passa pela página**: o Python coloca o cabeçalho; a rede do robô só alcança a API do notiXias; as funções expostas têm nome aleatório por execução.
 - Sem login automático: você entra **manualmente** (passo abaixo).
@@ -90,3 +110,13 @@ O sorteio dos 10–25 minutos é feito **logo depois de cada busca** (e guardado
 ## Incidente de 2026-10-07 (profunda travada)
 
 A profunda das 12:50 travou em torno da 13:00 (cerca da conta 27 de 57, página que nunca terminou de carregar) e o robô ficou **mais de 2 horas** parado nela, sem erro nem registro: o prazo de 120 min foi vencido, mas a leitura de diagnóstico (`page.evaluate`) também ficou pendurada. Corrigido com o vigia de travamento, prazos em todas as leituras e início do script sem depender do evento `load`.
+
+## Decisões de 2026-10-09 (revisar)
+
+1. Faixas de não lidas: 100 e 50 exatos caem na faixa de cima (45–60 e 30–45).
+2. A contagem de não lidas é a "depois da posição atual" (`unread_after`), sem as cobertas.
+3. O horário antecipado é sorteado dentro da nova faixa **a partir de agora** (não "o menor entre o atual e o máximo").
+4. A verificação de perfis perdida (robô parado entre 03:00 e 03:30) **não é recuperada**: vai para o dia seguinte.
+5. O pedido de busca por limiar (30/15/6) respeita um intervalo mínimo de 3 minutos depois de outra execução, e vira a profunda do feed se for a primeira depois de 05:10/12:30.
+6. Os três limiares só disparam ao **diminuir** a contagem (voltar uma mensagem ou chegarem novas não pedem busca); um salto grande que atravessa dois limiares gera um único pedido (o motivo cita o menor).
+7. A verificação de perfis é um horário próprio e **não conta** como "busca única depois de 01:00".

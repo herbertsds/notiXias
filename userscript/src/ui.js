@@ -48,6 +48,9 @@ const Ui = (function () {
     .rw.warn .s { color: #f0b429; }
     .rw.next { background: #0f1c27; border-radius: 10px; border-bottom: 1px solid #1d9bf0; margin: 8px 0; }
     .rw.next .m { color: #1d9bf0; }
+    .rw.event { background: #14110a; }
+    .rw.event .m { color: #f0b429; }
+    .rw.event .s { color: #c9b27a; }
     .rw.error .s { color: #f4212e; }
     .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;

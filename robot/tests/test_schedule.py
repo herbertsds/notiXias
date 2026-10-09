@@ -120,3 +120,55 @@ def test_plan_sorteia_junto_e_informa_se_e_profunda():
     assert 10 <= (when - last).total_seconds() / 60 <= 25
     assert deep == schedule.is_deep(last, when)
     assert schedule.plan(at(12, 31), at(12, 31), random.Random(16))[1] is False   # já passou das 12:30 nessa rodada
+
+
+# ---------- faixa de intervalo vinda das não lidas ----------
+def test_faixa_de_intervalo_informada_substitui_a_padrao():
+    last = at(10, 0)
+    for lo, hi in ((10, 25), (30, 45), (45, 60)):
+        rng = random.Random(lo)
+        for _ in range(100):
+            mins = (next_run(last, last, rng, (lo, hi)) - last).total_seconds() / 60
+            assert lo <= mins <= hi
+
+
+def test_horario_vindo_de_fora_respeita_a_parada_da_madrugada():
+    assert schedule.allowed(at(10, 0), at(10, 30)) is True
+    assert schedule.allowed(at(0, 50), at(1, 20)) is True              # ainda não rodou na madrugada: pode ser a única
+    assert schedule.allowed(at(1, 20), at(3, 0)) is False              # já rodou na madrugada: só às 05:10
+    assert schedule.allowed(at(1, 20), at(5, 10)) is True
+
+
+# ---------- verificação dos perfis: diária, entre 03:00 e 03:30 ----------
+def test_perfis_sorteia_entre_3h_e_3h30_e_varia_por_dia():
+    rng = random.Random(21)
+    now = at(20, 0)
+    vistos = set()
+    for _ in range(60):
+        t = schedule.next_profiles(None, now, rng)
+        assert t.date() == (now + timedelta(days=1)).date() and at(3, 0, 7) <= t <= at(3, 30, 7)
+        vistos.add(t.minute)
+    assert len(vistos) > 10
+
+
+def test_perfis_mantem_o_horario_ja_sorteado():
+    rng = random.Random(22)
+    first = schedule.next_profiles(None, at(20, 0), rng)
+    assert schedule.next_profiles(None, at(21, 0), rng, current=first) == first
+    outro_dia = schedule.next_profiles(None, at(20, 0), rng, current=first - timedelta(days=3))
+    assert outro_dia.date() == first.date() and outro_dia != first - timedelta(days=3)
+
+
+def test_perfis_hoje_se_ainda_nao_foi_feito_e_a_janela_nao_passou():
+    rng = random.Random(23)
+    t = schedule.next_profiles(None, at(2, 0), rng)                    # 02:00: ainda dá tempo hoje
+    assert t.date() == at(2, 0).date() and at(3, 0) <= t <= at(3, 30)
+    dentro = schedule.next_profiles(None, at(3, 20), rng)              # já dentro da janela: só o que vem pela frente
+    assert at(3, 20) <= dentro <= at(3, 30)
+
+
+def test_perfis_ja_feitos_hoje_ou_janela_perdida_ficam_para_amanha():
+    rng = random.Random(24)
+    amanha = at(3, 0, 7).date()
+    assert schedule.next_profiles(at(3, 10), at(3, 15), rng).date() == amanha            # já fez hoje
+    assert schedule.next_profiles(None, at(8, 0), rng).date() == amanha                  # robô parado de madrugada: não recupera

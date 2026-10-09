@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -39,7 +41,9 @@ def put_state(body: StateIn, request: Request):
     db = _db(request)
     feed = body.feed.model_dump() if body.feed else None
     try:
-        return svc.update_state(db, body.model_fields_set, body.cursor_seq, feed, body.expected_version)
+        out = svc.update_state(db, body.model_fields_set, body.cursor_seq, feed, body.expected_version)
+        svc.evaluate_unread(db)   # avançou/voltou uma mensagem: confere a contagem (ritmo do robô e pedidos de busca)
+        return out
     except svc.VersionConflict:
         return JSONResponse(
             status_code=409,
@@ -83,9 +87,10 @@ def get_gap(request: Request, depth: int = Query(25, ge=1, le=100), max_age_days
 
 @router.post("/queue/append")
 def post_append(body: AppendIn, request: Request):
-    return svc.append_items(
-        _db(request), body.items, body.anchor_found, body.batch_id, gap_seq=body.gap_seq, scan=body.scan, run=body.run
-    )
+    db = _db(request)
+    out = svc.append_items(db, body.items, body.anchor_found, body.batch_id, gap_seq=body.gap_seq, scan=body.scan, run=body.run)
+    svc.evaluate_unread(db)
+    return out
 
 
 @router.get("/runs")
@@ -94,8 +99,28 @@ def get_runs(request: Request, limit: int = Query(100, ge=1, le=200)):
 
 
 @router.get("/runs/deep-last")
-def get_deep_last(request: Request):
-    return svc.deep_last(_db(request))
+def get_deep_last(request: Request, mode: Literal["deep", "profiles"] = "deep"):
+    return svc.deep_last(_db(request), mode)
+
+
+@router.get("/robot/policy")
+def get_robot_policy(request: Request):
+    return svc.robot_policy(_db(request))
+
+
+@router.get("/robot/next")
+def get_robot_next(request: Request):
+    return svc.robot_next_doc(_db(request))
+
+
+@router.get("/robot/request")
+def get_robot_request(request: Request):
+    return svc.robot_request_state(_db(request))
+
+
+@router.post("/robot/request/ack")
+def post_robot_request_ack(request: Request):
+    return svc.ack_robot_request(_db(request))
 
 
 @router.post("/runs/report", status_code=201)
@@ -153,19 +178,28 @@ def patch_entry(seq: int, body: EntryPatch, request: Request):
 @router.post("/entries/cover")
 def post_cover(body: CoverIn, request: Request):
     try:
-        return svc.cover_by_tweet_ids(_db(request), body.covered_by, body.tweet_ids, body.ancestor_ids)
+        db = _db(request)
+        out = svc.cover_by_tweet_ids(db, body.covered_by, body.tweet_ids, body.ancestor_ids)
+        svc.evaluate_unread(db)
+        return out
     except svc.UnknownEntry:
         raise HTTPException(status_code=404, detail="entrada de destino não encontrada")
 
 
 @router.post("/entries/settle")
 def post_settle(body: SettleIn, request: Request):
-    return svc.settle_cover(_db(request), body.covered_by, body.present_ids)
+    db = _db(request)
+    out = svc.settle_cover(db, body.covered_by, body.present_ids)
+    svc.evaluate_unread(db)
+    return out
 
 
 @router.post("/entries/uncover")
 def post_uncover(body: UncoverIn, request: Request):
-    return svc.uncover(_db(request), body.covered_by)
+    db = _db(request)
+    out = svc.uncover(db, body.covered_by)
+    svc.evaluate_unread(db)
+    return out
 
 
 # ---------- visualizações ----------

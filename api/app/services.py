@@ -1,9 +1,12 @@
 """Regras de negócio da fila. Funções recebem o `db` (pymongo) e são independentes do FastAPI."""
 import os
+import random
 from datetime import datetime, timedelta, timezone
 
 from pymongo import ASCENDING, DESCENDING, ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
+
+from .robot_policy import crossed_thresholds, tier_for
 
 # Um repost de um tweet já visto só volta como entrada nova se a última visualização foi há mais que isto.
 REVISIT_AFTER = timedelta(minutes=int(os.environ.get("REVISIT_AFTER_MINUTES", "120")))
@@ -498,8 +501,13 @@ def anchor_keys(db, depth: int) -> dict:
 
 
 # ---------- histórico de execuções ----------
+def _trigger(run) -> dict:
+    t = getattr(run, "trigger", None)
+    return {"trigger": t} if t else {}
+
+
 def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anchor_found: bool | None = None, error: str | None = None) -> None:
-    doc = {"at": now(), "source": run.source, "mode": run.mode, "ok": ok}
+    doc = {"at": now(), "source": run.source, "mode": run.mode, "ok": ok, **_trigger(run)}
     if ok and result is not None:
         doc.update(
             created=result["created"], updated=result["updated"], gap=result["gap"], anchor_found=anchor_found,
@@ -512,7 +520,7 @@ def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anch
 
 
 def record_run_report(db, body) -> None:
-    doc = {"at": now(), "source": body.source, "mode": body.mode, "ok": True, "started_at": body.started_at}
+    doc = {"at": now(), "source": body.source, "mode": body.mode, "ok": True, "started_at": body.started_at, **_trigger(body)}
     doc.update(
         created=body.created, updated=body.updated, gap=body.gap, reason=body.reason, steps=body.steps,
         collected=body.collected, profiles_done=body.profiles_done, profiles_skipped=body.profiles_skipped,
@@ -521,23 +529,109 @@ def record_run_report(db, body) -> None:
     db.runs.insert_one(doc)
 
 
-def deep_last(db) -> dict:
-    """Quando COMEÇOU a última verificação profunda concluída (fronteira da próxima). `null` se nunca houve."""
-    run = db.runs.find_one({"mode": "deep", "ok": True}, sort=[("at", DESCENDING)])
+def deep_last(db, mode: str = "deep") -> dict:
+    """Quando COMEÇOU a última verificação profunda concluída (fronteira da próxima): `mode` "deep" (feed) ou
+    "profiles" (perfis). `null` se nunca houve."""
+    run = db.runs.find_one({"mode": mode, "ok": True}, sort=[("at", DESCENDING), ("_id", DESCENDING)])
     if not run:
         return {"started_at": None}
     return {"started_at": run.get("started_at") or run["at"]}
 
 
 def list_runs(db, limit: int) -> dict:
-    docs = list(db.runs.find({}, {"_id": 0}).sort("at", DESCENDING).limit(limit))
+    docs = list(db.runs.find({}, {"_id": 0}).sort([("at", DESCENDING), ("_id", DESCENDING)]).limit(limit))
     return {"items": docs, "next": db.meta.find_one({"_id": "robot_next"}, {"_id": 0})}
 
 
 def set_robot_next(db, body) -> dict:
-    doc = {"at": body.at, "mode": body.mode, "state": body.state, "updated_at": now()}
+    doc = {"at": body.at, "mode": body.mode, "state": body.state, "unread": body.unread, "updated_at": now()}
     db.meta.replace_one({"_id": "robot_next"}, {"_id": "robot_next", **doc}, upsert=True)
     return {"ok": True}
+
+
+# ---------- não lidas: ritmo do robô e pedidos de busca ----------
+def count_unread(db) -> int:
+    """Quantas mensagens ainda faltam ler (depois da posição atual, sem as cobertas)."""
+    st = _state_doc(db)
+    cursor = st["cursor_seq"]
+    if cursor is None:
+        return db.entries.count_documents(VISIBLE)
+    return db.entries.count_documents({**VISIBLE, "ord": {"$gt": ord_of(db, cursor)}})
+
+
+def robot_policy(db) -> dict:
+    n = count_unread(db)
+    return {"unread": n, **tier_for(n)}
+
+
+def _log_run_event(db, kind: str, reason: str, **extra) -> None:
+    db.runs.insert_one({"kind": kind, "at": now(), "source": "reading", "reason": reason, **extra})
+
+
+def request_robot_run(db, reason: str, threshold: int, unread: int) -> None:
+    """Pede ao robô uma busca agora (ele confere a cada poucos segundos) e deixa o motivo no histórico."""
+    db.meta.replace_one(
+        {"_id": "robot_request"},
+        {"_id": "robot_request", "pending": True, "reason": reason, "threshold": threshold, "unread": unread, "requested_at": now()},
+        upsert=True,
+    )
+    _log_run_event(db, "request", reason, threshold=threshold, unread=unread)
+
+
+def evaluate_unread(db, rng=random) -> dict:
+    """Chamar depois de qualquer coisa que mude a contagem de não lidas (ler/avançar, cobrir, buscar novas).
+
+    Compara com a última contagem guardada. Só quando a contagem DIMINUI:
+    - atravessou 30, 15 ou 6 para baixo -> pede uma busca nova ao robô, com o motivo no histórico;
+    - passou para uma faixa de intervalo MENOR e o próximo horário do robô está mais longe que o máximo da nova faixa
+      -> sorteia um novo horário dentro da nova faixa (a partir de agora)."""
+    new = count_unread(db)
+    before = db.meta.find_one_and_update(
+        {"_id": "unread_watch"}, {"$set": {"count": new, "updated_at": now()}}, upsert=True, return_document=ReturnDocument.BEFORE
+    )
+    old = before["count"] if before else None
+    out = {"old": old, "new": new, "requested": None, "rescheduled": None}
+    if old is None or new >= old:
+        return out
+
+    crossed = crossed_thresholds(old, new)
+    if crossed:
+        t = min(crossed)
+        reason = f"restam {new} não lidas (abaixo de {t})"
+        request_robot_run(db, reason, t, new)
+        out["requested"] = reason
+
+    t_old, t_new = tier_for(old), tier_for(new)
+    if t_new["max_minutes"] < t_old["max_minutes"]:
+        nxt = db.meta.find_one({"_id": "robot_next"})
+        if nxt and nxt.get("state") == "scheduled" and nxt.get("at") and nxt.get("mode") != "profiles":
+            remaining = (nxt["at"] - now()).total_seconds() / 60
+            if remaining > t_new["max_minutes"]:
+                at = now() + timedelta(minutes=rng.uniform(t_new["min_minutes"], t_new["max_minutes"]))
+                db.meta.update_one({"_id": "robot_next"}, {"$set": {"at": at, "updated_at": now(), "rescheduled_by": "unread"}})
+                reason = f"restam {new} não lidas: próxima busca antecipada ({round(remaining)} min -> {round((at - now()).total_seconds() / 60)} min)"
+                _log_run_event(db, "reschedule", reason, unread=new)
+                out["rescheduled"] = at
+    return out
+
+
+def robot_request_state(db) -> dict:
+    doc = db.meta.find_one({"_id": "robot_request"}, {"_id": 0})
+    return doc or {"pending": False}
+
+
+def ack_robot_request(db) -> dict:
+    """O robô pegou o pedido: limpa e devolve o motivo (ou `pending: false` se não havia)."""
+    doc = db.meta.find_one_and_update(
+        {"_id": "robot_request", "pending": True}, {"$set": {"pending": False, "acked_at": now()}}, return_document=ReturnDocument.BEFORE
+    )
+    if not doc:
+        return {"pending": False}
+    return {"pending": True, "reason": doc["reason"], "threshold": doc.get("threshold"), "unread": doc.get("unread"), "requested_at": doc["requested_at"]}
+
+
+def robot_next_doc(db):
+    return db.meta.find_one({"_id": "robot_next"}, {"_id": 0})
 
 
 def gap_info(db, depth: int, max_age_days: int) -> dict:

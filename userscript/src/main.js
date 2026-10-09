@@ -30,7 +30,7 @@ async function startApp() {
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
   // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
-  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
+  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
   const gmCache = new Map();
   // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
   const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
@@ -83,7 +83,15 @@ async function startApp() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Sinal para o robô do servidor (lido pelo navegador sem tela): a busca terminou, com sucesso ou erro.
   // Identificação da execução (histórico): quem disparou e se foi normal ou profunda.
-  const runMeta = (deep) => ({ source: cfg.bot ? 'robot' : 'manual', mode: deep ? 'deep' : 'normal' });
+  // `x`: "normal" | "deep" (busca profunda do feed) | "profiles" (verificação dos perfis); aceita booleano (deep) por compatibilidade.
+  // `trigger`: por que o robô rodou fora de hora (ex.: "restam 29 não lidas"), vindo do robô.
+  const runMeta = (x) => {
+    const mode = typeof x === 'string' ? x : x ? 'deep' : 'normal';
+    const meta = { source: cfg.bot ? 'robot' : 'manual', mode };
+    const why = cfg.bot ? gm.get('nx_why', null) : null;
+    if (why) meta.trigger = String(why).slice(0, 200);
+    return meta;
+  };
   // Batimento de progresso (só no robô): o robô do servidor lê isto para saber se a busca está andando ou travou.
   const beat = () => { if (cfg.bot) gm.set('nx_beat', Date.now()); };
   const botDone = (result) => { if (cfg.bot) window.__nxBotResult = Object.assign({ at: Date.now() }, result); };
@@ -268,7 +276,8 @@ async function startApp() {
     return [
       { label: 'Execuções…', onClick: showRuns },
       { label: 'Buscar novas agora', onClick: () => startFetch() },
-      { label: 'Buscar novas (varredura profunda)', onClick: () => startFetch(true) },
+      { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true) },
+      { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun() },
       { label: followingLabel(st), onClick: () => startFollowingRefresh() },
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
@@ -484,7 +493,7 @@ async function startApp() {
       // Fronteira da verificação profunda: o começo da última concluída, no máximo 24 h atrás.
       let boundary = Date.now() - 24 * 3600 * 1000;
       try {
-        const last = await api.deepLast();
+        const last = await api.deepLast('deep');
         if (last.started_at) boundary = Math.max(boundary, new Date(last.started_at).getTime());
       } catch (e) { /* sem a data da última: usa as 24 h */ }
       setPhase('fetching', { deep: true, boundary, startedAt: new Date().toISOString() });
@@ -504,10 +513,11 @@ async function startApp() {
   }
 
   async function failFetch(message, art) {
-    const wasDeep = !!getPhase().deep;
+    const ph0 = getPhase();
+    const wasMode = ph0.mode || (ph0.deep ? 'deep' : 'normal');
     botDone({ ok: false, error: message });
     setPhase('error');
-    try { await api.runFailed(Object.assign(runMeta(wasDeep), { error: message.slice(0, 300) })); } catch (e) { /* o histórico é só informativo */ }
+    try { await api.runFailed(Object.assign(runMeta(wasMode), { error: message.slice(0, 300) })); } catch (e) { /* o histórico é só informativo */ }
     const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
     gm.set('nx_skeleton', sk);
     try {
@@ -583,10 +593,18 @@ async function startApp() {
       anchor_found: scan.anchorFound && !scan.gapUnresolved,  // lacuna não aberta = pode haver posts escondidos
       batch_id: Core.newBatchId(),
       // diagnóstico: por que a busca parou (fica na lacuna e no lote, para a causa não precisar ser adivinhada)
-      run: deep ? undefined : runMeta(false), // a profunda registra UMA execução ao fim (feed + perfis)
+      run: deep ? undefined : runMeta('normal'), // a profunda do feed registra a execução com o relatório, logo abaixo
       scan: { reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length, gap_unresolved: scan.gapUnresolved || 0 },
     });
-    if (deep) return startProfiles(ph, res, scan);
+    if (deep) {
+      // Fecha a busca profunda do feed: a fronteira da próxima só avança se este relatório chegar.
+      try {
+        await api.runReport(Object.assign(runMeta('deep'), {
+          started_at: ph.startedAt, created: res.created, updated: res.updated, gap: !!res.gap, reason: scan.reason || null,
+          steps: scan.steps || 0, collected: scan.seq.length,
+        }));
+      } catch (e) { /* o histórico é só informativo */ }
+    }
     setPhase('idle');
     if (cfg.bot) {
       // Robô: não abre nada (abrir uma entrada registraria leitura e mexeria na posição). Só informa o resultado.
@@ -619,14 +637,22 @@ async function startApp() {
   // 5 posts anteriores a essa verificação. Um perfil por página (navegação completa); o andamento fica na fase 'profiles'.
   const profileUrl = (p) => 'https://x.com/' + p.handles[p.i] + (p.tab === 'replies' ? '/with_replies' : '');
 
-  async function startProfiles(ph, res, scan) {
+  // Verificação dos perfis (a "profunda dos perfis"): não lê o feed, só os perfis de quem você segue.
+  async function startProfilesRun() {
+    ui.hideOverlay();
+    // Fronteira: o começo da última verificação de perfis concluída, no máximo 24 h atrás.
+    let boundary = Date.now() - 24 * 3600 * 1000;
+    try {
+      const last = await api.deepLast('profiles');
+      if (last.started_at) boundary = Math.max(boundary, new Date(last.started_at).getTime());
+    } catch (e) { /* sem a data da última: usa as 24 h */ }
     let handles = [];
     try {
       const f = await api.following(true);
       handles = (f.accounts || []).map((a) => a.handle).filter(Boolean);
-    } catch (e) { /* sem a lista: só o feed */ }
-    const feedPart = { created: res.created, updated: res.updated, gap: !!res.gap, reason: scan.reason || 'unknown', steps: scan.steps || 0, collected: scan.seq.length };
-    setPhase('profiles', { deep: true, boundary: ph.boundary, startedAt: ph.startedAt, handles, i: 0, tab: 'posts', feed: feedPart, done: 0, skipped: 0, pcreated: 0, pupdated: 0, failRun: 0, nav: 0 });
+    } catch (e) { /* sem a lista não há o que verificar */ }
+    const feedPart = { created: 0, updated: 0, gap: false, reason: null, steps: 0, collected: 0 };
+    setPhase('profiles', { deep: true, mode: 'profiles', boundary, startedAt: new Date().toISOString(), handles, i: 0, tab: 'posts', feed: feedPart, done: 0, skipped: 0, pcreated: 0, pupdated: 0, failRun: 0, nav: 0 });
     return advanceProfile(getPhase());
   }
 
@@ -716,7 +742,7 @@ async function startApp() {
     const updated = p.feed.updated + p.pupdated;
     try {
       await api.runReport({
-        source: cfg.bot ? 'robot' : 'manual', mode: 'deep', started_at: p.startedAt,
+        ...runMeta('profiles'), started_at: p.startedAt,
         created, updated, gap: p.feed.gap, reason: p.feed.reason, steps: p.feed.steps, collected: p.feed.collected,
         profiles_done: p.done, profiles_skipped: p.skipped, profile_created: p.pcreated,
       });
@@ -730,7 +756,7 @@ async function startApp() {
     if (created > 0) parts.push(created + ' novos' + (p.pcreated ? ' (' + p.pcreated + ' nos perfis)' : ''));
     if (updated > 0) parts.push(updated + ' com resposta nova');
     parts.push(p.done + ' perfis verificados' + (p.skipped ? ' (' + p.skipped + ' sem leitura)' : ''));
-    gm.set('nx_notice', 'Profunda: ' + parts.join(' · ') + (p.feed.gap ? ' · ⚠ pode haver lacuna' : ''));
+    gm.set('nx_notice', 'Perfis: ' + parts.join(' · ') + (p.feed.gap ? ' · ⚠ pode haver lacuna' : ''));
     ui.hideOverlay();
     const st = await api.state();
     if (st.current) return openEntry(st.current);
@@ -952,6 +978,7 @@ async function startApp() {
         ui.hideOverlay();
         if (cmd === 'update') return await startFetch(false);
         if (cmd === 'deep') return await startFetch(true);
+        if (cmd === 'profiles') return await startProfilesRun();
         if (cmd === 'following') return startFollowingRefresh();
         if (cmd === 'read') return await resumeReading();
       }

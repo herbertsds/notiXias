@@ -14,9 +14,11 @@ from playwright.async_api import async_playwright
 log = logging.getLogger("robot")
 
 HOME_URL = "https://x.com/home?nx=update"
-DEEP_URL = "https://x.com/home?nx=deep"
+DEEP_URL = "https://x.com/home?nx=deep"          # busca profunda do FEED
+PROFILES_URL = "https://x.com/home?nx=profiles"  # verificação dos PERFIS de quem você segue
 NORMAL_TIMEOUT_S = 25 * 60
-DEEP_TIMEOUT_S = 120 * 60  # feed (até 45 min) + perfil de cada conta seguida, aba Posts e aba Respostas
+DEEP_TIMEOUT_S = 60 * 60       # busca profunda do feed (até 45 min de rolagem)
+PROFILES_TIMEOUT_S = 120 * 60  # perfil de cada conta seguida, aba Posts e aba Respostas
 # Parecido com um Chrome comum de computador (sem "HeadlessChrome").
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -79,6 +81,7 @@ async def run_once(
     state_path: Path,
     timeout_s: int = NORMAL_TIMEOUT_S,
     stall_s: int = STALL_S,
+    why: str | None = None,
     start_url: str = HOME_URL,
     headless: bool = True,
     route_hook=None,
@@ -87,6 +90,8 @@ async def run_once(
     t0 = time.monotonic()
     store: dict[str, str] = {"nx_cfg": json.dumps(bot_config(api_base, api_key))}
     real_auth = f"Bearer {api_key}"
+    if why:
+        store["nx_why"] = json.dumps(why[:200])  # o script a registra como o motivo desta execução
     api_host = urlparse(api_base)
 
     async def nx_get(key):

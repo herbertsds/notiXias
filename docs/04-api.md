@@ -89,6 +89,14 @@ Histórico de execuções, da mais recente para a mais antiga: `{ items: [{ at, 
 
 `deep-last` → `{ started_at }`: o começo da última busca **profunda concluída** (`null` se nunca houve): é a fronteira da próxima. `POST /runs/report` `{ source, mode, started_at, created, updated, gap, reason, steps, collected, profiles_done, profiles_skipped, profile_created }` fecha uma execução profunda composta (feed + perfis) e a registra no histórico; só relatórios com `mode: "deep"` movem a fronteira.
 
+### Ritmo do robô e pedidos de busca (por não lidas)
+
+- `GET /robot/policy` → `{ unread, tier: "low"|"mid"|"high", min_minutes, max_minutes }` (menos de 50: 10–25; 50–99: 30–45; 100+: 45–60).
+- `GET /robot/next` → o horário que a API guarda (`{ at, mode, state, unread, rescheduled_by? }`); o robô o adota se foi antecipado.
+- `GET /robot/request` e `POST /robot/request/ack` → pedido de busca imediata (`{ pending, reason, threshold, unread, requested_at }`); o `ack` devolve o motivo e limpa.
+- Depois de `PUT /state`, `POST /queue/append`, `/entries/cover`, `/entries/settle` e `/entries/uncover` a API confere a contagem de não lidas contra a última guardada (`meta.unread_watch`). Se **diminuiu**: atravessar 30, 15 ou 6 cria o pedido (e uma linha `kind: "request"` no histórico); mudar para uma faixa menor com o próximo horário mais longe que o máximo da nova faixa sorteia um horário novo (linha `kind: "reschedule"`).
+- `GET /runs/deep-last?mode=deep|profiles` → fronteira de cada tipo. `mode` das execuções: `normal` | `deep` (feed) | `profiles`; `trigger` opcional guarda o motivo de uma execução pedida.
+
 ### `GET /api/v1/queue/gap?depth=25&max_age_days=3`
 
 A lacuna aberta mais antiga ainda alcançável: `{ seq, keys, reason }` (`keys` = aparições das `depth` entradas capturadas antes dela; `seq: null` se não houver). `POST /queue/append` aceita `gap_seq`: uma busca que reencontrou esse "outro lado" fecha a lacuna; uma parcial a desloca para antes do item mais antigo que criou. (Preparado na API; o script ainda não usa.)

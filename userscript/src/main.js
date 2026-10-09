@@ -430,7 +430,7 @@ async function startApp() {
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
     renderEntryBar(st, notice);
-    const pin = pinTop(8000); // enquanto a tela de carregamento cobre a página
+    const pin = pinTop(3000); // só enquanto a tela de carregamento (no máximo 3 s) cobre a página
     const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
     // Espera o post aparecer OU o X avisar que ele não existe mais (apagado, conta suspensa...): nesse caso não adianta esperar.

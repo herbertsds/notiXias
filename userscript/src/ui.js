@@ -82,7 +82,7 @@ const Ui = (function () {
     @keyframes nxspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .sp { animation-duration: 2.6s; } .ld { transition-duration: .2s; } }
   `;
-  const LOADING_FAILSAFE_MS = 25000; // se algo der errado, a tela nunca fica presa
+  const LOADING_MAX_MS = 3000; // a tela de carregamento nunca passa disto, aconteça o que acontecer
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -113,7 +113,8 @@ const Ui = (function () {
     return { prev: 40, center: 20, next: 40 };
   }
 
-  function create(doc) {
+  function create(doc, opts) {
+    const loadingMaxMs = (opts && opts.loadingMaxMs) || LOADING_MAX_MS;
     const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
@@ -320,17 +321,21 @@ const Ui = (function () {
         ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…'));
         ld.root.append(ldNode);
       }
+      const fresh = ldNode.classList.contains('out'); // só uma tela NOVA reinicia a contagem dos 3 s
       ldNode.classList.remove('out');
       const tx = ldNode.querySelector('.tx');
       if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
-      clearTimeout(ldFailTimer);
-      ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
+      if (fresh || !ldFailTimer) {
+        clearTimeout(ldFailTimer);
+        ldFailTimer = setTimeout(hideLoading, loadingMaxMs);
+      }
     }
 
     // Fade out suave; depois remove da página.
     function hideLoading() {
       if (!ldNode) return;
       clearTimeout(ldFailTimer);
+      ldFailTimer = null;
       const node = ldNode;
       node.classList.add('out');
       clearTimeout(ldRemoveTimer);

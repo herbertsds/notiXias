@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.2
+// @version      0.10.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1344,7 +1344,7 @@ const Ui = (function () {
     @keyframes nxspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .sp { animation-duration: 2.6s; } .ld { transition-duration: .2s; } }
   `;
-  const LOADING_FAILSAFE_MS = 25000; // se algo der errado, a tela nunca fica presa
+  const LOADING_MAX_MS = 3000; // a tela de carregamento nunca passa disto, aconteça o que acontecer
   const LONG_PRESS_MS = 600;
 
   function el(doc, tag, props, ...kids) {
@@ -1375,7 +1375,8 @@ const Ui = (function () {
     return { prev: 40, center: 20, next: 40 };
   }
 
-  function create(doc) {
+  function create(doc, opts) {
+    const loadingMaxMs = (opts && opts.loadingMaxMs) || LOADING_MAX_MS;
     const win = doc.defaultView;
     const bar = makeHost(doc, 'notixias-bar', BAR_CSS);
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
@@ -1582,17 +1583,21 @@ const Ui = (function () {
         ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…'));
         ld.root.append(ldNode);
       }
+      const fresh = ldNode.classList.contains('out'); // só uma tela NOVA reinicia a contagem dos 3 s
       ldNode.classList.remove('out');
       const tx = ldNode.querySelector('.tx');
       if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
-      clearTimeout(ldFailTimer);
-      ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
+      if (fresh || !ldFailTimer) {
+        clearTimeout(ldFailTimer);
+        ldFailTimer = setTimeout(hideLoading, loadingMaxMs);
+      }
     }
 
     // Fade out suave; depois remove da página.
     function hideLoading() {
       if (!ldNode) return;
       clearTimeout(ldFailTimer);
+      ldFailTimer = null;
       const node = ldNode;
       node.classList.add('out');
       clearTimeout(ldRemoveTimer);
@@ -1615,7 +1620,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2044,7 +2049,7 @@ async function startApp() {
     const notice = gm.get('nx_notice', null);
     if (notice) gm.set('nx_notice', null);
     renderEntryBar(st, notice);
-    const pin = pinTop(8000); // enquanto a tela de carregamento cobre a página
+    const pin = pinTop(3000); // só enquanto a tela de carregamento (no máximo 3 s) cobre a página
     const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
     // Espera o post aparecer OU o X avisar que ele não existe mais (apagado, conta suspensa...): nesse caso não adianta esperar.

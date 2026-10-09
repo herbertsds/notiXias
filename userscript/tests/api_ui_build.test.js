@@ -227,6 +227,21 @@ test('Ui: tela de carregamento cobre a página, some em fade e se remove; reabri
   ui.hideLoading();                                                    // chamar de novo é inofensivo
 });
 
+test('Ui: a tela de carregamento nunca passa do limite, mesmo reaberta várias vezes (não reinicia a contagem)', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://x.com/home' });
+  const doc = dom.window.document;
+  const ui = Ui.create(doc, { loadingMaxMs: 120 });
+  ui.showLoading('a');
+  await new Promise((r) => setTimeout(r, 70));
+  ui.showLoading('b');                                              // abrir de novo durante a mesma tela não estende o prazo
+  const node = () => doc.getElementById('notixias-loading').shadowRoot.querySelector('.ld');
+  assert.ok(!node().classList.contains('out'));
+  await new Promise((r) => setTimeout(r, 80));                      // 150 ms desde o primeiro: passou do limite
+  assert.ok(node().classList.contains('out'), 'sumiu sozinha no prazo');
+  ui.showLoading('c');                                              // uma tela nova começa a contar de novo
+  assert.ok(!node().classList.contains('out'));
+});
+
 // ---------- Build ----------
 test('o userscript gerado está atualizado com src/ (rode `npm run build`)', () => {
   const onDisk = fs.readFileSync(path.join(__dirname, '..', 'notixias.user.js'), 'utf8');

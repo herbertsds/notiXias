@@ -240,7 +240,7 @@ O X **reagrupa conversas**: quando um post antigo ganha respostas, ele sobe no f
 
 ### Conversas no feed
 
-`Core.clusterize`: corrida de itens **consecutivos, sem reposts, com ID crescente de cima para baixo** = conversa (raiz, respostas). Verificado com o Seguindo real: `[703, RicardoPF, venecasagrande]` e `[militaofernand, flamengomeumund, flamengomeumund]` aparecem assim. Cada conversa vira **um registro** com a última resposta como referência; ao abrir a página da referência o script cobre os posts acima dela (`ancestor_ids`) e chama `settle` para confirmar o que a página mostra e soltar o resto.
+`Core.clusterize`: corrida de itens **consecutivos, sem reposts, com ID crescente de cima para baixo e ligados pela linha de conversa do X** = conversa (raiz, respostas). (Até a 0.10.6 bastava o ID crescente; ver 0.10.7.) Verificado com o Seguindo real: `[703, RicardoPF, venecasagrande]` e `[militaofernand, flamengomeumund, flamengomeumund]` aparecem assim. Cada conversa vira **um registro** com a última resposta como referência; ao abrir a página da referência o script cobre os posts acima dela (`ancestor_ids`) e chama `settle` para confirmar o que a página mostra e soltar o resto.
 
 
 ## Ordem padrão da fila (0.3.1)
@@ -388,3 +388,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 - **Nova escala:** menos de 1 h `N min`; até 47 h `N h`; **2 dias ou mais `N d`**; **1 mês ou mais `N mês(es) e N d`**; **1 ano ou mais `N ano(s) e N mês(es)`**. Meses e anos são de calendário (com o dia ajustado ao tamanho do mês, ex.: 31/jan → 1/mar = "1 mês e 1 d"); sem resto, o resto some ("1 mês", "1 ano").
 
 0.10.6: a escala de dias, meses e anos fica **abreviada**: `4d`, `1m 5d`, `2m 16d`, `1a`, `1a 2m` (d = dias, m = meses, a = anos; sem plural nem por extenso). Minutos e horas seguem como `35 min` e `35 h`. Sem resto, ele some (`1m`, `1a`).
+
+0.10.7: **correção das conversas falsas.** O detector de conversa do feed só exigia IDs crescentes de cima para baixo; como o feed do X não é cronológico, dois posts AVULSOS em sequência (ex.: @Flamengo 20:35 e @Flazone_ 21:20, que não é resposta de ninguém) viravam uma "conversa": um único registro na hora do primeiro (20:35) que abria a página do segundo (21:20), parecendo "fora de ordem". Agora é exigida a **linha vertical que o X desenha entre as fotos de perfil** de uma conversa: a célula de cima tem uma linha que chega ao fim dela (`linkNext`) e a de baixo tem um pedaço de linha no começo (`linkPrev`), medidas em `Xdom.threadLinks` (largura até 3 px, fundo com cor, encostada no topo/fim da célula). Conferido no feed real: as 3 conversas verdadeiras (inclusive entre autores diferentes) têm as linhas e continuam; posts avulsos não têm. Sem medida de layout (página oculta, testes), vale a regra antiga só pelos IDs. Registros antigos já criados pela regra errada não são alterados.

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.6
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.6
+// @version      0.10.7
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.7
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -304,6 +304,13 @@ const Core = (function () {
   // Conversas no feed: o X mostra raiz e respostas em sequência, com IDs CRESCENTES de cima para baixo (o
   // contrário do normal, que é do mais novo ao mais antigo). Uma corrida de posts consecutivos, sem reposts,
   // com ID crescente é uma conversa. Devolve cópias com `cluster` (1, 2, ...) nos itens que a formam.
+  // Os dois itens consecutivos estão ligados pela linha de conversa do X? (`linkNext` do de cima e `linkPrev` do de baixo,
+  // medidos no DOM por `Xdom.threadLinks`). Sem medida em nenhum dos dois (desconhecido), vale só a ordem dos IDs.
+  function linked(a, b) {
+    if (a.linkNext === undefined && b.linkPrev === undefined) return true;
+    return a.linkNext === true && b.linkPrev === true;
+  }
+
   function clusterize(items) {
     const out = items.map((i) => Object.assign({}, i));
     let n = 0;
@@ -311,7 +318,7 @@ const Core = (function () {
     while (i < out.length) {
       let j = i;
       if (!out[i].reposter) {
-        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id)) j++;
+        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id) && linked(out[j], out[j + 1])) j++;
       }
       if (j > i) {
         n++;
@@ -404,12 +411,35 @@ const Xdom = (function () {
     };
   }
 
+  // Uma conversa do feed é ligada por uma LINHA VERTICAL entre as fotos de perfil: a célula de cima tem a linha chegando
+  // ao fim dela e a de baixo tem um pedaço de linha logo no começo. Posts avulsos (mesmo em sequência, com IDs crescentes,
+  // porque o feed não é cronológico) NÃO têm linha. Sem medidas de layout (página oculta, testes) devolve {} = desconhecido.
+  // Devolve { linkPrev, linkNext } booleanos.
+  function threadLinks(art) {
+    const cell = art.closest('[data-testid="cellInnerDiv"]');
+    if (!cell || !cell.getBoundingClientRect) return {};
+    const win = (cell.ownerDocument && cell.ownerDocument.defaultView) || null;
+    const cr = cell.getBoundingClientRect();
+    if (!win || !cr.height) return {};
+    let linkPrev = false;
+    let linkNext = false;
+    for (const d of cell.querySelectorAll('div')) {
+      const r = d.getBoundingClientRect();
+      if (!r.width || r.width > 3 || r.height < 6) continue;
+      const bg = win.getComputedStyle(d).backgroundColor;
+      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
+      if (r.top - cr.top <= 2) linkPrev = true;
+      if (cr.bottom - r.bottom <= 2) linkNext = true;
+    }
+    return { linkPrev, linkNext };
+  }
+
   // Posts visíveis, em ordem de DOM.
   function readItems(root) {
     const out = [];
     for (const art of articles(root)) {
       const it = parseArticle(art);
-      if (it) out.push(it);
+      if (it) out.push(Object.assign(it, threadLinks(art)));
     }
     return out;
   }
@@ -782,7 +812,7 @@ const Xdom = (function () {
   }
 
   return {
-    articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
+    articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
     selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, findGapButtons, findNewPostsPill,
   };
 })();
@@ -1679,7 +1709,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.6'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.7'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

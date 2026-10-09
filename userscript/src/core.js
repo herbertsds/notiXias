@@ -282,6 +282,13 @@ const Core = (function () {
   // Conversas no feed: o X mostra raiz e respostas em sequência, com IDs CRESCENTES de cima para baixo (o
   // contrário do normal, que é do mais novo ao mais antigo). Uma corrida de posts consecutivos, sem reposts,
   // com ID crescente é uma conversa. Devolve cópias com `cluster` (1, 2, ...) nos itens que a formam.
+  // Os dois itens consecutivos estão ligados pela linha de conversa do X? (`linkNext` do de cima e `linkPrev` do de baixo,
+  // medidos no DOM por `Xdom.threadLinks`). Sem medida em nenhum dos dois (desconhecido), vale só a ordem dos IDs.
+  function linked(a, b) {
+    if (a.linkNext === undefined && b.linkPrev === undefined) return true;
+    return a.linkNext === true && b.linkPrev === true;
+  }
+
   function clusterize(items) {
     const out = items.map((i) => Object.assign({}, i));
     let n = 0;
@@ -289,7 +296,7 @@ const Core = (function () {
     while (i < out.length) {
       let j = i;
       if (!out[i].reposter) {
-        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id)) j++;
+        while (j + 1 < out.length && !out[j + 1].reposter && BigInt(out[j + 1].id) > BigInt(out[j].id) && linked(out[j], out[j + 1])) j++;
       }
       if (j > i) {
         n++;

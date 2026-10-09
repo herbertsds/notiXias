@@ -56,12 +56,35 @@ const Xdom = (function () {
     };
   }
 
+  // Uma conversa do feed é ligada por uma LINHA VERTICAL entre as fotos de perfil: a célula de cima tem a linha chegando
+  // ao fim dela e a de baixo tem um pedaço de linha logo no começo. Posts avulsos (mesmo em sequência, com IDs crescentes,
+  // porque o feed não é cronológico) NÃO têm linha. Sem medidas de layout (página oculta, testes) devolve {} = desconhecido.
+  // Devolve { linkPrev, linkNext } booleanos.
+  function threadLinks(art) {
+    const cell = art.closest('[data-testid="cellInnerDiv"]');
+    if (!cell || !cell.getBoundingClientRect) return {};
+    const win = (cell.ownerDocument && cell.ownerDocument.defaultView) || null;
+    const cr = cell.getBoundingClientRect();
+    if (!win || !cr.height) return {};
+    let linkPrev = false;
+    let linkNext = false;
+    for (const d of cell.querySelectorAll('div')) {
+      const r = d.getBoundingClientRect();
+      if (!r.width || r.width > 3 || r.height < 6) continue;
+      const bg = win.getComputedStyle(d).backgroundColor;
+      if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') continue;
+      if (r.top - cr.top <= 2) linkPrev = true;
+      if (cr.bottom - r.bottom <= 2) linkNext = true;
+    }
+    return { linkPrev, linkNext };
+  }
+
   // Posts visíveis, em ordem de DOM.
   function readItems(root) {
     const out = [];
     for (const art of articles(root)) {
       const it = parseArticle(art);
-      if (it) out.push(it);
+      if (it) out.push(Object.assign(it, threadLinks(art)));
     }
     return out;
   }
@@ -434,7 +457,7 @@ const Xdom = (function () {
   }
 
   return {
-    articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
+    articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
     selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, findGapButtons, findNewPostsPill,
   };
 })();

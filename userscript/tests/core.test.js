@@ -309,3 +309,27 @@ test('openingLabel: "Abrindo o post de @A" / "Abrindo o repost de B"', () => {
   assert.equal(Core.openingLabel({ author: 'x', reposters: ['a', 'b', 'c', 'd', 'e'], reposter_names: {} }), 'Abrindo o repost de @a, @b e mais 3');
   assert.equal(Core.openingLabel(null), 'Abrindo…');
 });
+
+test('clusterize: só junta quando o X liga os posts com a linha de conversa (IDs crescentes não bastam)', () => {
+  const it = (id, extra = {}) => ({ id, author: 'a', reposter: null, ...extra });
+  // o caso real: dois posts AVULSOS em sequência, o de cima mais antigo (o feed não é cronológico), sem linha entre eles
+  const avulsos = Core.clusterize([it('100', { linkPrev: false, linkNext: false }), it('200', { linkPrev: false, linkNext: false })]);
+  assert.deepEqual(avulsos.map((i) => i.cluster), [undefined, undefined]);
+  // conversa de verdade: a de cima tem a linha para baixo, a de baixo tem a linha vinda de cima
+  const conversa = Core.clusterize([it('100', { linkPrev: false, linkNext: true }), it('200', { linkPrev: true, linkNext: false })]);
+  assert.deepEqual(conversa.map((i) => i.cluster), [1, 1]);
+  // três em fila: o do meio liga nos dois lados; um quarto avulso fica de fora
+  const tres = Core.clusterize([
+    it('1', { linkPrev: false, linkNext: true }), it('2', { linkPrev: true, linkNext: true }), it('3', { linkPrev: true, linkNext: false }),
+    it('4', { linkPrev: false, linkNext: false }),
+  ]);
+  assert.deepEqual(tres.map((i) => i.cluster), [1, 1, 1, undefined]);
+  // uma linha só de um lado não é conversa
+  assert.deepEqual(Core.clusterize([it('1', { linkNext: true, linkPrev: false }), it('2', { linkPrev: false, linkNext: false })]).map((i) => i.cluster), [undefined, undefined]);
+  // linha presente mas IDs decrescentes: continua sem juntar (a conversa vem da raiz para as respostas)
+  assert.deepEqual(Core.clusterize([it('9', { linkNext: true, linkPrev: false }), it('5', { linkPrev: true, linkNext: false })]).map((i) => i.cluster), [undefined, undefined]);
+  // sem medida de layout (página oculta/testes): vale a regra antiga, só pela ordem dos IDs
+  assert.deepEqual(Core.clusterize([it('100'), it('200')]).map((i) => i.cluster), [1, 1]);
+  // reposts nunca entram numa conversa
+  assert.deepEqual(Core.clusterize([it('1', { linkNext: true, linkPrev: false }), it('2', { reposter: 'z', linkPrev: true, linkNext: false })]).map((i) => i.cluster), [undefined, undefined]);
+});

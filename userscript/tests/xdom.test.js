@@ -496,3 +496,27 @@ test('setAges: o horário do X que o X recria ao redesenhar volta a ser escondid
   assert.equal(d.querySelector('[data-nx-age]').textContent, '· 2 h');
   assert.ok(!d.querySelector('[data-nx-age]').hasAttribute('data-nx-hidden'));       // o nosso nunca é escondido
 });
+
+
+test('threadLinks / readItems: lê as linhas de conversa do X (fim da célula de cima, começo da de baixo)', () => {
+  const html =
+    '<body><div data-testid="primaryColumn">' +
+    '<div data-testid="cellInnerDiv" id="c1"><article data-testid="tweet"><a href="/ana/status/10"><time>1</time></a><div id="l1" style="background-color:rgb(51,54,57)"></div></article></div>' +
+    '<div data-testid="cellInnerDiv" id="c2"><article data-testid="tweet"><a href="/ana/status/20"><time>2</time></a><div id="l2" style="background-color:rgb(51,54,57)"></div></article></div>' +
+    '<div data-testid="cellInnerDiv" id="c3"><article data-testid="tweet"><a href="/beto/status/30"><time>3</time></a><div id="l3" style="background-color:transparent"></div></article></div>' +
+    '</div></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/home' }).window;
+  const d = w.document;
+  const box = (id, top, height, width = 600, left = 0) => { d.getElementById(id).getBoundingClientRect = () => ({ top, left, width, height, bottom: top + height, right: left + width }); };
+  box('c1', 0, 177); box('l1', 56, 121, 2, 35);          // linha da foto até o fim da célula: liga PARA BAIXO
+  box('c2', 177, 383); box('l2', 177, 8, 2, 35);         // pedacinho de linha no começo da célula: liga PARA CIMA
+  box('c3', 560, 300); box('l3', 560, 8, 2, 35);         // linha sem cor (transparente) não conta
+  const [a, b, c] = Xdom.readItems(d);
+  assert.deepEqual([a.linkPrev, a.linkNext], [false, true]);
+  assert.deepEqual([b.linkPrev, b.linkNext], [true, false]);
+  assert.deepEqual([c.linkPrev, c.linkNext], [false, false]);
+  // sem layout (altura 0 / jsdom puro): desconhecido, os campos nem existem
+  const w2 = new JSDOM(html, { url: 'https://x.com/home' }).window;
+  const [u] = Xdom.readItems(w2.document);
+  assert.ok(!('linkPrev' in u) && !('linkNext' in u));
+});

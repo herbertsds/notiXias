@@ -431,3 +431,16 @@ test('parseArticle: marca post fixado (contexto social sem link) e não confunde
   assert.equal(rp.pinned, false);
   assert.equal(rp.reposter, 'zeca');
 });
+
+
+test('pageMissing: reconhece página/post que não existe, sem confundir com a página ainda carregando nem com posts', () => {
+  const dom = (html) => new JSDOM(`<body><div data-testid="primaryColumn">${html}</div></body>`, { url: 'https://x.com/a/status/1' }).window.document;
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="error-detail"><span>Esta página não existe</span></div>')), true);
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="emptyState">Essa conta foi suspensa</div>')), true);
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><span>Este post foi excluído.</span></div>')), true);
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><span>This post is unavailable</span></div>')), true);
+  assert.equal(Xdom.pageMissing(dom('')), false);                                       // ainda carregando
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><div role="progressbar"></div></div>')), false);
+  // frase "não existe" DENTRO de um post (ou de uma recomendação) não conta
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><article data-testid="tweet">isso não existe mais, sério</article></div>')), false);
+});

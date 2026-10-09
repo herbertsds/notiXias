@@ -225,6 +225,21 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- página de post que não existe mais ----
+  // O X mostra "Esta página não existe" (data-testid="error-detail") ou um estado vazio (conta suspensa/protegida), ou uma
+  // célula avisando que o post foi excluído/está indisponível. Texto só vale FORA dos posts (a recomendação de outros posts
+  // pode conter qualquer frase) e só quando o post pedido não está na tela (quem chama confere isso antes).
+  const MISSING_RE = /(foi exclu[ií]d|n[ãa]o existe|indispon[ií]vel|n[ãa]o est[áa] dispon[ií]vel|was deleted|doesn.t exist|does not exist|is unavailable|not available)/i;
+  function pageMissing(root) {
+    const col = root.querySelector('[data-testid="primaryColumn"]') || root;
+    if (col.querySelector('[data-testid="error-detail"], [data-testid="emptyState"]')) return true;
+    for (const cell of col.querySelectorAll('[data-testid="cellInnerDiv"]')) {
+      if (cell.querySelector('article')) continue;
+      if (MISSING_RE.test((cell.textContent || '').slice(0, 400))) return true;
+    }
+    return false;
+  }
+
   // ---- vídeo na tela ----
   // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
   // Devolve { video, rect (parte visível) } ou null.
@@ -386,7 +401,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

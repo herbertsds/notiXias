@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.0
+// @version      0.10.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -534,6 +534,21 @@ const Xdom = (function () {
     return bars.length;
   }
 
+  // ---- página de post que não existe mais ----
+  // O X mostra "Esta página não existe" (data-testid="error-detail") ou um estado vazio (conta suspensa/protegida), ou uma
+  // célula avisando que o post foi excluído/está indisponível. Texto só vale FORA dos posts (a recomendação de outros posts
+  // pode conter qualquer frase) e só quando o post pedido não está na tela (quem chama confere isso antes).
+  const MISSING_RE = /(foi exclu[ií]d|n[ãa]o existe|indispon[ií]vel|n[ãa]o est[áa] dispon[ií]vel|was deleted|doesn.t exist|does not exist|is unavailable|not available)/i;
+  function pageMissing(root) {
+    const col = root.querySelector('[data-testid="primaryColumn"]') || root;
+    if (col.querySelector('[data-testid="error-detail"], [data-testid="emptyState"]')) return true;
+    for (const cell of col.querySelectorAll('[data-testid="cellInnerDiv"]')) {
+      if (cell.querySelector('article')) continue;
+      if (MISSING_RE.test((cell.textContent || '').slice(0, 400))) return true;
+    }
+    return false;
+  }
+
   // ---- vídeo na tela ----
   // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
   // Devolve { video, rect (parte visível) } ou null.
@@ -695,7 +710,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1584,7 +1599,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1985,6 +2000,23 @@ async function startApp() {
     showBar({ st, notice: 'Início da fila' });
   });
 
+  // O post desta entrada não existe mais: marca como visto e abre o próximo, sem deixar a tela de carregamento esperando.
+  // Se o que sumiu foi só o fim de uma thread (destino do salto), volta à entrada original, sem tentar o salto de novo.
+  async function skipUnavailable(status, cur, view) {
+    if (view.targetId && status.id === view.targetId) {
+      gm.set('nx_view', Object.assign({}, view, { targetId: null, noJump: true }));
+      go(cur.url);
+      return 'jump';
+    }
+    await api.views({ seqs: [cur.seq] });
+    gm.set('nx_notice', 'Post indisponível (apagado?): pulado');
+    const q = await api.queue({ after: cur.seq, limit: 1 });
+    if (q.items.length) { await openEntry(q.items[0]); return 'jump'; }
+    ui.hideLoading();
+    await startFetch();
+    return 'jump';
+  }
+
   async function onStatusPage(token, status, st) {
     const cur = st.current;
     const view = gm.get('nx_view', null);
@@ -1998,9 +2030,14 @@ async function startApp() {
     const pin = pinTop(8000); // enquanto a tela de carregamento cobre a página
     const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
-    const ready = await waitFor(() => Xdom.hasStatus(document, status.id), 10000, 100);
+    // Espera o post aparecer OU o X avisar que ele não existe mais (apagado, conta suspensa...): nesse caso não adianta esperar.
+    await waitFor(() => Xdom.hasStatus(document, status.id) || Xdom.pageMissing(document), 10000, 100);
     if (token !== routeToken) return stale();
-    if (!ready) { pin.stop(); return 'done'; }
+    if (!Xdom.hasStatus(document, status.id)) {
+      pin.stop();
+      if (Xdom.pageMissing(document)) return skipUnavailable(status, cur, view);
+      return 'done';
+    }
     syncLabels();
     // Em vez de uma pausa fixa, espera a conversa parar de mudar (o X desenha os posts de cima aos poucos).
     await waitSettled(2500, 450);
@@ -2024,7 +2061,7 @@ async function startApp() {
     }
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
-    if (!view.targetId) {
+    if (!view.targetId && !view.noJump) {
       const pageItems = Xdom.pageItems(document);
       const focal = pageItems.find((i) => i.id === status.id);
       const pick = Core.pickThreadTarget(pageItems, status.id, focal ? focal.author : cur.author);

@@ -286,3 +286,13 @@ test('formatRun: verificação de perfis, motivo de uma busca pedida, pedidos e 
   assert.equal(nx.sub, 'em 20 min · 42 não lidas');
   assert.deepEqual(Core.parseLaunch('?nx=profiles'), { cmd: 'profiles', search: '' });
 });
+
+test('openingLabel: "Abrindo o post de @A" / "Abrindo o repost de B"', () => {
+  assert.equal(Core.openingLabel({ author: 'alexcrfla', reposters: [] }), 'Abrindo o post de @alexcrfla');
+  assert.equal(Core.openingLabel({ author: 'geglobo', reposters: ['ana'], reposter_names: { ana: 'Ana Silva' } }), 'Abrindo o repost de Ana Silva');
+  assert.equal(Core.openingLabel({ author: 'x', reposters: ['ana'], reposter_names: {} }), 'Abrindo o repost de @ana');
+  assert.equal(Core.openingLabel({ author: 'x', reposters: ['Ana', 'beto'], reposter_names: { ana: 'Ana', beto: 'Beto' } }), 'Abrindo o repost de Ana e Beto');
+  assert.equal(Core.openingLabel({ author: 'x', reposters: ['a', 'b', 'c'], reposter_names: {} }), 'Abrindo o repost de @a, @b e @c');
+  assert.equal(Core.openingLabel({ author: 'x', reposters: ['a', 'b', 'c', 'd', 'e'], reposter_names: {} }), 'Abrindo o repost de @a, @b e mais 3');
+  assert.equal(Core.openingLabel(null), 'Abrindo…');
+});

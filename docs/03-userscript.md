@@ -376,3 +376,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 - O robô registra o motivo em `nx_why` (armazenamento do script) e a execução o grava (`trigger`).
 
 0.10.1: **post que não existe mais** (apagado, conta suspensa/protegida, página inexistente): o script reconhece o aviso do X (`error-detail`, `emptyState` ou uma célula "foi excluído"/"indisponível", só fora dos posts) assim que ele aparece, **marca a entrada como vista e abre a próxima**, com o aviso "Post indisponível (apagado?): pulado". A tela de carregamento não fica mais esperando os 10 s. Se o que sumiu foi só o fim de uma thread (destino do salto), volta à entrada original, sem tentar o salto de novo (`noJump`).
+
+0.10.2: a tela de carregamento diz **o que está abrindo**: "Abrindo o post de @autor" ou "Abrindo o repost de Nome" (nome de exibição do reposter quando a API o conhece; vários: "Ana, Beto e Caio"; mais de 3: "Ana, Beto e mais 2"). O texto fica guardado em `nx_view.label`, então reaparece ao recarregar o post.

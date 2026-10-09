@@ -154,6 +154,20 @@ const Core = (function () {
     return who + (h.length === 1 ? ' repostou' : ' repostaram');
   }
 
+  // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
+  // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
+  function openingLabel(entry) {
+    const reps = (entry && entry.reposters) || [];
+    if (reps.length) {
+      const names = reps.map((r) => ((entry.reposter_names || {})[String(r).toLowerCase()]) || '@' + r);
+      const who = names.length === 1 ? names[0]
+        : names.length <= 3 ? names.slice(0, -1).join(', ') + ' e ' + names[names.length - 1]
+        : names.slice(0, 2).join(', ') + ' e mais ' + (names.length - 2);
+      return 'Abrindo o repost de ' + who;
+    }
+    return entry && entry.author ? 'Abrindo o post de @' + entry.author : 'Abrindo…';
+  }
+
   // Quem repostou o tweet em qualquer entrada (lida ou não); cai para os reposters da própria entrada.
   function repostersOf(entry) {
     if (!entry) return [];
@@ -279,7 +293,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

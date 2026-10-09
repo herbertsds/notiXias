@@ -360,9 +360,10 @@ async function startApp() {
 
   // ---------- leitura ----------
   async function openEntry(entry) {
-    if (!cfg.bot) ui.showLoading(); // cobre a página já na saída; some em fade quando o post estiver pronto
+    const label = Core.openingLabel(entry);
+    if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
-    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null });
+    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label });
     gm.set('nx_mode', 'read');
     go(entry.url);
   }
@@ -986,7 +987,7 @@ async function startApp() {
     const token = ++routeToken;
     setLabels(null);
     // Abrindo um post da fila: cobre a página já (antes de falar com a API); em qualquer outra página, descobre.
-    if (!cfg.bot && isEntryPath()) ui.showLoading(); else ui.hideLoading();
+    if (!cfg.bot && isEntryPath()) ui.showLoading((gm.get('nx_view', null) || {}).label); else ui.hideLoading();
     try {
       if (Xdom.isLoginPath(location.pathname)) { botDone({ ok: false, error: 'sessão do X expirada (tela de login)', login: true }); return; }
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));

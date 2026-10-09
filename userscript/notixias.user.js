@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.1
+// @version      0.10.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -176,6 +176,20 @@ const Core = (function () {
     return who + (h.length === 1 ? ' repostou' : ' repostaram');
   }
 
+  // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
+  // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
+  function openingLabel(entry) {
+    const reps = (entry && entry.reposters) || [];
+    if (reps.length) {
+      const names = reps.map((r) => ((entry.reposter_names || {})[String(r).toLowerCase()]) || '@' + r);
+      const who = names.length === 1 ? names[0]
+        : names.length <= 3 ? names.slice(0, -1).join(', ') + ' e ' + names[names.length - 1]
+        : names.slice(0, 2).join(', ') + ' e mais ' + (names.length - 2);
+      return 'Abrindo o repost de ' + who;
+    }
+    return entry && entry.author ? 'Abrindo o post de @' + entry.author : 'Abrindo…';
+  }
+
   // Quem repostou o tweet em qualquer entrada (lida ou não); cai para os reposters da própria entrada.
   function repostersOf(entry) {
     if (!entry) return [];
@@ -301,7 +315,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1569,6 +1583,8 @@ const Ui = (function () {
         ld.root.append(ldNode);
       }
       ldNode.classList.remove('out');
+      const tx = ldNode.querySelector('.tx');
+      if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
       clearTimeout(ldFailTimer);
       ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
     }
@@ -1599,7 +1615,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1958,9 +1974,10 @@ async function startApp() {
 
   // ---------- leitura ----------
   async function openEntry(entry) {
-    if (!cfg.bot) ui.showLoading(); // cobre a página já na saída; some em fade quando o post estiver pronto
+    const label = Core.openingLabel(entry);
+    if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
-    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null });
+    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label });
     gm.set('nx_mode', 'read');
     go(entry.url);
   }
@@ -2584,7 +2601,7 @@ async function startApp() {
     const token = ++routeToken;
     setLabels(null);
     // Abrindo um post da fila: cobre a página já (antes de falar com a API); em qualquer outra página, descobre.
-    if (!cfg.bot && isEntryPath()) ui.showLoading(); else ui.hideLoading();
+    if (!cfg.bot && isEntryPath()) ui.showLoading((gm.get('nx_view', null) || {}).label); else ui.hideLoading();
     try {
       if (Xdom.isLoginPath(location.pathname)) { botDone({ ok: false, error: 'sessão do X expirada (tela de login)', login: true }); return; }
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));

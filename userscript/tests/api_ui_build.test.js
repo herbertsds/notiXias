@@ -213,6 +213,8 @@ test('Ui: tela de carregamento cobre a página, some em fade e se remove; reabri
   assert.ok(node() && !node().classList.contains('out'));
   assert.ok(host.shadowRoot.querySelector('.sp'), 'animação de carregamento');
   assert.match(host.shadowRoot.textContent, /Abrindo/);
+  ui.showLoading('Abrindo o post de @ana');
+  assert.match(host.shadowRoot.textContent, /Abrindo o post de @ana/, 'o texto acompanha o post aberto');
   ui.hideLoading();
   assert.ok(node().classList.contains('out'), 'fade out (opacidade 0 por transição)');
   ui.showLoading();                                                    // abriu outro post durante o fade

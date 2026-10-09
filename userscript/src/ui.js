@@ -321,6 +321,8 @@ const Ui = (function () {
         ld.root.append(ldNode);
       }
       ldNode.classList.remove('out');
+      const tx = ldNode.querySelector('.tx');
+      if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
       clearTimeout(ldFailTimer);
       ldFailTimer = setTimeout(hideLoading, LOADING_FAILSAFE_MS);
     }

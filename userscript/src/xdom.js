@@ -338,6 +338,22 @@ const Xdom = (function () {
     return Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < Math.max(a.height, b.height) / 2;
   }
 
+  // Esconde o horário PRÓPRIO do X no cabeçalho (o "· 16 h" depois do @) e o "·" que o precede. Estrutura e nível de
+  // aninhamento variam (computador/celular, resposta/post em foco), então: para cada <time> do cabeçalho, sobe até o maior
+  // ancestral que ainda NÃO contém o link do @ (o "irmão" do @ na linha) e esconde esse ancestral e o "·" logo antes dele.
+  // É refeito a cada passada: o X recria esses elementos ao redesenhar a resposta e o horário voltava, duplicado.
+  function hideOwnTime(un) {
+    const handleLink = (un.children[1] && un.children[1].querySelector('a[href^="/"]')) || un.querySelector('a[href^="/"]');
+    for (const t of un.querySelectorAll('time')) {
+      let el = t;
+      while (el.parentElement && el.parentElement !== un && !(handleLink && el.parentElement.contains(handleLink))) el = el.parentElement;
+      if (el.hasAttribute('data-nx-age') || el === handleLink || (handleLink && el.contains(handleLink))) continue;
+      el.setAttribute(HIDE_ATTR, '1');
+      const prev = el.previousElementSibling;
+      if (prev && prev.textContent.trim() === '·') prev.setAttribute(HIDE_ATTR, '1');
+    }
+  }
+
   function setAges(root, win, nowMs) {
     ensureStyle(root.ownerDocument || root);
     const doc = root.ownerDocument || root;
@@ -366,12 +382,8 @@ const Xdom = (function () {
           (cs && cs.fontFamily ? 'font-family:' + cs.fontFamily + ';' : '') +
           (cs && cs.fontSize ? 'font-size:' + cs.fontSize + ';' : '') +
           (cs && cs.color ? 'color:' + cs.color + ';' : 'color:rgb(113,118,123);');
-        if (handleInner) {
-          for (const k of Array.from(handleInner.children).slice(1)) {
-            if (k.querySelector('time') || k.textContent.trim() === '·') k.setAttribute(HIDE_ATTR, '1');
-          }
-        }
       }
+      hideOwnTime(un);
       if (sp.parentElement !== target) target.append(sp); // a janela mudou de largura: o @ passou para outra linha
       const text = '· ' + label;
       if (sp.textContent !== text) sp.textContent = text;

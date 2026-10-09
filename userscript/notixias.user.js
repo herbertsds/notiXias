@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.4
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.4
+// @version      0.10.5
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.5
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -82,12 +82,38 @@ const Core = (function () {
     try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
   }
 
-  // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Sempre "N min" ou "N h", nunca dias.
+  // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Escala:
+  //   menos de 1 h: "N min" | até 47 h: "N h" | 2 dias ou mais: "N d" | 1 mês ou mais: "N mês(es) e N d" |
+  //   1 ano ou mais: "N ano(s) e N mês(es)". Meses e anos são de calendário (dia do mês do post até hoje).
   function ageLabel(id, nowMs) {
     const created = snowflakeMs(id);
     if (created === null) return '';
-    const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
-    return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
+    const now = nowMs === undefined ? Date.now() : nowMs;
+    const mins = Math.max(1, Math.floor((now - created) / 60000));
+    if (mins < 60) return mins + ' min';
+    const hours = Math.floor(mins / 60);
+    if (hours < 48) return hours + ' h';
+    // Meses de calendário: o maior número de meses que, somado à data do post (com o dia ajustado ao tamanho do mês),
+    // ainda não passa de agora; o que sobra são dias.
+    const start = new Date(created);
+    const end = new Date(now);
+    const addMonths = (date, m) => {
+      const r = new Date(date.getTime());
+      const day = r.getDate();
+      r.setDate(1);
+      r.setMonth(r.getMonth() + m);
+      r.setDate(Math.min(day, new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate()));
+      return r;
+    };
+    let total = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    while (total > 0 && addMonths(start, total) > end) total--;
+    const years = Math.floor(total / 12);
+    const months = total % 12;
+    const days = Math.floor((end - addMonths(start, total)) / 86400000);
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    if (years >= 1) return plural(years, 'ano', 'anos') + (months ? ' e ' + plural(months, 'mês', 'meses') : '');
+    if (months >= 1) return plural(months, 'mês', 'meses') + (days ? ' e ' + days + ' d' : '');
+    return Math.floor(hours / 24) + ' d';
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
@@ -661,6 +687,22 @@ const Xdom = (function () {
     return Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < Math.max(a.height, b.height) / 2;
   }
 
+  // Esconde o horário PRÓPRIO do X no cabeçalho (o "· 16 h" depois do @) e o "·" que o precede. Estrutura e nível de
+  // aninhamento variam (computador/celular, resposta/post em foco), então: para cada <time> do cabeçalho, sobe até o maior
+  // ancestral que ainda NÃO contém o link do @ (o "irmão" do @ na linha) e esconde esse ancestral e o "·" logo antes dele.
+  // É refeito a cada passada: o X recria esses elementos ao redesenhar a resposta e o horário voltava, duplicado.
+  function hideOwnTime(un) {
+    const handleLink = (un.children[1] && un.children[1].querySelector('a[href^="/"]')) || un.querySelector('a[href^="/"]');
+    for (const t of un.querySelectorAll('time')) {
+      let el = t;
+      while (el.parentElement && el.parentElement !== un && !(handleLink && el.parentElement.contains(handleLink))) el = el.parentElement;
+      if (el.hasAttribute('data-nx-age') || el === handleLink || (handleLink && el.contains(handleLink))) continue;
+      el.setAttribute(HIDE_ATTR, '1');
+      const prev = el.previousElementSibling;
+      if (prev && prev.textContent.trim() === '·') prev.setAttribute(HIDE_ATTR, '1');
+    }
+  }
+
   function setAges(root, win, nowMs) {
     ensureStyle(root.ownerDocument || root);
     const doc = root.ownerDocument || root;
@@ -689,12 +731,8 @@ const Xdom = (function () {
           (cs && cs.fontFamily ? 'font-family:' + cs.fontFamily + ';' : '') +
           (cs && cs.fontSize ? 'font-size:' + cs.fontSize + ';' : '') +
           (cs && cs.color ? 'color:' + cs.color + ';' : 'color:rgb(113,118,123);');
-        if (handleInner) {
-          for (const k of Array.from(handleInner.children).slice(1)) {
-            if (k.querySelector('time') || k.textContent.trim() === '·') k.setAttribute(HIDE_ATTR, '1');
-          }
-        }
       }
+      hideOwnTime(un);
       if (sp.parentElement !== target) target.append(sp); // a janela mudou de largura: o @ passou para outra linha
       const text = '· ' + label;
       if (sp.textContent !== text) sp.textContent = text;
@@ -1642,7 +1680,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.4'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.10.5'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

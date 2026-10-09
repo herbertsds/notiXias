@@ -466,3 +466,33 @@ test('setHeaderStatic: solta a barra "← Post" (sticky) para fazer parte da pá
   assert.ok(d.getElementById('s2').hasAttribute('data-nx-static'));
   assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);   // sem coluna principal
 });
+
+
+test('setAges: o horário do X que o X recria ao redesenhar volta a ser escondido (sem duplicar), em qualquer aninhamento', () => {
+  const id = String(BigInt(Date.UTC(2026, 9, 6, 9, 0) - 1288834974657) << 22n);
+  // layout "celular": o horário e o "·" ficam um nível acima do @, não dentro da mesma linha que o desktop
+  const html = (extra = '') =>
+    '<body><div data-testid="primaryColumn"><article data-testid="tweet"><div data-testid="User-Name">' +
+    '<div><div><a id="n" href="/jp"><div id="nr"><div dir="ltr"><span>Nação Fla</span></div></div></a></div></div>' +
+    '<div><a id="h" href="/jp"><span>@jphora</span></a>' + extra + '</div>' +
+    `</div><a href="/jp/status/${id}"><time>x</time></a></article></div></body>`;
+  const own = `<div id="dot">·</div><div id="own"><a href="/jp/status/${id}"><time datetime="2026-10-06T09:00:00.000Z">16 h</time></a></div>`;
+  const w = new JSDOM(html(own), { url: 'https://x.com/jp/status/' + id }).window;
+  const d = w.document;
+  const rect = (top) => () => ({ top, left: 0, width: 80, height: 20, bottom: top + 20, right: 80 });
+  d.getElementById('n').getBoundingClientRect = rect(0);
+  d.getElementById('h').getBoundingClientRect = rect(1);                            // @ na mesma linha
+  const now = Date.UTC(2026, 9, 6, 11, 0);
+  Xdom.setAges(d, w, now);
+  assert.ok(d.getElementById('own').hasAttribute('data-nx-hidden') && d.getElementById('dot').hasAttribute('data-nx-hidden'));
+  // o X redesenha: troca os elementos por novos, sem o atributo
+  d.getElementById('own').remove();
+  d.getElementById('dot').remove();
+  d.getElementById('h').parentElement.insertAdjacentHTML('beforeend', own);
+  assert.ok(!d.getElementById('own').hasAttribute('data-nx-hidden'));
+  Xdom.setAges(d, w, now);
+  assert.ok(d.getElementById('own').hasAttribute('data-nx-hidden') && d.getElementById('dot').hasAttribute('data-nx-hidden'));
+  assert.equal(d.querySelectorAll('[data-nx-age]').length, 1);
+  assert.equal(d.querySelector('[data-nx-age]').textContent, '· 2 h');
+  assert.ok(!d.querySelector('[data-nx-age]').hasAttribute('data-nx-hidden'));       // o nosso nunca é escondido
+});

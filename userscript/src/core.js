@@ -60,12 +60,38 @@ const Core = (function () {
     try { return Number(BigInt(id) >> 22n) + 1288834974657; } catch (e) { return null; }
   }
 
-  // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Sempre "N min" ou "N h", nunca dias.
+  // Idade do post a partir do ID (snowflake: ms desde 2010-11-04 nos 42 bits altos). Escala:
+  //   menos de 1 h: "N min" | até 47 h: "N h" | 2 dias ou mais: "N d" | 1 mês ou mais: "N mês(es) e N d" |
+  //   1 ano ou mais: "N ano(s) e N mês(es)". Meses e anos são de calendário (dia do mês do post até hoje).
   function ageLabel(id, nowMs) {
     const created = snowflakeMs(id);
     if (created === null) return '';
-    const mins = Math.max(1, Math.floor(((nowMs === undefined ? Date.now() : nowMs) - created) / 60000));
-    return mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h';
+    const now = nowMs === undefined ? Date.now() : nowMs;
+    const mins = Math.max(1, Math.floor((now - created) / 60000));
+    if (mins < 60) return mins + ' min';
+    const hours = Math.floor(mins / 60);
+    if (hours < 48) return hours + ' h';
+    // Meses de calendário: o maior número de meses que, somado à data do post (com o dia ajustado ao tamanho do mês),
+    // ainda não passa de agora; o que sobra são dias.
+    const start = new Date(created);
+    const end = new Date(now);
+    const addMonths = (date, m) => {
+      const r = new Date(date.getTime());
+      const day = r.getDate();
+      r.setDate(1);
+      r.setMonth(r.getMonth() + m);
+      r.setDate(Math.min(day, new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate()));
+      return r;
+    };
+    let total = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    while (total > 0 && addMonths(start, total) > end) total--;
+    const years = Math.floor(total / 12);
+    const months = total % 12;
+    const days = Math.floor((end - addMonths(start, total)) / 86400000);
+    const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+    if (years >= 1) return plural(years, 'ano', 'anos') + (months ? ' e ' + plural(months, 'mês', 'meses') : '');
+    if (months >= 1) return plural(months, 'mês', 'meses') + (days ? ' e ' + days + ' d' : '');
+    return Math.floor(hours / 24) + ' d';
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.

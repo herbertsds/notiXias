@@ -630,6 +630,27 @@ def ack_robot_request(db) -> dict:
     return {"pending": True, "reason": doc["reason"], "threshold": doc.get("threshold"), "unread": doc.get("unread"), "requested_at": doc["requested_at"]}
 
 
+SESSION_TTL = timedelta(hours=1)
+
+
+def put_robot_session(db, body) -> dict:
+    """Guarda a sessão do X enviada pelo navegador até o robô buscá-la (vale 1 hora e é apagada ao ser entregue)."""
+    db.meta.replace_one(
+        {"_id": "robot_session"},
+        {"_id": "robot_session", "auth_token": body.auth_token, "ct0": body.ct0, "created_at": now()},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+def take_robot_session(db) -> dict:
+    """O robô busca a sessão pendente: devolve e APAGA (os cookies não ficam guardados no banco). Vencida (> 1 h): descarta."""
+    doc = db.meta.find_one_and_delete({"_id": "robot_session"})
+    if not doc or now() - doc["created_at"] > SESSION_TTL:
+        return {"pending": False}
+    return {"pending": True, "auth_token": doc["auth_token"], "ct0": doc["ct0"], "created_at": doc["created_at"]}
+
+
 def robot_next_doc(db):
     return db.meta.find_one({"_id": "robot_next"}, {"_id": 0})
 

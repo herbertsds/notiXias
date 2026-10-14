@@ -50,3 +50,9 @@ async def take_request(api_base: str, api_key: str) -> dict | None:
         return None
     got = await _get(api_base, api_key, "/robot/request/ack", method="POST")
     return got if got and got.get("pending") else None
+
+
+async def take_session(api_base: str, api_key: str) -> dict | None:
+    """Sessão do X enviada pelo navegador do dono ({auth_token, ct0}), se houver. A API a entrega uma vez e a apaga."""
+    got = await _get(api_base, api_key, "/robot/session/take", method="POST")
+    return got if got and got.get("pending") else None

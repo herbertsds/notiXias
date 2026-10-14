@@ -277,6 +277,7 @@ async function startApp() {
   function menuItems(st) {
     return [
       { label: 'Execuções…', onClick: showRuns },
+      { label: 'Enviar sessão do X para o robô', onClick: sendSession },
       { label: 'Buscar novas agora', onClick: () => startFetch() },
       { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true) },
       { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun() },
@@ -786,6 +787,36 @@ async function startApp() {
     const st = await api.state();
     if (st.current) return openEntry(st.current);
     return go('https://x.com/home');
+  }
+
+  // ---------- sessão do X para o robô ----------
+  // O login do X está num cookie protegido (`HttpOnly`): a página não o lê, só o gerenciador de scripts (`GM_cookie`, no
+  // Tampermonkey do computador; o app Userscripts do iPhone não tem). O envio vai para a API, que guarda só até o robô buscar.
+  function listCookies() {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_cookie === 'undefined' || !GM_cookie || typeof GM_cookie.list !== 'function') {
+        reject(new Error('Este navegador não deixa o script ler o login do X. Faça isto no Chrome do computador, com o Tampermonkey.'));
+        return;
+      }
+      try {
+        GM_cookie.list({ url: 'https://x.com/' }, (list, err) => (err ? reject(new Error(String(err))) : resolve(list || [])));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async function sendSession() {
+    const close = { label: 'Fechar', onClick: ui.hideOverlay };
+    ui.showOverlay({ title: 'Enviando a sessão do X…', detail: 'Lendo o login deste navegador.', buttons: [] });
+    try {
+      const picked = Core.pickSessionCookies(await listCookies());
+      if (!picked) throw new Error('Não achei o login do X neste navegador. Entre na sua conta no X (aqui mesmo) e tente de novo.');
+      await api.putSession(picked);
+      ui.showOverlay({ title: 'Sessão enviada ✓', detail: 'O robô a usa em até 1 minuto e volta a buscar sozinho. Veja em Execuções… se a próxima busca aparece.', buttons: [close] });
+    } catch (e) {
+      ui.showOverlay({ title: '⚠ Não consegui enviar a sessão', detail: (e && e.message) || 'Erro desconhecido.', error: true, buttons: [close] });
+    }
   }
 
   // ---------- contas seguidas ----------

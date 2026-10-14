@@ -65,6 +65,13 @@ class RobotNextIn(BaseModel):
     unread: int | None = Field(default=None, ge=0)  # não lidas quando o horário foi sorteado (informativo)
 
 
+class SessionIn(BaseModel):
+    """Os dois cookies de login do X (o navegador do dono os envia para o robô). Nunca são registrados em log."""
+
+    auth_token: str = Field(min_length=20, max_length=300, pattern=r"^[\w\-.%=+/]+$")
+    ct0: str = Field(min_length=20, max_length=300, pattern=r"^[\w\-.%=+/]+$")
+
+
 class AppendIn(BaseModel):
     """`items` na ordem do feed: o mais novo primeiro."""
 

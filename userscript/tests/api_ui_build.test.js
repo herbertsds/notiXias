@@ -202,6 +202,9 @@ test('Api: runs e runFailed', async () => {
   assert.equal(calls[0].url, 'http://localhost:8010/api/v1/runs?limit=50');
   assert.equal(calls[1].method, 'POST');
   assert.equal(calls[1].url, 'http://localhost:8010/api/v1/runs');
+  await api.putSession({ auth_token: 'a'.repeat(30), ct0: 'b'.repeat(30) });
+  assert.equal(calls[2].method, 'PUT');
+  assert.equal(calls[2].url, 'http://localhost:8010/api/v1/robot/session');
 });
 
 test('Ui: tela de carregamento cobre a página, some em fade e se remove; reabrir durante o fade cancela a remoção', async () => {

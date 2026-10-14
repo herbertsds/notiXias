@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.10.7
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.10.7
+// @version      0.11.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.11.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM_cookie
 // @connect      localhost
 // @connect      127.0.0.1
 // @connect      notixias.163.176.176.10.nip.io
@@ -113,6 +114,19 @@ const Core = (function () {
     if (years >= 1) return years + 'a' + (months ? ' ' + months + 'm' : '');
     if (months >= 1) return months + 'm' + (days ? ' ' + days + 'd' : '');
     return Math.floor(hours / 24) + 'd';
+  }
+
+  // Dos cookies do navegador ([{name, value, domain, ...}] vindos do `GM_cookie.list`), os dois que valem o login do X:
+  // `auth_token` e `ct0`, do domínio x.com (ou twitter.com). Devolve { auth_token, ct0 } ou null se faltar algum.
+  function pickSessionCookies(list) {
+    const isX = (c) => /(^|\.)(x|twitter)\.com$/i.test(String(c.domain || '').replace(/^\./, ''));
+    const get = (name) => {
+      const c = (list || []).find((k) => k && k.name === name && isX(k) && k.value);
+      return c ? String(c.value) : null;
+    };
+    const auth = get('auth_token');
+    const ct0 = get('ct0');
+    return auth && ct0 ? { auth_token: auth, ct0 } : null;
   }
 
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
@@ -347,7 +361,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1325,6 +1339,7 @@ const Api = (function () {
       anchor: (depth) => call('GET', '/queue/anchor', { params: { depth } }),
       append: (body) => call('POST', '/queue/append', { body }),
       runs: (limit) => call('GET', '/runs', { params: { limit } }),
+      putSession: (body) => call('PUT', '/robot/session', { body }),
       runFailed: (body) => call('POST', '/runs', { body }),
       runReport: (body) => call('POST', '/runs/report', { body }),
       deepLast: (mode) => call('GET', '/runs/deep-last', { params: { mode } }),
@@ -1709,7 +1724,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.10.7'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.11.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1985,6 +2000,7 @@ async function startApp() {
   function menuItems(st) {
     return [
       { label: 'Execuções…', onClick: showRuns },
+      { label: 'Enviar sessão do X para o robô', onClick: sendSession },
       { label: 'Buscar novas agora', onClick: () => startFetch() },
       { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true) },
       { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun() },
@@ -2494,6 +2510,36 @@ async function startApp() {
     const st = await api.state();
     if (st.current) return openEntry(st.current);
     return go('https://x.com/home');
+  }
+
+  // ---------- sessão do X para o robô ----------
+  // O login do X está num cookie protegido (`HttpOnly`): a página não o lê, só o gerenciador de scripts (`GM_cookie`, no
+  // Tampermonkey do computador; o app Userscripts do iPhone não tem). O envio vai para a API, que guarda só até o robô buscar.
+  function listCookies() {
+    return new Promise((resolve, reject) => {
+      if (typeof GM_cookie === 'undefined' || !GM_cookie || typeof GM_cookie.list !== 'function') {
+        reject(new Error('Este navegador não deixa o script ler o login do X. Faça isto no Chrome do computador, com o Tampermonkey.'));
+        return;
+      }
+      try {
+        GM_cookie.list({ url: 'https://x.com/' }, (list, err) => (err ? reject(new Error(String(err))) : resolve(list || [])));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async function sendSession() {
+    const close = { label: 'Fechar', onClick: ui.hideOverlay };
+    ui.showOverlay({ title: 'Enviando a sessão do X…', detail: 'Lendo o login deste navegador.', buttons: [] });
+    try {
+      const picked = Core.pickSessionCookies(await listCookies());
+      if (!picked) throw new Error('Não achei o login do X neste navegador. Entre na sua conta no X (aqui mesmo) e tente de novo.');
+      await api.putSession(picked);
+      ui.showOverlay({ title: 'Sessão enviada ✓', detail: 'O robô a usa em até 1 minuto e volta a buscar sozinho. Veja em Execuções… se a próxima busca aparece.', buttons: [close] });
+    } catch (e) {
+      ui.showOverlay({ title: '⚠ Não consegui enviar a sessão', detail: (e && e.message) || 'Erro desconhecido.', error: true, buttons: [close] });
+    }
   }
 
   // ---------- contas seguidas ----------

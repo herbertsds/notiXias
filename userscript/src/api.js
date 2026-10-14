@@ -41,6 +41,7 @@ const Api = (function () {
       anchor: (depth) => call('GET', '/queue/anchor', { params: { depth } }),
       append: (body) => call('POST', '/queue/append', { body }),
       runs: (limit) => call('GET', '/runs', { params: { limit } }),
+      putSession: (body) => call('PUT', '/robot/session', { body }),
       runFailed: (body) => call('POST', '/runs', { body }),
       runReport: (body) => call('POST', '/runs/report', { body }),
       deepLast: (mode) => call('GET', '/runs/deep-last', { params: { mode } }),

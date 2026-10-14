@@ -93,6 +93,19 @@ const Core = (function () {
     return Math.floor(hours / 24) + 'd';
   }
 
+  // Dos cookies do navegador ([{name, value, domain, ...}] vindos do `GM_cookie.list`), os dois que valem o login do X:
+  // `auth_token` e `ct0`, do domínio x.com (ou twitter.com). Devolve { auth_token, ct0 } ou null se faltar algum.
+  function pickSessionCookies(list) {
+    const isX = (c) => /(^|\.)(x|twitter)\.com$/i.test(String(c.domain || '').replace(/^\./, ''));
+    const get = (name) => {
+      const c = (list || []).find((k) => k && k.name === name && isX(k) && k.value);
+      return c ? String(c.value) : null;
+    };
+    const auth = get('auth_token');
+    const ct0 = get('ct0');
+    return auth && ct0 ? { auth_token: auth, ct0 } : null;
+  }
+
   // Velocidades do vídeo (o X no celular não tem controle): o botão abre um menu com estas opções.
   const SPEEDS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 2.75, 3];
   const formatSpeed = (r) => String(r).replace('.', ',') + 'x';
@@ -325,7 +338,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

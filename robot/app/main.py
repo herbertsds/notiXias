@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import notify, runner, schedule
+from . import notify, runner, schedule, session
 
 log = logging.getLogger("robot")
 MAX_FAILURES = 3          # falhas seguidas antes de parar de insistir (protege a conta)
@@ -45,6 +45,25 @@ def read_api_key() -> str:
     return os.environ["API_KEY"].strip()
 
 
+async def receive_session(api_base: str, key: str, state_path: Path) -> bool:
+    """Chegou uma sessão nova do navegador do dono? Grava o arquivo de sessão (a mudança dele é o sinal que tira o robô da
+    pausa / da espera por sessão). Devolve True se gravou."""
+    got = await notify.take_session(api_base, key)
+    if not got:
+        return False
+    try:
+        state = session.session_state(got["auth_token"], got["ct0"])
+    except (KeyError, ValueError):
+        log.error("sessão recebida da API veio incompleta: ignorada")
+        return False
+    tmp = state_path.with_suffix(".new")
+    tmp.write_text(json.dumps(state), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, state_path)
+    log.info("sessão nova do X recebida do navegador do dono: gravada")
+    return True
+
+
 def parse_dt(value) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
@@ -57,7 +76,7 @@ def run_params(kind: str) -> tuple[str, int]:
     }[kind]
 
 
-async def wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished):
+async def wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path=None):
     """Espera até `when`. Devolve ("due", when, None) | ("request", when, motivo) e atualiza o horário se a API o antecipar."""
     while True:
         now = datetime.now(timezone.utc)
@@ -65,6 +84,8 @@ async def wait_for_turn(status, status_path, api_base, key, when, kind, last_run
         if left <= 0:
             return "due", when, None
         await asyncio.sleep(min(left, POLL_S))
+        if state_path is not None:
+            await receive_session(api_base, key, state_path)   # sessão nova enviada pelo dono (menu do script): já vale
         # pedido de busca imediata (a leitura atravessou 30/15/6 não lidas)
         req = await notify.take_request(api_base, key)
         if req:
@@ -115,12 +136,14 @@ async def main() -> None:
                 save_json(status_path, status)
                 log.error("PAUSADO após %s falhas seguidas (%s). Envie uma sessão nova ou reinicie o contêiner.", failures, status.get("last_error"))
                 await notify.publish_next(api_base, key, None, "normal", "paused")
+            if await receive_session(api_base, key, state_path):
+                mtime = state_path.stat().st_mtime
             if mtime != paused_at_mtime:
                 log.info("sessão nova detectada: retomando")
                 failures, paused_at_mtime = 0, None
                 status.update(paused=False, consecutive_failures=0)
                 continue
-            await asyncio.sleep(60)
+            await asyncio.sleep(15)
             continue
 
         if not state_path.exists():
@@ -129,7 +152,8 @@ async def main() -> None:
                 await notify.publish_next(api_base, key, None, "normal", "waiting_session")
             status.update(waiting_session=True, next_run_at=None)
             save_json(status_path, status)
-            await asyncio.sleep(60)
+            if not await receive_session(api_base, key, state_path):
+                await asyncio.sleep(15)
             continue
         status["waiting_session"] = False
 
@@ -162,7 +186,7 @@ async def main() -> None:
         log.info("próxima busca: %s (%s%s)", status["next_run_at"], kind, f", {unread} não lidas" if unread is not None else "")
         await notify.publish_next(api_base, key, when, MODE_OF[kind], "scheduled", unread)
 
-        outcome, when, why = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished)
+        outcome, when, why = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path)
         if outcome == "request":
             # busca pedida pela leitura: normal (ou profunda do feed, se for a primeira depois de 05:10/12:30)
             kind = "deep" if schedule.is_deep(last_run, datetime.now(timezone.utc)) else "normal"

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ORDER = ['core.js', 'xdom.js', 'labels.js', 'following.js', 'scanner.js', 'profiles.js', 'api.js', 'ui.js', 'main.js'];
-const VERSION = '0.10.7';
+const VERSION = '0.11.0';
 
 const HEADER = `// ==UserScript==
 // @name         notiXias
@@ -18,6 +18,7 @@ const HEADER = `// ==UserScript==
 // @grant        GM_setValue
 // @grant        GM.getValue
 // @grant        GM.setValue
+// @grant        GM_cookie
 // @connect      localhost
 // @connect      127.0.0.1
 // @connect      notixias.163.176.176.10.nip.io

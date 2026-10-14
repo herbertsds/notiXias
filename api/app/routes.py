@@ -13,6 +13,7 @@ from .models import (
     FollowAccount,
     FollowingPut,
     RobotNextIn,
+    SessionIn,
     RunReportIn,
     RunFailIn,
     SettleIn,
@@ -106,6 +107,16 @@ def get_deep_last(request: Request, mode: Literal["deep", "profiles"] = "deep"):
 @router.get("/robot/policy")
 def get_robot_policy(request: Request):
     return svc.robot_policy(_db(request))
+
+
+@router.put("/robot/session")
+def put_robot_session(body: SessionIn, request: Request):
+    return svc.put_robot_session(_db(request), body)
+
+
+@router.post("/robot/session/take")
+def post_robot_session_take(request: Request):
+    return svc.take_robot_session(_db(request))
 
 
 @router.get("/robot/next")

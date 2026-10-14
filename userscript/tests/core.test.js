@@ -333,3 +333,18 @@ test('clusterize: só junta quando o X liga os posts com a linha de conversa (ID
   // reposts nunca entram numa conversa
   assert.deepEqual(Core.clusterize([it('1', { linkNext: true, linkPrev: false }), it('2', { reposter: 'z', linkPrev: true, linkNext: false })]).map((i) => i.cluster), [undefined, undefined]);
 });
+
+test('pickSessionCookies: pega auth_token e ct0 do x.com e só devolve se tiver os dois', () => {
+  const list = [
+    { name: 'auth_token', value: 'AAA', domain: '.x.com', httpOnly: true },
+    { name: 'ct0', value: 'CCC', domain: '.x.com' },
+    { name: 'outro', value: 'z', domain: '.x.com' },
+    { name: 'auth_token', value: 'ERRADO', domain: '.exemplo.com' },
+  ];
+  assert.deepEqual(Core.pickSessionCookies(list), { auth_token: 'AAA', ct0: 'CCC' });
+  assert.equal(Core.pickSessionCookies(list.slice(1)), null);                         // sem auth_token (ou de outro domínio)
+  assert.equal(Core.pickSessionCookies([list[0]]), null);                              // sem ct0
+  assert.equal(Core.pickSessionCookies([{ name: 'auth_token', value: '', domain: 'x.com' }, list[1]]), null);   // vazio não vale
+  assert.deepEqual(Core.pickSessionCookies([{ name: 'auth_token', value: 'T', domain: 'twitter.com' }, { name: 'ct0', value: 'U', domain: 'twitter.com' }]), { auth_token: 'T', ct0: 'U' });
+  assert.equal(Core.pickSessionCookies(null), null);
+});

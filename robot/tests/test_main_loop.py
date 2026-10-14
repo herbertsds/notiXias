@@ -55,7 +55,7 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
     published.clear()
     run_kwargs.clear()
     world.clear()
-    world.update(policy=None, next=None, requests=[], intervals=[])
+    world.update(policy=None, next=None, requests=[], intervals=[], session=None)
 
     async def fake_publish(api_base, key, when, mode, state, unread=None):
         published.append((when, mode, state))
@@ -69,6 +69,10 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
     async def fake_take(api_base, key):
         return {"pending": True, "reason": world["requests"].pop(0)} if world["requests"] else None
 
+    async def fake_session(api_base, key):
+        got, world["session"] = world["session"], None
+        return {"pending": True, **got} if got else None
+
     def fake_next_run(last, nw, rng, interval=None):
         world["intervals"].append(interval)
         return normal_at() if normal_at else nw
@@ -77,6 +81,7 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
     monkeypatch.setattr(robot_main.notify, "fetch_policy", fake_policy)
     monkeypatch.setattr(robot_main.notify, "fetch_next", fake_next)
     monkeypatch.setattr(robot_main.notify, "take_request", fake_take)
+    monkeypatch.setattr(robot_main.notify, "take_session", fake_session)
     monkeypatch.setattr(runner, "run_once", fake_run)
     monkeypatch.setattr(robot_main.schedule, "next_run", fake_next_run)
     monkeypatch.setattr(robot_main.schedule, "next_profiles",
@@ -226,3 +231,52 @@ def test_busca_profunda_do_feed_tem_url_e_prazo_proprios(env, monkeypatch):
     assert run_kwargs[0]["start_url"] == runner.DEEP_URL and run_kwargs[0]["timeout_s"] == runner.DEEP_TIMEOUT_S
     assert run_kwargs[1]["start_url"] == runner.HOME_URL and run_kwargs[1]["timeout_s"] == runner.NORMAL_TIMEOUT_S
     assert runner.PROFILES_TIMEOUT_S > runner.DEEP_TIMEOUT_S > runner.NORMAL_TIMEOUT_S
+
+
+def test_sessao_enviada_pelo_navegador_tira_o_robo_da_pausa_e_grava_o_arquivo(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": False, "error": "login", "login": True}, {"ok": True}])
+
+    async def scenario():
+        task = asyncio.create_task(robot_main.main())
+        await REAL_SLEEP(0.3)
+        assert len(calls) == 1 and _status(env)["paused"] is True        # sessão expirada: pausou
+        world["session"] = {"auth_token": "a" * 40, "ct0": "b" * 40}      # o dono clicou no botão do menu
+        await REAL_SLEEP(0.4)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    asyncio.run(scenario())
+    assert len(calls) >= 2 and _status(env)["paused"] is False            # voltou a rodar sozinho
+    state = json.loads((env / "x_state.json").read_text())
+    names = {c["name"]: c for c in state["cookies"]}
+    assert names["auth_token"]["value"] == "a" * 40 and names["auth_token"]["httpOnly"] is True
+    assert names["ct0"]["value"] == "b" * 40 and names["ct0"]["domain"] == ".x.com"
+    assert oct((env / "x_state.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_sem_sessao_o_robo_comeca_quando_o_navegador_envia(env, monkeypatch):
+    calls = _patch(monkeypatch, [{"ok": True}])
+
+    async def scenario():
+        task = asyncio.create_task(robot_main.main())
+        await REAL_SLEEP(0.2)
+        assert calls == [] and _status(env)["waiting_session"] is True
+        world["session"] = {"auth_token": "c" * 40, "ct0": "d" * 40}
+        await REAL_SLEEP(0.4)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    asyncio.run(scenario())
+    assert len(calls) >= 1 and (env / "x_state.json").exists()
+
+
+def test_sessao_incompleta_da_api_e_ignorada(env, monkeypatch):
+    _patch(monkeypatch, [{"ok": True}])
+    world["session"] = {"auth_token": "curto", "ct0": "x"}
+    asyncio.run(_run_for(0.2))
+    assert not (env / "x_state.json").exists()

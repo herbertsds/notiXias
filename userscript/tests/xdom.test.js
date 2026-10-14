@@ -520,3 +520,27 @@ test('threadLinks / readItems: lê as linhas de conversa do X (fim da célula de
   const [u] = Xdom.readItems(w2.document);
   assert.ok(!('linkPrev' in u) && !('linkNext' in u));
 });
+
+
+test('blockEndedAdvance: o fim do vídeo não chega aos ouvintes do X (que pulariam para o próximo); liga/desliga sem remover', () => {
+  const w = new JSDOM('<body><div id="player"><video id="v"></video></div></body>', { url: 'https://x.com/i/status/1' }).window;
+  const d = w.document;
+  const seen = { video: 0, ancestor: 0, window: 0, paused: 0 };
+  const v = d.getElementById('v');
+  v.pause = () => { seen.paused++; };
+  v.addEventListener('ended', () => seen.video++);                                  // ouvinte do X no próprio <video>
+  d.getElementById('player').addEventListener('ended', () => seen.ancestor++, true); // e num ancestral (captura)
+  let on = true;
+  const remove = Xdom.blockEndedAdvance(w, () => on);                                // registrado depois, mas em window: roda primeiro
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(seen, { video: 0, ancestor: 0, window: 0, paused: 1 });          // nenhum ouvinte do X viu; o vídeo só pausou
+  on = false;                                                                        // desligado no menu: o X vê normalmente
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual([seen.video, seen.ancestor, seen.paused], [1, 1, 1]);
+  on = true;
+  d.getElementById('player').dispatchEvent(new w.Event('ended'));                    // só <video> é bloqueado
+  assert.equal(seen.ancestor, 2);
+  remove();                                                                          // removido: tudo volta ao normal
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual([seen.video, seen.ancestor], [2, 3]);
+});

@@ -285,6 +285,23 @@ const Xdom = (function () {
     return false;
   }
 
+  // ---- fim do vídeo: não avançar sozinho ----
+  // O player do X (visualizador de vídeos no celular) pula para o próximo vídeo quando o evento `ended` dispara. Eventos
+  // de mídia não "sobem" (bubble), mas passam por TODOS os ancestrais na fase de captura, e `window` é o primeiro: um ouvinte
+  // de captura ali, com stopImmediatePropagation, impede que qualquer ouvinte do X (no próprio <video> ou em ancestrais) o veja.
+  // O vídeo só fica parado no último quadro. `isOn()` liga/desliga sem remover. Devolve a função que remove o ouvinte.
+  function blockEndedAdvance(win, isOn) {
+    const handler = (e) => {
+      if (!isOn()) return;
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO') return;
+      e.stopImmediatePropagation();
+      try { v.pause(); } catch (err) { /* já parado */ }
+    };
+    win.addEventListener('ended', handler, true);
+    return () => win.removeEventListener('ended', handler, true);
+  }
+
   // ---- vídeo na tela ----
   // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
   // Devolve { video, rect (parte visível) } ou null.
@@ -458,7 +475,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

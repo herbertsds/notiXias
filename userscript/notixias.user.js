@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.11.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.11.0
+// @version      0.11.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.11.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -654,6 +654,23 @@ const Xdom = (function () {
     return false;
   }
 
+  // ---- fim do vídeo: não avançar sozinho ----
+  // O player do X (visualizador de vídeos no celular) pula para o próximo vídeo quando o evento `ended` dispara. Eventos
+  // de mídia não "sobem" (bubble), mas passam por TODOS os ancestrais na fase de captura, e `window` é o primeiro: um ouvinte
+  // de captura ali, com stopImmediatePropagation, impede que qualquer ouvinte do X (no próprio <video> ou em ancestrais) o veja.
+  // O vídeo só fica parado no último quadro. `isOn()` liga/desliga sem remover. Devolve a função que remove o ouvinte.
+  function blockEndedAdvance(win, isOn) {
+    const handler = (e) => {
+      if (!isOn()) return;
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO') return;
+      e.stopImmediatePropagation();
+      try { v.pause(); } catch (err) { /* já parado */ }
+    };
+    win.addEventListener('ended', handler, true);
+    return () => win.removeEventListener('ended', handler, true);
+  }
+
   // ---- vídeo na tela ----
   // O vídeo mais visível (pelo menos 30% da área dentro da janela e largura mínima: ignora ícones/GIFs minúsculos).
   // Devolve { video, rect (parte visível) } ou null.
@@ -827,7 +844,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1724,7 +1741,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.11.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.11.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1733,6 +1750,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
     videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
@@ -1884,6 +1902,8 @@ async function startApp() {
     });
   }
   setInterval(applySpeed, 300);
+  // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
+  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
@@ -2013,6 +2033,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
       { label: 'notiXias versão ' + NX_VERSION, onClick: () => {} },
     ];

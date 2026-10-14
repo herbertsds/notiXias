@@ -10,6 +10,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
     videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
@@ -161,6 +162,8 @@ async function startApp() {
     });
   }
   setInterval(applySpeed, 300);
+  // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
+  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
@@ -290,6 +293,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
       { label: 'notiXias versão ' + NX_VERSION, onClick: () => {} },
     ];

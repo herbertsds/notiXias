@@ -20,6 +20,7 @@ from . import notify, runner, schedule, session
 
 log = logging.getLogger("robot")
 MAX_FAILURES = 3          # falhas seguidas antes de parar de insistir (protege a conta)
+RETRY_AFTER_S = 2 * 3600  # pausa por FALHAS (não por login): tenta de novo sozinho depois disto, uma vez
 POLL_S = 15               # de quanto em quanto tempo, enquanto espera, olha a API (pedido de busca / horário antecipado)
 MIN_GAP_S = 180           # intervalo mínimo entre o fim de uma execução e o início de uma por pedido
 MODE_OF = {"normal": "normal", "deep": "deep", "profiles": "profiles"}
@@ -121,7 +122,10 @@ async def main() -> None:
     last_run = parse_dt(status.get("last_run_at"))           # última busca normal/profunda do feed (base do sorteio)
     last_profiles = parse_dt(status.get("last_profiles_at"))  # última verificação de perfis
     last_finished = 0.0
-    failures = int(status.get("consecutive_failures", 0))
+    # Reiniciar o contêiner é pedir para retomar: zera a pausa gravada (antes ela sobrevivia ao reinício e o robô ficava
+    # parado mesmo com a sessão boa). Se a causa continuar, ele falha de novo e pausa de novo.
+    failures = 0
+    status.update(paused=False, consecutive_failures=0, paused_reason=None, retry_at=None)
     paused_at_mtime = None
     log.info("robô iniciado (última busca: %s, perfis: %s, falhas seguidas: %s)", last_run, last_profiles, failures)
 
@@ -138,10 +142,17 @@ async def main() -> None:
                 await notify.publish_next(api_base, key, None, "normal", "paused")
             if await receive_session(api_base, key, state_path):
                 mtime = state_path.stat().st_mtime
+            retry_at = parse_dt(status.get("retry_at"))
+            if status.get("paused_reason") == "failures" and retry_at and datetime.now(timezone.utc) >= retry_at:
+                # pausa por falhas (página que travou, rede do X...): uma nova tentativa; se falhar, pausa mais 2 h
+                log.info("tentando de novo depois da pausa por falhas")
+                failures, paused_at_mtime = MAX_FAILURES - 1, None
+                status.update(paused=False, consecutive_failures=failures, paused_reason=None, retry_at=None)
+                continue
             if mtime != paused_at_mtime:
                 log.info("sessão nova detectada: retomando")
                 failures, paused_at_mtime = 0, None
-                status.update(paused=False, consecutive_failures=0)
+                status.update(paused=False, consecutive_failures=0, paused_reason=None, retry_at=None)
                 continue
             await asyncio.sleep(15)
             continue
@@ -221,6 +232,11 @@ async def main() -> None:
             if res.get("login"):
                 failures = MAX_FAILURES  # sessão expirada: insistir não adianta
                 status["consecutive_failures"] = failures
+            if failures >= MAX_FAILURES:
+                if res.get("login"):
+                    status.update(paused_reason="login", retry_at=None)               # só volta com sessão nova
+                else:
+                    status.update(paused_reason="failures", retry_at=(finished + timedelta(seconds=RETRY_AFTER_S)).isoformat())
         save_json(status_path, status)
 
 

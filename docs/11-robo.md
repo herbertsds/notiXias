@@ -47,6 +47,7 @@ Desde 2026-10-09 são **duas execuções separadas**. A profunda do feed (acima)
 ## Proteções
 
 - Falhas seguidas: após **3**, o robô **pausa** (não insiste na conta). Sessão expirada (tela de login) pausa na hora.
+- **Pausa por falhas (não login) tenta de novo sozinha depois de 2 h**, uma vez; se falhar, pausa mais 2 h. A pausa por **login** só sai com sessão nova. **Reiniciar o contêiner zera a pausa** (desde 2026-10-14; antes ela sobrevivia ao reinício).
 - Pausado volta sozinho quando você envia uma **sessão nova** (o arquivo `x_state.json` muda; checagem a cada 60 s) ou ao reiniciar o contêiner.
 - Tempo máximo por execução: 25 min (profunda do feed: 60 min; verificação de perfis: 120 min).
 - **Vigia de travamento (desde 2026-10-07):** o script emite um batimento a cada passo; se o robô não vê progresso por **5 min**, a página travou. Na verificação de perfis ele **pula a conta travada** (até 4 por execução) e segue para a próxima; fora disso encerra a execução com erro "travou". Todas as leituras do navegador têm prazo, para um navegador pendurado nunca prender o robô. O script também começa sem esperar o evento `load` da página.
@@ -128,3 +129,7 @@ Tudo o que a profunda do feed ou a verificação de perfis captura entra na fila
 ## Enviar a sessão do X pelo menu (sem terminal)
 
 Quando a sessão do robô cai ("sessão do X expirada", robô pausado) basta, no **Chrome do computador** (Tampermonkey) com o X aberto e logado, tocar em **⋯ → Enviar sessão do X para o robô**. O script lê os dois cookies de login (`auth_token`, que é `HttpOnly`, e `ct0`) com `GM_cookie` e os envia para a API (`PUT /robot/session`). A API os guarda **só até o robô buscá-los** (`POST /robot/session/take`: entrega uma vez e apaga; vencem em 1 h; nunca vão para log). O robô confere a cada 15 s (parado, esperando sessão ou esperando a hora), grava o `x_state.json` (a mudança do arquivo é o que o tira da pausa) e volta a buscar sozinho. **Não funciona no app Userscripts do iPhone** (ele não tem `GM_cookie`): use o Chrome do computador. Se o Tampermonkey recusar ler o cookie, o aviso na tela diz o motivo; o caminho manual (`scripts/robot_session_from_cookies.py` ou `robot_login.sh` + `robot_install_session.sh`) continua valendo.
+
+## Incidente de 2026-10-13/14 (robô pausado com a sessão boa)
+
+Três buscas seguidas "travaram" (página em branco, vários recursos com `ERR_FAILED`; o diagnóstico mostrou `url`, `console`, `body` vazio) e o robô pausou. A sessão **não** tinha expirado (conferido depois: o X carregava a Página Inicial logada com os mesmos cookies). Agora: pausa por falhas se recupera sozinha em 2 h e o reinício zera a pausa.

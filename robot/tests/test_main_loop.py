@@ -280,3 +280,37 @@ def test_sessao_incompleta_da_api_e_ignorada(env, monkeypatch):
     world["session"] = {"auth_token": "curto", "ct0": "x"}
     asyncio.run(_run_for(0.2))
     assert not (env / "x_state.json").exists()
+
+
+def test_reiniciar_o_conteiner_retoma_mesmo_com_pausa_gravada(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    (env / "status.json").write_text(json.dumps({"paused": True, "consecutive_failures": 3, "paused_reason": "failures",
+                                                  "last_error": "travou: sem progresso por 5 min"}))
+    calls = _patch(monkeypatch, [{"ok": True}])
+    asyncio.run(_run_for(0.3))
+    assert len(calls) >= 1 and _status(env)["paused"] is False
+
+
+def test_pausa_por_falhas_tenta_sozinha_de_novo_e_a_de_login_nao(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": False, "error": "travou"}] * 3 + [{"ok": True}])
+    monkeypatch.setattr(robot_main, "RETRY_AFTER_S", 0.3)
+    asyncio.run(_run_for(1.0))
+    st = _status(env)
+    assert len(calls) >= 4 and st["paused"] is False and st["consecutive_failures"] == 0     # voltou e deu certo
+    # já a pausa por LOGIN não tenta sozinha
+    calls = _patch(monkeypatch, [{"ok": False, "error": "login", "login": True}, {"ok": True}])
+    monkeypatch.setattr(robot_main, "RETRY_AFTER_S", 0.1)
+    (env / "status.json").write_text("{}")
+    asyncio.run(_run_for(0.8))
+    st = _status(env)
+    assert len(calls) == 1 and st["paused"] is True and st["paused_reason"] == "login" and st["retry_at"] is None
+
+
+def test_nova_tentativa_depois_da_pausa_que_falha_de_novo_pausa_de_novo(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": False, "error": "travou"}])
+    monkeypatch.setattr(robot_main, "RETRY_AFTER_S", 0.25)
+    asyncio.run(_run_for(0.45))                                        # 3 falhas, pausa, UMA tentativa aos 0,25 s, pausa de novo
+    st = _status(env)
+    assert len(calls) == 4 and st["paused"] is True and st["paused_reason"] == "failures"

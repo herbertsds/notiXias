@@ -73,12 +73,20 @@ const Ui = (function () {
   // "Mostrar mais", confere a conversa) e some num fade suave, deixando o post já na posição certa.
   const LOADING_CSS = `
     :host { all: initial; }
-    .ld { position: fixed; inset: 0; z-index: 2147483647; background: #000; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 16px; opacity: 1; transition: opacity .45s ease; }
+    /* O fundo é MAIOR que qualquer tela: no Safari do iPhone as barras do navegador recolhem e voltam (principalmente quando a
+       página é rolada ao topo) e a "tela fixa" encolhe/cresce; com a borda fora da tela ela nunca aparece nem deixa o conteúdo
+       de baixo "pular". 100lvh = altura com as barras recolhidas; o resto cobre a barra de baixo do Safari e o topo. */
+    .ld { position: fixed; left: 0; right: 0; top: -120px; height: calc(100vh + 400px); height: calc(100lvh + 400px);
+      z-index: 2147483647; background: #000; opacity: 1; transition: opacity .45s ease;
+      touch-action: none; overscroll-behavior: none; }
     .ld.out { opacity: 0; pointer-events: none; }
+    /* o indicador fica centralizado na parte VISÍVEL (separado do fundo, que é maior) */
+    .ct { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 16px; pointer-events: none; }
     .sp { width: 44px; height: 44px; border-radius: 50%; border: 4px solid rgba(255,255,255,.14); border-top-color: #1d9bf0;
       animation: nxspin .9s linear infinite; }
-    .tx { color: #71767b; font: 500 14px -apple-system, system-ui, "Segoe UI", sans-serif; letter-spacing: .02em; }
+    .tx { color: #71767b; font: 500 14px -apple-system, system-ui, "Segoe UI", sans-serif; letter-spacing: .02em;
+      text-align: center; padding: 0 24px; }
     @keyframes nxspin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .sp { animation-duration: 2.6s; } .ld { transition-duration: .2s; } }
   `;
@@ -318,7 +326,7 @@ const Ui = (function () {
       attach(ld);
       clearTimeout(ldRemoveTimer);
       if (!ldNode) {
-        ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…'));
+        ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'ct' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…')));
         ld.root.append(ldNode);
       }
       const fresh = ldNode.classList.contains('out'); // só uma tela NOVA reinicia a contagem dos 3 s

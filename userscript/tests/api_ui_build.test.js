@@ -215,6 +215,11 @@ test('Ui: tela de carregamento cobre a página, some em fade e se remove; reabri
   const node = () => host.shadowRoot.querySelector('.ld');
   assert.ok(node() && !node().classList.contains('out'));
   assert.ok(host.shadowRoot.querySelector('.sp'), 'animação de carregamento');
+  const css = host.shadowRoot.querySelector('style').textContent;
+  assert.match(css, /calc\(100lvh \+ 400px\)/, 'o fundo é maior que a tela (não deixa o conteúdo de baixo aparecer)');
+  assert.match(css, /top:\s*-120px/);
+  assert.match(css, /touch-action:\s*none/, 'a página de baixo não rola por toques na tela de carregamento');
+  assert.ok(host.shadowRoot.querySelector('.ld > .ct > .sp'), 'o indicador fica num contêiner centralizado, separado do fundo');
   assert.match(host.shadowRoot.textContent, /Abrindo/);
   ui.showLoading('Abrindo o post de @ana');
   assert.match(host.shadowRoot.textContent, /Abrindo o post de @ana/, 'o texto acompanha o post aberto');

@@ -598,8 +598,8 @@ test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem neg
   const w = new JSDOM('<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:sticky;top:0"><div data-testid="TopNavBar"></div></div><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
   const d = w.document;
   let top = -10;
-  const orig = w.HTMLElement.prototype.getBoundingClientRect;
-  w.HTMLElement.prototype.getBoundingClientRect = function () {
+  const orig = w.Element.prototype.getBoundingClientRect;
+  w.Element.prototype.getBoundingClientRect = function () {
     return this.hasAttribute && this.hasAttribute('data-nx-header') ? { top, left: 0, width: 400, height: 53, bottom: top + 53, right: 400 } : orig.call(this);
   };
   Xdom.setHeaderStatic(d, w);

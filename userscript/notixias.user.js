@@ -686,7 +686,9 @@ const Xdom = (function () {
       // Cores do tema do X (claro/escuro): fundo e texto do próprio <body>. Comum: nada de fixed/sticky.
       const cs = win.getComputedStyle(doc.body);
       const bg = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? cs.backgroundColor : '#000';
+      const off = parseFloat(own.getAttribute('data-nx-offset') || '0') || 0; // compensação do topo (medida uma vez, abaixo)
       own.style.cssText =
+        (off ? 'margin-top:' + off + 'px;' : '') +
         'display:flex;align-items:center;box-sizing:border-box;position:static;width:100%;min-height:53px;padding:0 16px;' +
         'background:' + bg + ';color:' + (cs.color || '#e7e9ea') + ';border-bottom:1px solid rgba(113,118,123,.35);' +
         'font-family:' + (cs.fontFamily || 'inherit');
@@ -698,8 +700,9 @@ const Xdom = (function () {
       // no celular), o que cortaria o topo da nossa barra. Com a página no topo, empurra a barra para dentro, uma vez só.
       if (!own.hasAttribute('data-nx-offset') && (win.scrollY || 0) === 0) {
         const top = own.getBoundingClientRect().top;
-        if (top < -0.5 && top > -60) own.style.marginTop = Math.ceil(-top) + 'px';
-        own.setAttribute('data-nx-offset', '1');
+        const need = top < -0.5 && top > -60 ? Math.ceil(-top) : 0;
+        own.setAttribute('data-nx-offset', String(need));
+        if (need) own.style.marginTop = need + 'px';
       }
     }
     return created;

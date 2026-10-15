@@ -611,27 +611,6 @@ test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem neg
 });
 
 
-test('setHeaderStatic: a barra nossa usa a fonte e a cor do título do X (sem serifa), e sans-serif se não puder ler', () => {
-  const html = (title) =>
-    '<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:fixed;top:0"><div data-testid="TopNavBar">' +
-    '<button data-testid="app-bar-back"></button>' + title + '</div></div><article data-testid="tweet"></article></div></div></body>';
-  const w = new JSDOM(html('<h2 role="heading" style="font-family: TwitterChirp, sans-serif; color: rgb(15, 20, 25)">Post</h2>'), { url: 'https://x.com/a/status/1' }).window;
-  Xdom.setHeaderStatic(w.document, w);
-  const own = w.document.querySelector('[data-nx-header]');
-  assert.match(own.getAttribute('style'), /font-family:\s*TwitterChirp, sans-serif/);
-  assert.match(own.getAttribute('style'), /color:\s*rgb\(15, 20, 25\)/);
-  assert.doesNotMatch(own.getAttribute('style'), /(?<!sans-)serif|Times/);   // nada de fonte com serifa
-  // o X recria a barra (e a original some): a nossa mantém a fonte lida na criação
-  w.document.getElementById('o').remove();
-  Xdom.setHeaderStatic(w.document, w);
-  assert.match(w.document.querySelector('[data-nx-header]').getAttribute('style'), /TwitterChirp/);
-  // sem título legível: cai na pilha sem serifa
-  const w2 = new JSDOM(html(''), { url: 'https://x.com/a/status/1' }).window;
-  Xdom.setHeaderStatic(w2.document, w2);
-  assert.match(w2.document.querySelector('[data-nx-header]').getAttribute('style'), /font-family:\s*[^;]*sans-serif/i);
-});
-
-
 test('leaveFullscreen: sai do player nativo, do Fullscreen API e do visualizador de vídeo do X; senão não faz nada', () => {
   const mk = (url = 'https://x.com/home') => {
     const w = new JSDOM('<body><video id="v"></video></body>', { url }).window;
@@ -769,4 +748,34 @@ test('watchVideoLoop: liga o loop ao tocar e avisa a cada volta ao começo (o "f
   Object.defineProperty(v, 'duration', { value: Infinity, configurable: true });
   time(5); time(0.1);
   assert.deepEqual(loops, ['v']);
+});
+
+
+test('setHeaderStatic: a fonte NÃO vem do <h2> do X (que cai na padrão serifada do Safari) e sim do texto de um post', () => {
+  const chirp = 'TwitterChirp, sans-serif';
+  const html =
+    '<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:fixed;top:0"><div data-testid="TopNavBar">' +
+    '<button data-testid="app-bar-back"></button><h2 role="heading" style="font-family: -webkit-standard">Post</h2></div></div>' +
+    `<article data-testid="tweet"><div data-testid="tweetText"><span style="font-family: ${chirp}; color: rgb(15, 20, 25)">texto</span></div></article>` +
+    '</div></div></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/a/status/1' }).window;
+  Xdom.setHeaderStatic(w.document, w);
+  const style = w.document.querySelector('[data-nx-header]').getAttribute('style');
+  assert.match(style, /font-family:\s*TwitterChirp/);                         // a do post
+  assert.doesNotMatch(style, /-webkit-standard/);                              // nunca a padrão
+  assert.match(style, /color:\s*rgb\(15, 20, 25\)/);
+  // o X recria a barra original: a nossa mantém a fonte lida na criação
+  w.document.getElementById('o').remove();
+  Xdom.setHeaderStatic(w.document, w);
+  assert.match(w.document.querySelector('[data-nx-header]').getAttribute('style'), /TwitterChirp/);
+  // só há fonte padrão por perto: cai na pilha sem serifa
+  const w2 = new JSDOM(
+    '<body><div data-testid="primaryColumn"><div><div style="position:fixed"><div data-testid="TopNavBar"><button data-testid="app-bar-back"></button>' +
+    '<h2 role="heading" style="font-family: -webkit-standard"><span style="font-family: Times">Post</span></h2></div></div><article data-testid="tweet"></article></div></div></body>',
+    { url: 'https://x.com/a/status/1' }
+  ).window;
+  Xdom.setHeaderStatic(w2.document, w2);
+  const st2 = w2.document.querySelector('[data-nx-header]').getAttribute('style');
+  assert.match(st2, /font-family:\s*[^;]*sans-serif/);
+  assert.doesNotMatch(st2, /-webkit-standard|Times/);
 });

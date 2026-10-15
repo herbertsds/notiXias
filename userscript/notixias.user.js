@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.14.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.0
+// @version      0.14.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -645,6 +645,25 @@ const Xdom = (function () {
     return { bar: outer || small || marker, marker };
   }
 
+  const GENERIC_FONT_RE = /^\s*(-webkit-standard|-apple-system-body|serif|ui-serif|times|"times new roman"|georgia)\b/i;
+
+  // Fonte e cor do texto principal do X: de um texto de post, depois de qualquer <span> da coluna ou da barra. Só vale uma
+  // fonte que NÃO seja a padrão do navegador (serifada).
+  function pickTextStyle(col, marker, win) {
+    const candidates = [
+      col.querySelector('[data-testid="tweetText"] span'),
+      col.querySelector('article span'),
+      col.querySelector('span'),
+      marker && marker.querySelector('span'),
+    ];
+    for (const el of candidates) {
+      if (!el) continue;
+      const cs = win.getComputedStyle(el);
+      if (cs.fontFamily && !GENERIC_FONT_RE.test(cs.fontFamily)) return { fontFamily: cs.fontFamily, color: cs.color };
+    }
+    return { fontFamily: '', color: '' };
+  }
+
   function setHeaderStatic(root, win) {
     const doc = root.ownerDocument || root;
     const col = root.querySelector('[data-testid="primaryColumn"]');
@@ -671,14 +690,12 @@ const Xdom = (function () {
           e.stopPropagation();
           win.history.back();
         });
-        // Fonte e cor: as do título que o X usava (o <body> não traz a fonte do X: cairia na padrão do navegador, com serifa).
-        // Guardadas na própria barra, porque a original fica escondida/some quando o X redesenha.
-        const src = heading || found.marker.querySelector('span, div') || col.querySelector('article span');
-        if (src) {
-          const f = win.getComputedStyle(src);
-          if (f.fontFamily) own.setAttribute('data-nx-font', f.fontFamily);
-          if (f.color) own.setAttribute('data-nx-color', f.color);
-        }
+        // Fonte e cor do X. NÃO vêm do título original: o <h2> do X não define fonte própria (a fonte fica nos elementos de dentro),
+        // então o navegador informa a padrão (`-webkit-standard`, com serifa). Vêm do texto de um post de verdade, que sempre
+        // tem a fonte e a cor principais; a fonte padrão/serifada é sempre ignorada. Guardadas na barra (a original some).
+        const f = pickTextStyle(col, found.marker, win);
+        if (f.fontFamily) own.setAttribute('data-nx-font', f.fontFamily);
+        if (f.color) own.setAttribute('data-nx-color', f.color);
         created = 1;
       }
     }
@@ -1953,7 +1970,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.14.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.14.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

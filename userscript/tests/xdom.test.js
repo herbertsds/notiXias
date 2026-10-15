@@ -609,3 +609,24 @@ test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem neg
   Xdom.setHeaderStatic(d, w);
   assert.equal(own.style.marginTop, '10px');
 });
+
+
+test('setHeaderStatic: a barra nossa usa a fonte e a cor do título do X (sem serifa), e sans-serif se não puder ler', () => {
+  const html = (title) =>
+    '<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:fixed;top:0"><div data-testid="TopNavBar">' +
+    '<button data-testid="app-bar-back"></button>' + title + '</div></div><article data-testid="tweet"></article></div></div></body>';
+  const w = new JSDOM(html('<h2 role="heading" style="font-family: TwitterChirp, sans-serif; color: rgb(15, 20, 25)">Post</h2>'), { url: 'https://x.com/a/status/1' }).window;
+  Xdom.setHeaderStatic(w.document, w);
+  const own = w.document.querySelector('[data-nx-header]');
+  assert.match(own.getAttribute('style'), /font-family:\s*TwitterChirp, sans-serif/);
+  assert.match(own.getAttribute('style'), /color:\s*rgb\(15, 20, 25\)/);
+  assert.doesNotMatch(own.getAttribute('style'), /(?<!sans-)serif|Times/);   // nada de fonte com serifa
+  // o X recria a barra (e a original some): a nossa mantém a fonte lida na criação
+  w.document.getElementById('o').remove();
+  Xdom.setHeaderStatic(w.document, w);
+  assert.match(w.document.querySelector('[data-nx-header]').getAttribute('style'), /TwitterChirp/);
+  // sem título legível: cai na pilha sem serifa
+  const w2 = new JSDOM(html(''), { url: 'https://x.com/a/status/1' }).window;
+  Xdom.setHeaderStatic(w2.document, w2);
+  assert.match(w2.document.querySelector('[data-nx-header]').getAttribute('style'), /font-family:\s*[^;]*sans-serif/i);
+});

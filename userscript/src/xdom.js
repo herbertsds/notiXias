@@ -257,6 +257,8 @@ const Xdom = (function () {
   // no fluxo, como primeiro filho do conteúdo da coluna, empurrando a conversa para baixo e rolando junto com ela.
   // Garantida uma só (o X recria a original ao redesenhar). Devolve 1 quando criou a nossa.
   const HEADER_ATTR = 'data-nx-header';
+  // Sem serifa, como o X: usada se a fonte do título original não puder ser lida.
+  const SANS = 'TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
   function topBarOf(root, win) {
     const marker = root.querySelector('[data-testid="TopNavBar"]') || root.querySelector('[data-testid="app-bar-back"]');
@@ -300,6 +302,14 @@ const Xdom = (function () {
           e.stopPropagation();
           win.history.back();
         });
+        // Fonte e cor: as do título que o X usava (o <body> não traz a fonte do X: cairia na padrão do navegador, com serifa).
+        // Guardadas na própria barra, porque a original fica escondida/some quando o X redesenha.
+        const src = heading || found.marker.querySelector('span, div') || col.querySelector('article span');
+        if (src) {
+          const f = win.getComputedStyle(src);
+          if (f.fontFamily) own.setAttribute('data-nx-font', f.fontFamily);
+          if (f.color) own.setAttribute('data-nx-color', f.color);
+        }
         created = 1;
       }
     }
@@ -321,8 +331,9 @@ const Xdom = (function () {
       own.style.cssText =
         (off ? 'margin-top:' + off + 'px;' : '') +
         'display:flex;align-items:center;box-sizing:border-box;position:static;width:100%;min-height:53px;padding:0 16px;' +
-        'background:' + bg + ';color:' + (cs.color || '#e7e9ea') + ';border-bottom:1px solid rgba(113,118,123,.35);' +
-        'font-family:' + (cs.fontFamily || 'inherit');
+        'background:' + bg + ';color:' + (own.getAttribute('data-nx-color') || cs.color || '#e7e9ea') +
+        ';border-bottom:1px solid rgba(113,118,123,.35);' +
+        'font-family:' + (own.getAttribute('data-nx-font') || SANS);
       // No fluxo, ANTES do conteúdo da coluna: empurra a conversa para baixo (os posts ficam em células absolutas dentro do
       // contêiner da lista, que começa depois da nossa barra).
       const target = col.firstElementChild || col;

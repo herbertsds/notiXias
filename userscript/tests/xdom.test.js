@@ -630,3 +630,71 @@ test('setHeaderStatic: a barra nossa usa a fonte e a cor do título do X (sem se
   Xdom.setHeaderStatic(w2.document, w2);
   assert.match(w2.document.querySelector('[data-nx-header]').getAttribute('style'), /font-family:\s*[^;]*sans-serif/i);
 });
+
+
+test('leaveFullscreen: sai do player nativo, do Fullscreen API e do visualizador de vídeo do X; senão não faz nada', () => {
+  const mk = (url = 'https://x.com/home') => {
+    const w = new JSDOM('<body><video id="v"></video></body>', { url }).window;
+    const calls = [];
+    w.history.back = () => calls.push('back');
+    const v = w.document.getElementById('v');
+    return { w, v, calls };
+  };
+  // 1) player nativo do iPhone
+  let c = mk();
+  c.v.webkitDisplayingFullscreen = true;
+  c.v.webkitExitFullscreen = () => c.calls.push('nativo');
+  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
+  assert.deepEqual(c.calls, ['nativo']);
+  // 2) modo de apresentação do WebKit
+  c = mk();
+  c.v.webkitPresentationMode = 'fullscreen';
+  c.v.webkitSetPresentationMode = (m) => c.calls.push('modo:' + m);
+  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
+  assert.deepEqual(c.calls, ['modo:inline']);
+  // 3) Fullscreen API
+  c = mk();
+  Object.defineProperty(c.w.document, 'fullscreenElement', { value: c.v, configurable: true });
+  c.w.document.exitFullscreen = () => { c.calls.push('api'); return Promise.resolve(); };
+  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
+  assert.deepEqual(c.calls, ['api']);
+  // 4) visualizador de vídeo do X (rota própria): volta uma página
+  c = mk('https://x.com/geglobo/status/2108/video/1');
+  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
+  assert.deepEqual(c.calls, ['back']);
+  // 5) vídeo comum na linha do tempo (nada em tela cheia): não faz nada, nem volta página
+  c = mk('https://x.com/geglobo/status/2108');
+  assert.equal(Xdom.leaveFullscreen(c.v, c.w), false);
+  assert.deepEqual(c.calls, []);
+  // quando o player nativo já tratou, não volta também a página
+  c = mk('https://x.com/a/status/9/video/1');
+  c.v.webkitDisplayingFullscreen = true;
+  c.v.webkitExitFullscreen = () => c.calls.push('nativo');
+  Xdom.leaveFullscreen(c.v, c.w);
+  assert.deepEqual(c.calls, ['nativo']);
+});
+
+test('blockEndedAdvance: sair da tela cheia e bloquear o avanço são independentes', () => {
+  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/home' }).window;
+  const v = w.document.getElementById('v');
+  const seen = { x: 0, left: 0, paused: 0 };
+  v.pause = () => { seen.paused++; };
+  v.webkitDisplayingFullscreen = true;
+  v.webkitExitFullscreen = () => { seen.left++; };
+  v.addEventListener('ended', () => seen.x++);
+  let block = true;
+  let leave = true;
+  Xdom.blockEndedAdvance(w, () => block, () => leave);
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(seen, { x: 0, left: 1, paused: 1 });                       // X não viu; saiu da tela cheia; pausou
+  leave = false;
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(seen, { x: 0, left: 1, paused: 2 });                       // só bloqueia
+  block = false;
+  leave = true;
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(seen, { x: 1, left: 2, paused: 2 });                       // só sai da tela cheia; o X ainda vê o fim
+  leave = false;
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(seen, { x: 2, left: 2, paused: 2 });                       // tudo desligado: nada muda
+});

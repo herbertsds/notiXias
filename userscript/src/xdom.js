@@ -370,13 +370,58 @@ const Xdom = (function () {
   // de mídia não "sobem" (bubble), mas passam por TODOS os ancestrais na fase de captura, e `window` é o primeiro: um ouvinte
   // de captura ali, com stopImmediatePropagation, impede que qualquer ouvinte do X (no próprio <video> ou em ancestrais) o veja.
   // O vídeo só fica parado no último quadro. `isOn()` liga/desliga sem remover. Devolve a função que remove o ouvinte.
-  function blockEndedAdvance(win, isOn) {
+  // Sai da tela cheia do vídeo que acabou. Cobre os dois "tela cheia" do iPhone/Safari:
+  //  - o player nativo (`video.webkitExitFullscreen()` / `webkitSetPresentationMode('inline')`) e o Fullscreen API normal;
+  //  - o visualizador de vídeo do X, uma rota própria (`/usuario/status/ID/video/N`), que se fecha voltando uma página.
+  // Devolve true se fez alguma coisa.
+  function leaveFullscreen(video, win) {
+    const doc = win.document;
+    let did = false;
+    try {
+      if (video.webkitDisplayingFullscreen && typeof video.webkitExitFullscreen === 'function') {
+        video.webkitExitFullscreen();
+        did = true;
+      }
+    } catch (e) { /* segue */ }
+    try {
+      if (video.webkitPresentationMode === 'fullscreen' && typeof video.webkitSetPresentationMode === 'function') {
+        video.webkitSetPresentationMode('inline');
+        did = true;
+      }
+    } catch (e) { /* segue */ }
+    try {
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
+        if (typeof exit === 'function') {
+          const p = exit.call(doc);
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+          did = true;
+        }
+      }
+    } catch (e) { /* segue */ }
+    if (!did && win.location && /\/status\/\d+\/video\/\d+/.test(win.location.pathname) && win.history) {
+      win.history.back();
+      did = true;
+    }
+    return did;
+  }
+
+  // Fim de um vídeo (evento `ended`, interceptado em `window` antes de qualquer ouvinte do X):
+  //  - `blockOn()`: o X não vê o fim, então não pula para o próximo vídeo; o vídeo só pausa no último quadro;
+  //  - `leaveOn()`: sai da tela cheia (ver `leaveFullscreen`).
+  // Ambos ligam/desligam sem remover o ouvinte. Devolve a função que o remove.
+  function blockEndedAdvance(win, blockOn, leaveOn) {
     const handler = (e) => {
-      if (!isOn()) return;
       const v = e.target;
       if (!v || v.tagName !== 'VIDEO') return;
-      e.stopImmediatePropagation();
-      try { v.pause(); } catch (err) { /* já parado */ }
+      const block = !!(blockOn && blockOn());
+      const leave = !!(leaveOn && leaveOn());
+      if (!block && !leave) return;
+      if (block) {
+        e.stopImmediatePropagation();
+        try { v.pause(); } catch (err) { /* já parado */ }
+      }
+      if (leave) leaveFullscreen(v, win);
     };
     win.addEventListener('ended', handler, true);
     return () => win.removeEventListener('ended', handler, true);
@@ -555,7 +600,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

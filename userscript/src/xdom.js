@@ -293,9 +293,9 @@ const Xdom = (function () {
         own.setAttribute(HEADER_ATTR, '1');
         own.innerHTML =
           '<button type="button" aria-label="Voltar" style="all:unset;box-sizing:border-box;display:flex;align-items:center;' +
-          'justify-content:center;width:36px;height:36px;border-radius:50%;cursor:pointer;margin-right:24px;flex:none">' +
-          '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M7.414 13l5.043 5.04-1.414 1.42L3.586 12l7.457-7.46 1.414 1.42L7.414 11H21v2H7.414z"/></svg></button>' +
-          '<span data-nx-title style="font-size:20px;font-weight:700;line-height:24px"></span>';
+          'justify-content:center;width:30px;height:30px;border-radius:50%;cursor:pointer;margin-right:14px;flex:none">' +
+          '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7.414 13l5.043 5.04-1.414 1.42L3.586 12l7.457-7.46 1.414 1.42L7.414 11H21v2H7.414z"/></svg></button>' +
+          '<span data-nx-title style="font-size:16px;font-weight:700;line-height:20px"></span>';
         own.querySelector('[data-nx-title]').textContent = title;
         own.querySelector('button').addEventListener('click', (e) => {
           e.preventDefault();
@@ -330,7 +330,7 @@ const Xdom = (function () {
       const off = parseFloat(own.getAttribute('data-nx-offset') || '0') || 0; // compensação do topo (medida uma vez, abaixo)
       own.style.cssText =
         (off ? 'margin-top:' + off + 'px;' : '') +
-        'display:flex;align-items:center;box-sizing:border-box;position:static;width:100%;min-height:53px;padding:0 16px;' +
+        'display:flex;align-items:center;box-sizing:border-box;position:static;width:100%;min-height:40px;padding:0 12px;' +
         'background:' + bg + ';color:' + (own.getAttribute('data-nx-color') || cs.color || '#e7e9ea') +
         ';border-bottom:1px solid rgba(113,118,123,.35);' +
         'font-family:' + (own.getAttribute('data-nx-font') || SANS);

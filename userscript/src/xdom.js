@@ -303,6 +303,16 @@ const Xdom = (function () {
         created = 1;
       }
     }
+    if (found) {
+      // No celular o X reserva, no fluxo, um bloco VAZIO (<header role="banner"> com um <div style="height: 50px">) do tamanho
+      // da barra fixa. Escondida a barra, ele sobraria como uma faixa em branco acima da nossa. Só some se for baixo e não
+      // tiver link, botão, navegação nem texto (a barra lateral do computador tem tudo isso e fica como está).
+      for (const h of root.querySelectorAll('header[role="banner"]')) {
+        const r = h.getBoundingClientRect();
+        if (r.height > 70 || h.querySelector('a, button, nav, input, [role="button"], [role="link"]') || h.textContent.trim()) continue;
+        h.setAttribute(HIDE_ATTR, '1');
+      }
+    }
     if (own) {
       // Cores do tema do X (claro/escuro): fundo e texto do próprio <body>. Comum: nada de fixed/sticky.
       const cs = win.getComputedStyle(doc.body);

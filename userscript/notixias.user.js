@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.12.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.1
+// @version      0.12.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -670,6 +670,16 @@ const Xdom = (function () {
           win.history.back();
         });
         created = 1;
+      }
+    }
+    if (found) {
+      // No celular o X reserva, no fluxo, um bloco VAZIO (<header role="banner"> com um <div style="height: 50px">) do tamanho
+      // da barra fixa. Escondida a barra, ele sobraria como uma faixa em branco acima da nossa. Só some se for baixo e não
+      // tiver link, botão, navegação nem texto (a barra lateral do computador tem tudo isso e fica como está).
+      for (const h of root.querySelectorAll('header[role="banner"]')) {
+        const r = h.getBoundingClientRect();
+        if (r.height > 70 || h.querySelector('a, button, nav, input, [role="button"], [role="link"]') || h.textContent.trim()) continue;
+        h.setAttribute(HIDE_ATTR, '1');
       }
     }
     if (own) {
@@ -1832,7 +1842,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.12.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.12.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

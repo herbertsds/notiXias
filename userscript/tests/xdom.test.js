@@ -479,6 +479,7 @@ test('setHeaderStatic (CELULAR): barra fixa numa camada FORA da coluna é escond
     '<body><div id="layers"><div id="abs" style="position:absolute;top:0"><div id="fixwrap" style="position:fixed;top:0">' +
     '<div id="relwrap" style="position:relative"><div id="fixbar" style="position:fixed;top:0"><div data-testid="TopNavBar" id="tnb">' +
     '<button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div></div></div></div></div>' +
+    '<header role="banner" id="spacer"><div style="height:50px"></div></header>' +
     '<div data-testid="primaryColumn" id="col"><div id="inner"><section><h1 style="position:absolute">Conversa</h1><div id="list"><article data-testid="tweet"></article></div></section></div></div>' +
     '<nav role="navigation" id="bottom"><a href="/home">h</a></nav></body>',
     { url: 'https://x.com/a/status/1' }
@@ -489,11 +490,16 @@ test('setHeaderStatic (CELULAR): barra fixa numa camada FORA da coluna é escond
   assert.ok(!d.getElementById('abs').hasAttribute('data-nx-hidden'), 'mas não a camada que pode conter outras coisas');
   assert.ok(!d.getElementById('bottom').hasAttribute('data-nx-hidden'), 'nem a barra de baixo');
   const own = d.querySelector('[data-nx-header]');
+  assert.ok(d.getElementById('spacer').hasAttribute('data-nx-hidden'), 'o espaçador vazio de 50 px que o X reserva também some');
   assert.equal(own.parentElement.id, 'inner');                                           // dentro da coluna, no fluxo
   assert.equal(d.getElementById('inner').firstElementChild, own);                       // antes da lista de posts
   assert.equal(own.querySelector('[data-nx-title]').textContent, 'Post');
   assert.doesNotMatch(own.getAttribute('style'), /fixed|sticky|absolute/);
   assert.equal(Xdom.setHeaderStatic(d, w), 0);
+  // a barra lateral (header com links) NÃO é um espaçador e nunca é escondida
+  const sb = new JSDOM('<body><header role="banner" id="side"><nav role="navigation"><a href="/home">Início</a></nav></header><div id="tnb"><div data-testid="TopNavBar" style="position:fixed"></div></div><div data-testid="primaryColumn"><div><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
+  Xdom.setHeaderStatic(sb.document, sb);
+  assert.ok(!sb.document.getElementById('side').hasAttribute('data-nx-hidden'));
   // o X recria a camada da barra: some de novo e continua UMA só barra nossa, na primeira posição
   d.getElementById('fixwrap').remove();
   d.getElementById('abs').insertAdjacentHTML('beforeend', '<div id="fix2" style="position:fixed;top:0"><div data-testid="TopNavBar"><button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div>');

@@ -446,25 +446,42 @@ test('pageMissing: reconhece página/post que não existe, sem confundir com a p
 });
 
 
-test('setHeaderStatic: solta a barra "← Post" (sticky) para fazer parte da página; não mexe no que não é fixo', () => {
-  const w = new JSDOM(
-    '<body><div data-testid="primaryColumn"><div id="sticky" style="position:sticky;top:0"><div id="mid" style="position:relative">' +
-    '<button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div><div id="posts"><article data-testid="tweet"></article></div></div></body>',
-    { url: 'https://x.com/a/status/1' }
-  ).window;
+test('setHeaderStatic: esconde a barra original e cria uma barra NOSSA no fluxo da página, uma só, com voltar e título', () => {
+  const html = (extra = '') =>
+    '<body style="background-color:rgb(0,0,0);color:rgb(231,233,234)"><div data-testid="primaryColumn"><div id="wrap">' +
+    '<div id="orig" style="position:sticky;top:0"><div><button data-testid="app-bar-back"></button><h2 role="heading">Conversa</h2></div></div>' +
+    '<div id="posts"><article data-testid="tweet"></article></div></div></div></body>';
+  const w = new JSDOM(html(), { url: 'https://x.com/a/status/1' }).window;
   const d = w.document;
+  let backs = 0;
+  w.history.back = () => { backs++; };
   assert.equal(Xdom.setHeaderStatic(d, w), 1);
-  assert.ok(d.getElementById('sticky').hasAttribute('data-nx-static'));
-  assert.ok(!d.getElementById('mid').hasAttribute('data-nx-static'));                 // só o que é sticky/fixed
-  assert.ok(!d.getElementById('posts').hasAttribute('data-nx-static'));
-  assert.match(d.getElementById('nx-style').textContent, /\[data-nx-static\]\{position:static!important\}/);
-  assert.equal(Xdom.setHeaderStatic(d, w), 0);                                        // idempotente
-  // sem botão de voltar: usa o título; o X pode recriar a barra e ela volta a ser solta
-  d.getElementById('sticky').remove();
-  d.querySelector('[data-testid="primaryColumn"]').insertAdjacentHTML('afterbegin', '<div id="s2" style="position:fixed"><h2 role="heading">Post</h2></div>');
-  assert.equal(Xdom.setHeaderStatic(d, w), 1);
-  assert.ok(d.getElementById('s2').hasAttribute('data-nx-static'));
-  assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);   // sem coluna principal
+  assert.ok(d.getElementById('orig').hasAttribute('data-nx-hidden'), 'a original some por inteiro');
+  const own = d.querySelector('[data-nx-header]');
+  assert.ok(own && own.nextElementSibling === d.getElementById('orig'), 'a nossa entra no lugar da original, antes dela');
+  assert.equal(own.parentElement.id, 'wrap');
+  assert.equal(own.querySelector('[data-nx-title]').textContent, 'Conversa');            // o título acompanha o da original
+  assert.match(own.getAttribute('style'), /position:\s*static/);
+  assert.doesNotMatch(own.getAttribute('style'), /sticky|fixed/);
+  assert.match(own.getAttribute('style'), /background:\s*rgb\(0, 0, 0\)/);             // tema do X
+  own.querySelector('button').click();
+  assert.equal(backs, 1);                                                                // voltar leva à página anterior
+  assert.equal(Xdom.setHeaderStatic(d, w), 0);                                           // idempotente: não cria outra
+  assert.equal(d.querySelectorAll('[data-nx-header]').length, 1);
+  // o X recria a barra original (sticky, nova, sem o atributo): some de novo e continua UMA só barra nossa, antes dela
+  d.getElementById('orig').remove();
+  d.getElementById('wrap').insertAdjacentHTML('afterbegin', '<div id="orig2" style="position:sticky;top:0"><button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div>');
+  Xdom.setHeaderStatic(d, w);
+  assert.ok(d.getElementById('orig2').hasAttribute('data-nx-hidden'));
+  assert.equal(d.querySelectorAll('[data-nx-header]').length, 1);
+  assert.equal(d.querySelector('[data-nx-header]').nextElementSibling, d.getElementById('orig2'));
+  assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);  // sem coluna principal
+  // não engole os posts: o corpo com artigos continua visível
+  assert.ok(!d.getElementById('posts').hasAttribute('data-nx-hidden'));
+  // um ancestral sticky que contém os posts (layout diferente) nunca é escondido
+  const w2 = new JSDOM('<body><div data-testid="primaryColumn"><div id="big" style="position:sticky;top:0"><button data-testid="app-bar-back"></button><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
+  Xdom.setHeaderStatic(w2.document, w2);
+  assert.ok(!w2.document.getElementById('big').hasAttribute('data-nx-hidden'));
 });
 
 

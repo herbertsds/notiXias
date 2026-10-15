@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.12.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.0
+// @version      0.12.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -619,38 +619,43 @@ const Xdom = (function () {
   }
 
   // ---- barra do topo ("← Post") ----
-  // A barra original do X é `position: sticky/fixed` e o X a recoloca por cima do conteúdo (mesmo "soltando-a" por CSS ela
-  // voltava a ficar na frente do primeiro post). Aqui ela é ESCONDIDA inteira e no lugar entra uma barra NOSSA, comum, dentro do
-  // fluxo da página, logo acima do que era a barra: não fixa, não sticky, rola junto com o conteúdo.
-  // Cuida para que sempre exista uma só (o X recria a barra original ao redesenhar). Devolve 1 quando criou a nossa.
+  // A barra original do X é fixa (`position: fixed/sticky`) e fica POR CIMA do primeiro post. No computador ela mora dentro da
+  // coluna principal; no CELULAR ela está numa camada separada, `position: fixed`, FORA da coluna (`TopNavBar`), e o conteúdo
+  // começa em y=0, por baixo dela. Por isso: (1) a barra é procurada na página inteira; (2) o maior ancestral fixo/sticky dela é
+  // ESCONDIDO inteiro (sem nunca conter posts, a coluna principal ou a barra de baixo); (3) uma barra NOSSA, comum, entra
+  // no fluxo, como primeiro filho do conteúdo da coluna, empurrando a conversa para baixo e rolando junto com ela.
+  // Garantida uma só (o X recria a original ao redesenhar). Devolve 1 quando criou a nossa.
   const HEADER_ATTR = 'data-nx-header';
-  function topBarOf(col) {
-    const anchor = col.querySelector('[data-testid="app-bar-back"]') || col.querySelector('h2[role="heading"], [role="heading"]');
-    if (!anchor) return null;
-    let best = null;
-    for (let el = anchor; el && el !== col; el = el.parentElement) {
+
+  function topBarOf(root, win) {
+    const marker = root.querySelector('[data-testid="TopNavBar"]') || root.querySelector('[data-testid="app-bar-back"]');
+    if (!marker) return null;
+    let outer = null; // o maior ancestral fixo/sticky
+    let small = null; // sem fixo: o maior ancestral que ainda é uma faixa
+    for (let el = marker; el && el.tagName !== 'BODY' && el !== root.documentElement; el = el.parentElement) {
       if (el.hasAttribute(HEADER_ATTR)) return null; // é a nossa
-      if (el.querySelector('article')) break;         // nunca um bloco que contenha posts: seria esconder a conversa
-      const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-      const pos = el.ownerDocument.defaultView.getComputedStyle(el).position;
-      // a barra é o maior ancestral que ainda é "pequeno" (uma faixa) ou o que é sticky/fixed; nunca engole os posts
-      if (pos === 'sticky' || pos === 'fixed' || (r && r.height && r.height <= 90)) best = el;
+      if (el.querySelector('article, [data-testid="primaryColumn"], nav[role="navigation"], [data-testid="BottomBar"]')) break;
+      const pos = win.getComputedStyle(el).position;
+      if (pos === 'fixed' || pos === 'sticky') outer = el;
+      const h = el.getBoundingClientRect ? el.getBoundingClientRect().height : 0;
+      if (h && h <= 90) small = el;
     }
-    return best;
+    return { bar: outer || small || marker, marker };
   }
 
   function setHeaderStatic(root, win) {
+    const doc = root.ownerDocument || root;
     const col = root.querySelector('[data-testid="primaryColumn"]');
     if (!col) return 0;
-    const doc = root.ownerDocument || root;
     ensureStyle(doc);
-    const bar = topBarOf(col);
-    let own = col.querySelector('[' + HEADER_ATTR + ']');
+    const found = topBarOf(root, win);
+    let own = root.querySelector('[' + HEADER_ATTR + ']');
     let created = 0;
-    if (bar && !bar.hasAttribute(HIDE_ATTR)) {
-      bar.setAttribute(HIDE_ATTR, '1');
+    if (found) {
+      found.bar.setAttribute(HIDE_ATTR, '1');
       if (!own) {
-        const title = (bar.querySelector('h2[role="heading"], [role="heading"]') || {}).textContent;
+        const heading = found.marker.querySelector('h2[role="heading"], [role="heading"]') || found.bar.querySelector('h2[role="heading"], [role="heading"]');
+        const title = ((heading && heading.textContent) || '').trim() || 'Post';
         own = doc.createElement('div');
         own.setAttribute(HEADER_ATTR, '1');
         own.innerHTML =
@@ -658,7 +663,7 @@ const Xdom = (function () {
           'justify-content:center;width:36px;height:36px;border-radius:50%;cursor:pointer;margin-right:24px;flex:none">' +
           '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M7.414 13l5.043 5.04-1.414 1.42L3.586 12l7.457-7.46 1.414 1.42L7.414 11H21v2H7.414z"/></svg></button>' +
           '<span data-nx-title style="font-size:20px;font-weight:700;line-height:24px"></span>';
-        own.querySelector('[data-nx-title]').textContent = (title || 'Post').trim() || 'Post';
+        own.querySelector('[data-nx-title]').textContent = title;
         own.querySelector('button').addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -668,18 +673,17 @@ const Xdom = (function () {
       }
     }
     if (own) {
-      // As cores acompanham o tema do X (claro/escuro): fundo e texto do próprio <body>.
+      // Cores do tema do X (claro/escuro): fundo e texto do próprio <body>. Comum: nada de fixed/sticky.
       const cs = win.getComputedStyle(doc.body);
       const bg = cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' ? cs.backgroundColor : '#000';
       own.style.cssText =
         'display:flex;align-items:center;box-sizing:border-box;position:static;width:100%;min-height:53px;padding:0 16px;' +
         'background:' + bg + ';color:' + (cs.color || '#e7e9ea') + ';border-bottom:1px solid rgba(113,118,123,.35);' +
         'font-family:' + (cs.fontFamily || 'inherit');
-      // Fica no lugar da barra original (logo antes dela); se o X a recriou noutro ponto, acompanha.
-      const hidden = col.querySelector('[' + HIDE_ATTR + ']');
-      const ref = bar || (hidden && hidden.querySelector('[data-testid="app-bar-back"]') ? hidden : null);
-      if (ref && ref.parentElement && own.nextElementSibling !== ref) ref.parentElement.insertBefore(own, ref);
-      else if (!own.isConnected) col.insertBefore(own, col.firstChild);
+      // No fluxo, ANTES do conteúdo da coluna: empurra a conversa para baixo (os posts ficam em células absolutas dentro do
+      // contêiner da lista, que começa depois da nossa barra).
+      const target = col.firstElementChild || col;
+      if (own.parentElement !== target || target.firstChild !== own) target.insertBefore(own, target.firstChild);
     }
     return created;
   }
@@ -1828,7 +1832,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.12.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.12.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

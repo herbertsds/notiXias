@@ -446,40 +446,65 @@ test('pageMissing: reconhece página/post que não existe, sem confundir com a p
 });
 
 
-test('setHeaderStatic: esconde a barra original e cria uma barra NOSSA no fluxo da página, uma só, com voltar e título', () => {
-  const html = (extra = '') =>
+test('setHeaderStatic (computador): barra sticky DENTRO da coluna é escondida e a nossa entra no fluxo antes do conteúdo', () => {
+  const w = new JSDOM(
     '<body style="background-color:rgb(0,0,0);color:rgb(231,233,234)"><div data-testid="primaryColumn"><div id="wrap">' +
-    '<div id="orig" style="position:sticky;top:0"><div><button data-testid="app-bar-back"></button><h2 role="heading">Conversa</h2></div></div>' +
-    '<div id="posts"><article data-testid="tweet"></article></div></div></div></body>';
-  const w = new JSDOM(html(), { url: 'https://x.com/a/status/1' }).window;
+    '<div id="orig" style="position:sticky;top:0"><div data-testid="TopNavBar"><button data-testid="app-bar-back"></button><h2 role="heading">Conversa</h2></div></div>' +
+    '<div id="posts"><article data-testid="tweet"></article></div></div></div></body>',
+    { url: 'https://x.com/a/status/1' }
+  ).window;
   const d = w.document;
   let backs = 0;
   w.history.back = () => { backs++; };
   assert.equal(Xdom.setHeaderStatic(d, w), 1);
   assert.ok(d.getElementById('orig').hasAttribute('data-nx-hidden'), 'a original some por inteiro');
   const own = d.querySelector('[data-nx-header]');
-  assert.ok(own && own.nextElementSibling === d.getElementById('orig'), 'a nossa entra no lugar da original, antes dela');
   assert.equal(own.parentElement.id, 'wrap');
-  assert.equal(own.querySelector('[data-nx-title]').textContent, 'Conversa');            // o título acompanha o da original
+  assert.equal(own, d.getElementById('wrap').firstElementChild, 'a nossa é a primeira do conteúdo (no fluxo)');
+  assert.equal(own.querySelector('[data-nx-title]').textContent, 'Conversa');
   assert.match(own.getAttribute('style'), /position:\s*static/);
   assert.doesNotMatch(own.getAttribute('style'), /sticky|fixed/);
-  assert.match(own.getAttribute('style'), /background:\s*rgb\(0, 0, 0\)/);             // tema do X
+  assert.match(own.getAttribute('style'), /background:\s*rgb\(0, 0, 0\)/);
   own.querySelector('button').click();
-  assert.equal(backs, 1);                                                                // voltar leva à página anterior
-  assert.equal(Xdom.setHeaderStatic(d, w), 0);                                           // idempotente: não cria outra
+  assert.equal(backs, 1);
+  assert.equal(Xdom.setHeaderStatic(d, w), 0);                                           // idempotente
   assert.equal(d.querySelectorAll('[data-nx-header]').length, 1);
-  // o X recria a barra original (sticky, nova, sem o atributo): some de novo e continua UMA só barra nossa, antes dela
-  d.getElementById('orig').remove();
-  d.getElementById('wrap').insertAdjacentHTML('afterbegin', '<div id="orig2" style="position:sticky;top:0"><button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div>');
-  Xdom.setHeaderStatic(d, w);
-  assert.ok(d.getElementById('orig2').hasAttribute('data-nx-hidden'));
-  assert.equal(d.querySelectorAll('[data-nx-header]').length, 1);
-  assert.equal(d.querySelector('[data-nx-header]').nextElementSibling, d.getElementById('orig2'));
-  assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);  // sem coluna principal
-  // não engole os posts: o corpo com artigos continua visível
   assert.ok(!d.getElementById('posts').hasAttribute('data-nx-hidden'));
-  // um ancestral sticky que contém os posts (layout diferente) nunca é escondido
-  const w2 = new JSDOM('<body><div data-testid="primaryColumn"><div id="big" style="position:sticky;top:0"><button data-testid="app-bar-back"></button><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
+});
+
+test('setHeaderStatic (CELULAR): barra fixa numa camada FORA da coluna é escondida inteira e a nossa entra no fluxo da coluna', () => {
+  // estrutura real do X no celular: camada absoluta com um contêiner fixo (h=0) que guarda a barra fixa (h=53); a coluna
+  // principal é outra árvore, e o primeiro post começa em y=0, por baixo da barra.
+  const w = new JSDOM(
+    '<body><div id="layers"><div id="abs" style="position:absolute;top:0"><div id="fixwrap" style="position:fixed;top:0">' +
+    '<div id="relwrap" style="position:relative"><div id="fixbar" style="position:fixed;top:0"><div data-testid="TopNavBar" id="tnb">' +
+    '<button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div></div></div></div></div>' +
+    '<div data-testid="primaryColumn" id="col"><div id="inner"><section><h1 style="position:absolute">Conversa</h1><div id="list"><article data-testid="tweet"></article></div></section></div></div>' +
+    '<nav role="navigation" id="bottom"><a href="/home">h</a></nav></body>',
+    { url: 'https://x.com/a/status/1' }
+  ).window;
+  const d = w.document;
+  assert.equal(Xdom.setHeaderStatic(d, w), 1);
+  assert.ok(d.getElementById('fixwrap').hasAttribute('data-nx-hidden'), 'o maior ancestral fixo é escondido');
+  assert.ok(!d.getElementById('abs').hasAttribute('data-nx-hidden'), 'mas não a camada que pode conter outras coisas');
+  assert.ok(!d.getElementById('bottom').hasAttribute('data-nx-hidden'), 'nem a barra de baixo');
+  const own = d.querySelector('[data-nx-header]');
+  assert.equal(own.parentElement.id, 'inner');                                           // dentro da coluna, no fluxo
+  assert.equal(d.getElementById('inner').firstElementChild, own);                       // antes da lista de posts
+  assert.equal(own.querySelector('[data-nx-title]').textContent, 'Post');
+  assert.doesNotMatch(own.getAttribute('style'), /fixed|sticky|absolute/);
+  assert.equal(Xdom.setHeaderStatic(d, w), 0);
+  // o X recria a camada da barra: some de novo e continua UMA só barra nossa, na primeira posição
+  d.getElementById('fixwrap').remove();
+  d.getElementById('abs').insertAdjacentHTML('beforeend', '<div id="fix2" style="position:fixed;top:0"><div data-testid="TopNavBar"><button data-testid="app-bar-back"></button><h2 role="heading">Post</h2></div></div>');
+  Xdom.setHeaderStatic(d, w);
+  assert.ok(d.getElementById('fix2').hasAttribute('data-nx-hidden'));
+  assert.equal(d.querySelectorAll('[data-nx-header]').length, 1);
+  assert.equal(d.getElementById('inner').firstElementChild, d.querySelector('[data-nx-header]'));
+  // sem coluna principal: não faz nada
+  assert.equal(Xdom.setHeaderStatic(new JSDOM('<body></body>').window.document, w), 0);
+  // um ancestral que contém os posts nunca é escondido
+  const w2 = new JSDOM('<body><div data-testid="primaryColumn"><div id="big" style="position:sticky;top:0"><div data-testid="TopNavBar"></div><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
   Xdom.setHeaderStatic(w2.document, w2);
   assert.ok(!w2.document.getElementById('big').hasAttribute('data-nx-hidden'));
 });

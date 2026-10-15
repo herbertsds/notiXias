@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.13.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.13.2
+// @version      0.14.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -745,7 +745,7 @@ const Xdom = (function () {
   // Devolve true se fez alguma coisa.
   // Rotas do visualizador de vídeo do X (a tela própria, não a página do post): /usuario/status/ID/video/N, e as de modo
   // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
-  const VIEWER_RE = /\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
+  const VIEWER_RE = /\/mediaViewer\b|\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
 
   function leaveFullscreen(video, win) {
     const doc = win.document;
@@ -772,6 +772,19 @@ const Xdom = (function () {
         }
       }
     } catch (e) { /* segue */ }
+    // O visualizador do X (`/usuario/status/ID/mediaViewer`) tem um botão de voltar por vídeo (`immersive-tweet-back-button-ID`):
+    // apertá-lo é o mesmo que o toque do dono.
+    if (!did) {
+      try {
+        const cell = video.closest && video.closest('[data-testid^="cellInnerDiv-tweet-"]');
+        const back = (cell && cell.querySelector('[data-testid^="immersive-tweet-back-button"]')) ||
+          (doc.querySelector && doc.querySelector('[data-testid^="immersive-tweet-back-button"]'));
+        if (back) {
+          back.click();
+          did = true;
+        }
+      } catch (e) { /* segue */ }
+    }
     if (!did && win.location && VIEWER_RE.test(win.location.pathname) && win.history) {
       win.history.back();
       did = true;
@@ -801,6 +814,31 @@ const Xdom = (function () {
     };
     win.addEventListener('ended', handler, true);
     return () => win.removeEventListener('ended', handler, true);
+  }
+
+  // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
+  // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
+  // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
+  function watchVideoLoop(win, opts) {
+    const doc = win.document;
+    const arm = (e) => {
+      const v = e.target;
+      if (v && v.tagName === 'VIDEO' && opts.loopOn()) {
+        try { if (!v.loop) v.loop = true; } catch (err) { /* segue */ }
+      }
+    };
+    const tick = (e) => {
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO' || !opts.loopOn()) return;
+      const d = v.duration;
+      if (!isFinite(d) || d <= 0) return;
+      const t = v.currentTime;
+      const last = v.__nxLastT;
+      v.__nxLastT = t;
+      if (last !== undefined && last > d * 0.85 && t < d * 0.15) opts.onLoop(v);
+    };
+    for (const ev of ['play', 'playing', 'loadedmetadata']) doc.addEventListener(ev, arm, true);
+    doc.addEventListener('timeupdate', tick, true);
   }
 
   // ---- vídeo na tela ----
@@ -976,7 +1014,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1915,7 +1953,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.13.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.14.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -1924,6 +1962,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
     exitFullscreenOnEnd: true, // ao terminar, o vídeo sai da tela cheia
     noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
@@ -2088,7 +2127,7 @@ async function startApp() {
       saveCfg();
       try { v.playbackRate = 1; } catch (e) { /* segue */ }
     }
-    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000) {
+    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000 && document.querySelector('[data-testid^="immersive-"]')) {
       lastVideoDiagAt = Date.now();
       const fs = document.fullscreenElement || document.webkitFullscreenElement;
       const diag = {
@@ -2100,7 +2139,19 @@ async function startApp() {
       api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: JSON.stringify(diag).slice(0, 4000), note: 'video terminou sem sair da tela cheia' }).catch(() => {});
     }
   };
-  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
+  if (!cfg.bot) {
+    Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
+    // Loop: o vídeo repete e o fim "de verdade" nunca chega ao X. A cada volta ao começo: volta a 1x e, se pediu, fecha a tela
+    // do vídeo apertando o botão voltar dela.
+    Xdom.watchVideoLoop(window, {
+      loopOn: () => !!cfg.loopVideos,
+      onLoop: (v) => {
+        const leave = !!cfg.exitFullscreenOnEnd;
+        const left = leave ? Xdom.leaveFullscreen(v, window) : false;
+        onVideoEnded(v, { block: true, leave, left });
+      },
+    });
+  }
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
@@ -2230,6 +2281,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
       { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },
       { label: 'Sair da tela cheia ao terminar: ' + (cfg.exitFullscreenOnEnd ? 'sim' : 'não'), onClick: () => { cfg.exitFullscreenOnEnd = !cfg.exitFullscreenOnEnd; saveCfg(); drawBar(); } },
       { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },

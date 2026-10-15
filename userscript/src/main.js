@@ -10,6 +10,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
     exitFullscreenOnEnd: true, // ao terminar, o vídeo sai da tela cheia
     noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
@@ -174,7 +175,7 @@ async function startApp() {
       saveCfg();
       try { v.playbackRate = 1; } catch (e) { /* segue */ }
     }
-    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000) {
+    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000 && document.querySelector('[data-testid^="immersive-"]')) {
       lastVideoDiagAt = Date.now();
       const fs = document.fullscreenElement || document.webkitFullscreenElement;
       const diag = {
@@ -186,7 +187,19 @@ async function startApp() {
       api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: JSON.stringify(diag).slice(0, 4000), note: 'video terminou sem sair da tela cheia' }).catch(() => {});
     }
   };
-  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
+  if (!cfg.bot) {
+    Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
+    // Loop: o vídeo repete e o fim "de verdade" nunca chega ao X. A cada volta ao começo: volta a 1x e, se pediu, fecha a tela
+    // do vídeo apertando o botão voltar dela.
+    Xdom.watchVideoLoop(window, {
+      loopOn: () => !!cfg.loopVideos,
+      onLoop: (v) => {
+        const leave = !!cfg.exitFullscreenOnEnd;
+        const left = leave ? Xdom.leaveFullscreen(v, window) : false;
+        onVideoEnded(v, { block: true, leave, left });
+      },
+    });
+  }
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
@@ -316,6 +329,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
       { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },
       { label: 'Sair da tela cheia ao terminar: ' + (cfg.exitFullscreenOnEnd ? 'sim' : 'não'), onClick: () => { cfg.exitFullscreenOnEnd = !cfg.exitFullscreenOnEnd; saveCfg(); drawBar(); } },
       { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },

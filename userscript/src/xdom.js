@@ -376,7 +376,7 @@ const Xdom = (function () {
   // Devolve true se fez alguma coisa.
   // Rotas do visualizador de vídeo do X (a tela própria, não a página do post): /usuario/status/ID/video/N, e as de modo
   // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
-  const VIEWER_RE = /\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
+  const VIEWER_RE = /\/mediaViewer\b|\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
 
   function leaveFullscreen(video, win) {
     const doc = win.document;
@@ -403,6 +403,19 @@ const Xdom = (function () {
         }
       }
     } catch (e) { /* segue */ }
+    // O visualizador do X (`/usuario/status/ID/mediaViewer`) tem um botão de voltar por vídeo (`immersive-tweet-back-button-ID`):
+    // apertá-lo é o mesmo que o toque do dono.
+    if (!did) {
+      try {
+        const cell = video.closest && video.closest('[data-testid^="cellInnerDiv-tweet-"]');
+        const back = (cell && cell.querySelector('[data-testid^="immersive-tweet-back-button"]')) ||
+          (doc.querySelector && doc.querySelector('[data-testid^="immersive-tweet-back-button"]'));
+        if (back) {
+          back.click();
+          did = true;
+        }
+      } catch (e) { /* segue */ }
+    }
     if (!did && win.location && VIEWER_RE.test(win.location.pathname) && win.history) {
       win.history.back();
       did = true;
@@ -432,6 +445,31 @@ const Xdom = (function () {
     };
     win.addEventListener('ended', handler, true);
     return () => win.removeEventListener('ended', handler, true);
+  }
+
+  // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
+  // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
+  // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
+  function watchVideoLoop(win, opts) {
+    const doc = win.document;
+    const arm = (e) => {
+      const v = e.target;
+      if (v && v.tagName === 'VIDEO' && opts.loopOn()) {
+        try { if (!v.loop) v.loop = true; } catch (err) { /* segue */ }
+      }
+    };
+    const tick = (e) => {
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO' || !opts.loopOn()) return;
+      const d = v.duration;
+      if (!isFinite(d) || d <= 0) return;
+      const t = v.currentTime;
+      const last = v.__nxLastT;
+      v.__nxLastT = t;
+      if (last !== undefined && last > d * 0.85 && t < d * 0.15) opts.onLoop(v);
+    };
+    for (const ev of ['play', 'playing', 'loadedmetadata']) doc.addEventListener(ev, arm, true);
+    doc.addEventListener('timeupdate', tick, true);
   }
 
   // ---- vídeo na tela ----
@@ -607,7 +645,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

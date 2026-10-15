@@ -720,3 +720,53 @@ test('blockEndedAdvance: avisa o fim (onEnded) com o que foi feito; visualizador
   assert.deepEqual(back2, []);
   assert.deepEqual(ended2, [{ block: false, leave: true, left: false }]);
 });
+
+
+test('leaveFullscreen: no visualizador do X (/mediaViewer) aperta o botão voltar do vídeo; sem o botão, volta a página', () => {
+  const html = (url) => new JSDOM(
+    '<body><div data-testid="vss-scroll-view">' +
+    '<div data-testid="cellInnerDiv-tweet-111"><button data-testid="immersive-tweet-back-button-111"></button><video id="v1"></video></div>' +
+    '<div data-testid="cellInnerDiv-tweet-222"><button data-testid="immersive-tweet-back-button-222"></button><video id="v2"></video></div>' +
+    '</div></body>', { url }).window;
+  const w = html('https://x.com/geglobo/status/222/mediaViewer?currentTweet=222&currentTweetUser=geglobo');
+  const clicked = [];
+  w.document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => clicked.push(b.getAttribute('data-testid'))));
+  w.history.back = () => clicked.push('history.back');
+  assert.equal(Xdom.leaveFullscreen(w.document.getElementById('v2'), w), true);
+  assert.deepEqual(clicked, ['immersive-tweet-back-button-222']);                       // o botão do vídeo que acabou, não o do vizinho
+  // sem botão (X mudou o markup): cai na rota /mediaViewer e volta uma página
+  const w2 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/a/status/9/mediaViewer?currentTweet=9' }).window;
+  const back = [];
+  w2.history.back = () => back.push('back');
+  assert.equal(Xdom.leaveFullscreen(w2.document.getElementById('v'), w2), true);
+  assert.deepEqual(back, ['back']);
+  // página de post comum com vídeo: nada
+  const w3 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/a/status/9' }).window;
+  assert.equal(Xdom.leaveFullscreen(w3.document.getElementById('v'), w3), false);
+});
+
+test('watchVideoLoop: liga o loop ao tocar e avisa a cada volta ao começo (o "fim" que o X nunca vê)', () => {
+  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/home' }).window;
+  const v = w.document.getElementById('v');
+  let on = true;
+  const loops = [];
+  Xdom.watchVideoLoop(w, { loopOn: () => on, onLoop: (video) => loops.push(video.id) });
+  Object.defineProperty(v, 'duration', { value: 10, configurable: true });
+  const time = (t) => { Object.defineProperty(v, 'currentTime', { value: t, configurable: true }); v.dispatchEvent(new w.Event('timeupdate')); };
+  v.dispatchEvent(new w.Event('play'));
+  assert.equal(v.loop, true);                                         // o vídeo não termina: o X não vê o `ended`
+  time(1); time(5); time(9.7);
+  assert.deepEqual(loops, []);                                        // ainda tocando
+  time(0.2);                                                          // deu a volta ao começo = o vídeo "terminou"
+  assert.deepEqual(loops, ['v']);
+  time(0.6); time(1.2);                                               // continua tocando: sem novo aviso
+  assert.deepEqual(loops, ['v']);
+  on = false;                                                         // desligado no menu
+  time(9.9); time(0.1);
+  assert.deepEqual(loops, ['v']);
+  // duração desconhecida (transmissão ao vivo): nada
+  on = true;
+  Object.defineProperty(v, 'duration', { value: Infinity, configurable: true });
+  time(5); time(0.1);
+  assert.deepEqual(loops, ['v']);
+});

@@ -698,3 +698,25 @@ test('blockEndedAdvance: sair da tela cheia e bloquear o avanço são independen
   v.dispatchEvent(new w.Event('ended'));
   assert.deepEqual(seen, { x: 2, left: 2, paused: 2 });                       // tudo desligado: nada muda
 });
+
+
+test('blockEndedAdvance: avisa o fim (onEnded) com o que foi feito; visualizador /immersive também fecha', () => {
+  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/i/immersive/123' }).window;
+  const v = w.document.getElementById('v');
+  const calls = [];
+  w.history.back = () => calls.push('back');
+  const ended = [];
+  Xdom.blockEndedAdvance(w, () => true, () => true, (video, r) => ended.push(r));
+  v.dispatchEvent(new w.Event('ended'));
+  assert.deepEqual(calls, ['back']);                                           // rota imersiva: voltou uma página
+  assert.deepEqual(ended, [{ block: true, leave: true, left: true }]);
+  // página de post comum: nada em tela cheia, não volta, e avisa que não saiu (para o diagnóstico)
+  const w2 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/geglobo/status/2108' }).window;
+  const back2 = [];
+  w2.history.back = () => back2.push('back');
+  const ended2 = [];
+  Xdom.blockEndedAdvance(w2, () => false, () => true, (video, r) => ended2.push(r));
+  w2.document.getElementById('v').dispatchEvent(new w2.Event('ended'));
+  assert.deepEqual(back2, []);
+  assert.deepEqual(ended2, [{ block: false, leave: true, left: false }]);
+});

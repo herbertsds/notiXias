@@ -10,6 +10,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
     exitFullscreenOnEnd: true, // ao terminar, o vídeo sai da tela cheia
     noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
     videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
@@ -164,7 +165,28 @@ async function startApp() {
   }
   setInterval(applySpeed, 300);
   // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
-  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd);
+  // Ao terminar: volta a 1x (a escolha de velocidade vale para UM vídeo) e, se pediu para sair da tela cheia e nada
+  // conseguiu sair, manda para a API (esqueleto, sem texto de posts) o que a página era, para eu ajustar a regra.
+  let lastVideoDiagAt = 0;
+  const onVideoEnded = (v, r) => {
+    if (cfg.resetSpeedOnEnd && (cfg.videoSpeed || 1) !== 1) {
+      cfg.videoSpeed = 1;
+      saveCfg();
+      try { v.playbackRate = 1; } catch (e) { /* segue */ }
+    }
+    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000) {
+      lastVideoDiagAt = Date.now();
+      const fs = document.fullscreenElement || document.webkitFullscreenElement;
+      const diag = {
+        path: location.pathname, search: location.search.slice(0, 60), histLen: history.length,
+        fullscreenEl: fs ? fs.tagName : null, vFS: !!v.webkitDisplayingFullscreen, vMode: v.webkitPresentationMode || null,
+        inPrimaryColumn: !!v.closest('[data-testid="primaryColumn"]'), loop: !!v.loop,
+        testids: Array.from(new Set(Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid')))).slice(0, 40),
+      };
+      api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: JSON.stringify(diag).slice(0, 4000), note: 'video terminou sem sair da tela cheia' }).catch(() => {});
+    }
+  };
+  if (!cfg.bot) Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
   // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
   for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
@@ -294,6 +316,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },
       { label: 'Sair da tela cheia ao terminar: ' + (cfg.exitFullscreenOnEnd ? 'sim' : 'não'), onClick: () => { cfg.exitFullscreenOnEnd = !cfg.exitFullscreenOnEnd; saveCfg(); drawBar(); } },
       { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },

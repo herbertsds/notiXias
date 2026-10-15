@@ -374,6 +374,10 @@ const Xdom = (function () {
   //  - o player nativo (`video.webkitExitFullscreen()` / `webkitSetPresentationMode('inline')`) e o Fullscreen API normal;
   //  - o visualizador de vídeo do X, uma rota própria (`/usuario/status/ID/video/N`), que se fecha voltando uma página.
   // Devolve true se fez alguma coisa.
+  // Rotas do visualizador de vídeo do X (a tela própria, não a página do post): /usuario/status/ID/video/N, e as de modo
+  // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
+  const VIEWER_RE = /\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
+
   function leaveFullscreen(video, win) {
     const doc = win.document;
     let did = false;
@@ -399,7 +403,7 @@ const Xdom = (function () {
         }
       }
     } catch (e) { /* segue */ }
-    if (!did && win.location && /\/status\/\d+\/video\/\d+/.test(win.location.pathname) && win.history) {
+    if (!did && win.location && VIEWER_RE.test(win.location.pathname) && win.history) {
       win.history.back();
       did = true;
     }
@@ -410,18 +414,21 @@ const Xdom = (function () {
   //  - `blockOn()`: o X não vê o fim, então não pula para o próximo vídeo; o vídeo só pausa no último quadro;
   //  - `leaveOn()`: sai da tela cheia (ver `leaveFullscreen`).
   // Ambos ligam/desligam sem remover o ouvinte. Devolve a função que o remove.
-  function blockEndedAdvance(win, blockOn, leaveOn) {
+  function blockEndedAdvance(win, blockOn, leaveOn, onEnded) {
     const handler = (e) => {
       const v = e.target;
       if (!v || v.tagName !== 'VIDEO') return;
       const block = !!(blockOn && blockOn());
       const leave = !!(leaveOn && leaveOn());
-      if (!block && !leave) return;
       if (block) {
         e.stopImmediatePropagation();
         try { v.pause(); } catch (err) { /* já parado */ }
       }
-      if (leave) leaveFullscreen(v, win);
+      let left = false;
+      if (leave) left = leaveFullscreen(v, win);
+      if (onEnded) {
+        try { onEnded(v, { block, leave, left }); } catch (err) { /* o aviso é só informativo */ }
+      }
     };
     win.addEventListener('ended', handler, true);
     return () => win.removeEventListener('ended', handler, true);

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.11.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.11.2
+// @version      0.11.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.11.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1527,7 +1527,7 @@ const Ui = (function () {
     let longPressed = false;
 
     function attach(h) {
-      if (!h.host.isConnected) (doc.body || doc.documentElement).append(h.host);
+      if (!h.host.isConnected) (h === ld ? doc.documentElement : doc.body || doc.documentElement).append(h.host);
     }
 
     function reserve(h) {
@@ -1705,8 +1705,40 @@ const Ui = (function () {
       spd.host.remove();
     }
 
+    // Trava a rolagem da página por baixo enquanto a tela de carregamento está de pé: sem rolagem o Safari do iPhone não recolhe
+    // nem mostra as barras (que é o que fazia a tela da frente "pular"). Padrão do iOS: <html> sem overflow e <body> fixo,
+    // deslocado pelo quanto já estava rolado. Destravar restaura tudo (e a posição, ou o topo).
+    let scrollLock = null;
+    function lockScroll() {
+      if (scrollLock) return;
+      const html = doc.documentElement;
+      const body = doc.body;
+      if (!body) return;
+      const y = (win && win.scrollY) || 0;
+      scrollLock = { y, html: html.getAttribute('style'), body: body.getAttribute('style') };
+      html.style.setProperty('overflow', 'hidden', 'important');
+      body.style.setProperty('position', 'fixed', 'important');
+      body.style.setProperty('top', -y + 'px', 'important');
+      body.style.setProperty('left', '0', 'important');
+      body.style.setProperty('right', '0', 'important');
+      body.style.setProperty('width', '100%', 'important');
+      body.style.setProperty('overflow', 'hidden', 'important');
+    }
+
+    function unlockScroll(toTop) {
+      if (!scrollLock) return;
+      const html = doc.documentElement;
+      const body = doc.body;
+      const s = scrollLock;
+      scrollLock = null;
+      if (s.html === null) html.removeAttribute('style'); else html.setAttribute('style', s.html);
+      if (body) { if (s.body === null) body.removeAttribute('style'); else body.setAttribute('style', s.body); }
+      if (win && win.scrollTo) win.scrollTo(0, toTop ? 0 : s.y);
+    }
+
     function showLoading(label) {
       attach(ld);
+      lockScroll();
       clearTimeout(ldRemoveTimer);
       if (!ldNode) {
         ldNode = el(doc, 'div', { class: 'ld' }, el(doc, 'div', { class: 'ct' }, el(doc, 'div', { class: 'sp' }), el(doc, 'div', { class: 'tx' }, label || 'Abrindo…')));
@@ -1722,8 +1754,10 @@ const Ui = (function () {
       }
     }
 
-    // Fade out suave; depois remove da página.
-    function hideLoading() {
+    // Fade out suave; depois remove da página. `{ scrollTop: true }`: ao destravar, a página vai para o topo (em vez de voltar
+    // à posição em que estava); isso acontece na hora, ainda sob a tela de carregamento.
+    function hideLoading(opts) {
+      unlockScroll(!!(opts && opts.scrollTop));
       if (!ldNode) return;
       clearTimeout(ldFailTimer);
       ldFailTimer = null;
@@ -1749,7 +1783,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.11.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.11.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2235,8 +2269,8 @@ async function startApp() {
     // Tudo o que mexe no que se vê terminou: fixa no topo e revela o post pronto (a conferência da conversa, abaixo,
     // só fala com a API e não muda a tela).
     pin.stop();
-    window.scrollTo(0, 0);
-    ui.hideLoading();
+    ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
+    pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
 
     // Cobertura: só o que está de fato desenhado na conversa da página.
     //  - pedaços do mesmo autor (thread) e

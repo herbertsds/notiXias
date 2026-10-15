@@ -487,8 +487,8 @@ async function startApp() {
     // Tudo o que mexe no que se vê terminou: fixa no topo e revela o post pronto (a conferência da conversa, abaixo,
     // só fala com a API e não muda a tela).
     pin.stop();
-    window.scrollTo(0, 0);
-    ui.hideLoading();
+    ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
+    pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
 
     // Cobertura: só o que está de fato desenhado na conversa da página.
     //  - pedaços do mesmo autor (thread) e

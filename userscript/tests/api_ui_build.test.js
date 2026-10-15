@@ -250,6 +250,31 @@ test('Ui: a tela de carregamento nunca passa do limite, mesmo reaberta várias v
   assert.ok(!node().classList.contains('out'));
 });
 
+test('Ui: a tela de carregamento trava a rolagem da página por baixo e destrava restaurando (ou indo ao topo)', () => {
+  const dom = new JSDOM('<!doctype html><html style="color:red"><body style="margin:3px"><p>x</p></body></html>', { url: 'https://x.com/home' });
+  const win = dom.window;
+  const doc = win.document;
+  Object.defineProperty(win, 'scrollY', { value: 500, configurable: true });
+  const scrolls = [];
+  win.scrollTo = (x, y) => scrolls.push([x, y]);
+  const ui = Ui.create(doc, { loadingMaxMs: 60000 });
+  ui.showLoading('Abrindo…');
+  assert.equal(doc.documentElement.style.getPropertyValue('overflow'), 'hidden');
+  assert.equal(doc.body.style.getPropertyValue('position'), 'fixed');            // a página não rola: as barras do Safari não mexem
+  assert.equal(doc.body.style.getPropertyValue('top'), '-500px');                // e o conteúdo fica onde estava
+  assert.equal(doc.getElementById('notixias-loading').parentElement, doc.documentElement);
+  ui.showLoading('de novo');                                                     // reabrir não trava duas vezes
+  ui.hideLoading({ scrollTop: true });
+  assert.equal(doc.documentElement.getAttribute('style'), 'color:red');           // estilos originais de volta
+  assert.equal(doc.body.getAttribute('style'), 'margin:3px');
+  assert.deepEqual(scrolls, [[0, 0]]);                                           // pediu o topo
+  ui.showLoading('outro');
+  ui.hideLoading();                                                              // sem scrollTop: volta para onde estava
+  assert.deepEqual(scrolls[1], [0, 500]);
+  ui.hideLoading();                                                              // chamar sem estar travado é inofensivo
+  assert.equal(scrolls.length, 2);
+});
+
 // ---------- Build ----------
 test('o userscript gerado está atualizado com src/ (rode `npm run build`)', () => {
   const onDisk = fs.readFileSync(path.join(__dirname, '..', 'notixias.user.js'), 'utf8');

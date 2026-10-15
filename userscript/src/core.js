@@ -141,6 +141,7 @@ const Core = (function () {
     if (run.updated) parts.push(run.updated + ' com resposta nova');
     if (parts.length === (why ? 1 : 0)) parts.push('nada novo');
     if (run.profiles_done) parts.push(run.profiles_done + ' perfis verificados' + (run.profile_created ? ' (' + run.profile_created + ' novos neles)' : '') + (run.profiles_skipped ? ', ' + run.profiles_skipped + ' sem leitura' : ''));
+    if (run.repositioned) parts.push(run.repositioned + (run.repositioned === 1 ? ' reposicionado' : ' reposicionados'));
     if (run.gap) parts.push('⚠ pode haver lacuna');
     const stop = STOP_REASON[run.reason];
     if (stop) parts.push(stop + (run.steps ? ' (' + run.steps + ' passos)' : ''));

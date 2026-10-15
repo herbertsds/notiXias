@@ -348,3 +348,9 @@ test('pickSessionCookies: pega auth_token e ct0 do x.com e só devolve se tiver 
   assert.deepEqual(Core.pickSessionCookies([{ name: 'auth_token', value: 'T', domain: 'twitter.com' }, { name: 'ct0', value: 'U', domain: 'twitter.com' }]), { auth_token: 'T', ct0: 'U' });
   assert.equal(Core.pickSessionCookies(null), null);
 });
+
+test('formatRun: mostra quantas entradas foram reposicionadas', () => {
+  const at = new Date(2026, 9, 15, 14, 0).toISOString();
+  const r = Core.formatRun({ at, source: 'robot', mode: 'normal', ok: true, created: 3, updated: 0, repositioned: 2, reason: 'anchor', steps: 12 });
+  assert.match(r.sub, /3 novos · 2 reposicionados · chegou ao que já estava salvo/);
+});

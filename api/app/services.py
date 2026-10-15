@@ -401,6 +401,35 @@ def _repost_anchor_id(rev, i):
     return rev[i].tweet_id
 
 
+def reposition_unread(db) -> int:
+    """Conserta a ordem das NÃO LIDAS (depois da posição de leitura) onde a posição de uma entrada ficou mais ANTIGA que o
+    próprio tweet (`sort_id` < `tweet_id`): só acontece com repost, cuja hora real não conhecemos, mas que nunca é anterior ao
+    tweet. Não dá para saber o horário do repost, então NÃO se mexe em quem está certo (um tweet de 40 h reposto agora segue
+    onde o feed o mostrou); só se tira da frente o que é impossível: a entrada passa a valer pelo horário do próprio tweet e é
+    recolocada entre as não lidas por esse horário (depois de tudo o que é mais antigo que ele). Conversas (com membros) ficam
+    como estão. Devolve quantas entradas mudaram de lugar."""
+    st = db.state.find_one({"_id": "main"}) or {}
+    cur_ord = ord_of(db, st.get("cursor_seq"))
+    flt = {"read_at": None, "removed": False, "covered": False, "ord": {"$gt": cur_ord}}
+    proj = {"seq": 1, "ord": 1, "sort_id": 1, "tweet_id": 1, "members": 1}
+    docs = list(db.entries.find(flt, proj).sort("ord", ASCENDING))
+    t = lambda d: int(d.get("sort_id", d["tweet_id"]))  # noqa: E731
+    bad = sorted((d for d in docs if not d.get("members") and t(d) < int(d["tweet_id"])), key=lambda d: int(d["tweet_id"]))
+    moved = 0
+    for d in bad:
+        tid = int(d["tweet_id"])
+        # ainda há, DEPOIS dela, alguma não lida mais antiga que o tweet? então está fora de ordem de verdade
+        out_of_order = any(x["ord"] > d["ord"] and t(x) < tid and x["_id"] != d["_id"] for x in docs)
+        upd = {"sort_id": d["tweet_id"]}
+        if out_of_order:
+            db.entries.update_one({"_id": d["_id"]}, {"$set": upd})  # para _insert_ord não a tratar como mais antiga
+            upd["ord"] = _insert_ord(db, d["tweet_id"])
+            moved += 1
+        db.entries.update_one({"_id": d["_id"]}, {"$set": upd})
+        docs = list(db.entries.find(flt, proj).sort("ord", ASCENDING))
+    return moved
+
+
 def append_items(
     db, items: list, anchor_found: bool, batch_id: str | None, revisit_after: timedelta | None = None,
     gap_seq: int | None = None, scan=None, run=None,
@@ -429,6 +458,10 @@ def append_items(
             sid = None
             if it.reposter and it.author.lower() not in owners_followed:
                 sid = _repost_anchor_id(rev, i)
+                # Um repost nunca acontece ANTES do próprio tweet: a estimativa pelo vizinho do feed não pode ficar mais
+                # velha que o tweet (aconteceu: repost de um tweet de 13 h colocado entre tweets de 16 h).
+                if sid is not None and int(sid) < int(it.tweet_id):
+                    sid = it.tweet_id
             _place(db, it, cutoff, stats, sort_id=sid)
             i += 1
             continue
@@ -438,6 +471,7 @@ def append_items(
         _place_cluster(db, rev[i:j], cutoff, stats)
         i = j
 
+    repositioned = reposition_unread(db)  # no fim de TODA busca: conserta o que ficou fora de ordem
     gap = bool(not anchor_found and had_entries and stats["created"] > 0)
     reason = None
     if scan is not None:
@@ -460,6 +494,7 @@ def append_items(
         "skipped": stats["skipped"],
         "first_new_seq": stats["first_new_seq"],
         "gap": gap,
+        "repositioned": repositioned,
     }
     if run is not None:
         record_run(db, run, ok=True, result=result, scan=scan, anchor_found=anchor_found)
@@ -511,6 +546,7 @@ def record_run(db, run, *, ok: bool, result: dict | None = None, scan=None, anch
     if ok and result is not None:
         doc.update(
             created=result["created"], updated=result["updated"], gap=result["gap"], anchor_found=anchor_found,
+            repositioned=result.get("repositioned", 0),
         )
         if scan is not None:
             doc.update(reason=scan.reason, steps=scan.steps, collected=scan.collected)

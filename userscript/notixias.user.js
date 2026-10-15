@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.14.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.1
+// @version      0.14.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -164,6 +164,7 @@ const Core = (function () {
     if (run.updated) parts.push(run.updated + ' com resposta nova');
     if (parts.length === (why ? 1 : 0)) parts.push('nada novo');
     if (run.profiles_done) parts.push(run.profiles_done + ' perfis verificados' + (run.profile_created ? ' (' + run.profile_created + ' novos neles)' : '') + (run.profiles_skipped ? ', ' + run.profiles_skipped + ' sem leitura' : ''));
+    if (run.repositioned) parts.push(run.repositioned + (run.repositioned === 1 ? ' reposicionado' : ' reposicionados'));
     if (run.gap) parts.push('⚠ pode haver lacuna');
     const stop = STOP_REASON[run.reason];
     if (stop) parts.push(stop + (run.steps ? ' (' + run.steps + ' passos)' : ''));
@@ -1970,7 +1971,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.14.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.14.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

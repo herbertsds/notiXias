@@ -155,3 +155,8 @@ Ver `07-ambiente-e-infra.md` (dump diário). O conteúdo é pequeno e valioso (h
 ## Ordem dos reposts
 
 `sort_id` de um repost = o ID do tweet original se o dono é seguido; senão, o ID do tweet comum vizinho mais antigo no lote (onde o X o mostra). Ver `04-api.md`, "Posição na fila".
+
+
+## Reposicionamento no fim de cada busca (2026-10-15)
+
+Um repost de tweet de conta que você **não segue** fica onde o X o mostra no feed (horário estimado pelo vizinho mais antigo). Essa estimativa nunca pode ser **anterior ao próprio tweet** (um repost não acontece antes do tweet): ao criar, `sort_id = max(vizinho, tweet_id)`. E, **no fim de todo `POST /queue/append`** (qualquer busca: normal, profunda do feed, perfis, manual), `reposition_unread` varre as **não lidas depois do cursor**: a entrada **sem conversa** cujo `sort_id` ficou menor que o `tweet_id` passa a valer pelo horário do tweet e, se ainda houver depois dela alguma não lida mais antiga que o tweet, é recolocada entre as não lidas por esse horário (depois de tudo o que é mais antigo). Quem está certo **não é tocado**: um tweet de 40 h reposto agora segue onde o feed o mostrou, porque a hora do repost não é conhecida. Lidas e conversas ficam como estão. A resposta do `append` e o histórico trazem `repositioned`.

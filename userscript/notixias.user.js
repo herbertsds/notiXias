@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.12.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.2
+// @version      0.12.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.12.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -694,6 +694,13 @@ const Xdom = (function () {
       // contêiner da lista, que começa depois da nossa barra).
       const target = col.firstElementChild || col;
       if (own.parentElement !== target || target.firstChild !== own) target.insertBefore(own, target.firstChild);
+      // O layout do X às vezes deixa o começo do conteúdo um pouco ACIMA da tela (margem negativa: ~10 px no computador, 1 px
+      // no celular), o que cortaria o topo da nossa barra. Com a página no topo, empurra a barra para dentro, uma vez só.
+      if (!own.hasAttribute('data-nx-offset') && (win.scrollY || 0) === 0) {
+        const top = own.getBoundingClientRect().top;
+        if (top < -0.5 && top > -60) own.style.marginTop = Math.ceil(-top) + 'px';
+        own.setAttribute('data-nx-offset', '1');
+      }
     }
     return created;
   }
@@ -1842,7 +1849,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.12.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.12.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

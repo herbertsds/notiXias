@@ -325,6 +325,13 @@ const Xdom = (function () {
       // contêiner da lista, que começa depois da nossa barra).
       const target = col.firstElementChild || col;
       if (own.parentElement !== target || target.firstChild !== own) target.insertBefore(own, target.firstChild);
+      // O layout do X às vezes deixa o começo do conteúdo um pouco ACIMA da tela (margem negativa: ~10 px no computador, 1 px
+      // no celular), o que cortaria o topo da nossa barra. Com a página no topo, empurra a barra para dentro, uma vez só.
+      if (!own.hasAttribute('data-nx-offset') && (win.scrollY || 0) === 0) {
+        const top = own.getBoundingClientRect().top;
+        if (top < -0.5 && top > -60) own.style.marginTop = Math.ceil(-top) + 'px';
+        own.setAttribute('data-nx-offset', '1');
+      }
     }
     return created;
   }

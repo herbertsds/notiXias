@@ -592,3 +592,20 @@ test('blockEndedAdvance: o fim do vídeo não chega aos ouvintes do X (que pular
   v.dispatchEvent(new w.Event('ended'));
   assert.deepEqual([seen.video, seen.ancestor], [2, 3]);
 });
+
+
+test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem negativa do X), uma vez só', () => {
+  const w = new JSDOM('<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:sticky;top:0"><div data-testid="TopNavBar"></div></div><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
+  const d = w.document;
+  let top = -10;
+  const orig = w.HTMLElement.prototype.getBoundingClientRect;
+  w.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.hasAttribute && this.hasAttribute('data-nx-header') ? { top, left: 0, width: 400, height: 53, bottom: top + 53, right: 400 } : orig.call(this);
+  };
+  Xdom.setHeaderStatic(d, w);
+  const own = d.querySelector('[data-nx-header]');
+  assert.equal(own.style.marginTop, '10px');                       // topo cortado em 10 px: empurrado para dentro
+  top = 0;                                                         // já na tela: nada a mais, e não acumula
+  Xdom.setHeaderStatic(d, w);
+  assert.equal(own.style.marginTop, '10px');
+});

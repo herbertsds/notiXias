@@ -118,3 +118,15 @@ def next_profiles(
         return current.astimezone(TZ)
     lo = max(start, now)  # se já estamos dentro da janela de hoje, sorteia só o que ainda vem pela frente
     return lo + timedelta(seconds=rng.uniform(0, max(0.0, (end - lo).total_seconds())))
+
+
+def night_start_of(t: datetime) -> datetime:
+    """O 01:00 mais recente até `t` (início da "noite" a que `t` pertence), no fuso local."""
+    lt = t.astimezone(TZ)
+    start = lt.replace(hour=NIGHT_START.hour, minute=0, second=0, microsecond=0)
+    return start if lt >= start else start - timedelta(days=1)
+
+
+def following_fresh(last_following: datetime | None, now: datetime) -> bool:
+    """A lista de quem você segue já foi relida depois do início (01:00) da noite atual?"""
+    return last_following is not None and last_following.astimezone(TZ) >= night_start_of(now)

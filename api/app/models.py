@@ -33,7 +33,7 @@ class RunIn(BaseModel):
     """Quem disparou a execução e de que tipo (para o histórico de execuções)."""
 
     source: Literal["manual", "robot"]
-    mode: Literal["normal", "deep", "profiles"] = "normal"  # deep = busca profunda do FEED; profiles = verificação dos perfis
+    mode: Literal["normal", "deep", "profiles", "following"] = "normal"  # deep = busca profunda do FEED; profiles = verificação dos perfis
     trigger: str | None = Field(default=None, max_length=200)  # por que o robô rodou fora de hora (ex.: pedido por leitura)
 
 
@@ -60,7 +60,7 @@ class RobotNextIn(BaseModel):
     """O robô informa quando será a próxima busca automática (e de que tipo), ou por que não há próxima."""
 
     at: datetime | None = None
-    mode: Literal["normal", "deep", "profiles"] = "normal"
+    mode: Literal["normal", "deep", "profiles", "following"] = "normal"
     state: Literal["scheduled", "paused", "waiting_session"] = "scheduled"
     unread: int | None = Field(default=None, ge=0)  # não lidas quando o horário foi sorteado (informativo)
 
@@ -68,14 +68,14 @@ class RobotNextIn(BaseModel):
 class RunNowIn(BaseModel):
     """Pedido do celular: o servidor busca AGORA (o celular nunca rola o feed)."""
 
-    mode: Literal["normal", "deep", "profiles"] = "normal"
+    mode: Literal["normal", "deep", "profiles", "following"] = "normal"
 
 
 class RobotRunningIn(BaseModel):
     """O robô informa que começou/terminou uma execução (e o resultado, ao terminar)."""
 
     running: bool
-    kind: Literal["normal", "deep", "profiles"] | None = None
+    kind: Literal["normal", "deep", "profiles", "following"] | None = None
     trigger: str | None = Field(default=None, max_length=200)
     ok: bool | None = None
     created: int | None = Field(default=None, ge=0, le=1_000_000)

@@ -221,7 +221,7 @@ def test_horario_antecipado_ignora_a_verificacao_de_perfis_e_a_parada_da_madruga
 def test_verificacao_de_perfis_usa_a_url_propria_e_nao_mexe_na_base_da_busca_normal(env, monkeypatch):
     (env / "x_state.json").write_text("{}")
     antes = now() - timedelta(minutes=5)
-    (env / "status.json").write_text(json.dumps({"last_run_at": antes.isoformat()}))
+    (env / "status.json").write_text(json.dumps({"last_run_at": antes.isoformat(), "last_following_at": now().isoformat()}))
     ja = iter([True])
     calls = _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=1),
                    profiles_at=lambda: now() if next(ja, False) else now() + timedelta(days=1))
@@ -387,3 +387,54 @@ def test_limpeza_diaria_nao_roda_antes_das_6h(env, monkeypatch):
     monkeypatch.setattr(robot_main, "datetime", Rel)
     asyncio.run(_run_for(0.3))
     assert world["purges"] == []
+
+
+def test_antes_dos_perfis_relê_a_lista_de_quem_voce_segue(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=3), profiles_at=lambda: now())
+    asyncio.run(_run_for(0.5))
+    urls = [k["start_url"] for k in run_kwargs]
+    assert urls[:2] == [runner.FOLLOWING_URL, runner.PROFILES_URL]               # lista primeiro, perfis logo depois
+    assert (True, "following", None) in world["running"] and (True, "profiles", None) in world["running"]
+    assert _status(env)["last_following_at"]
+
+
+def test_lista_ja_relida_na_noite_nao_e_relida_de_novo_antes_dos_perfis(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    (env / "status.json").write_text(json.dumps({"last_following_at": now().isoformat()}))
+    _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=3), profiles_at=lambda: now())
+    asyncio.run(_run_for(0.3))
+    assert runner.FOLLOWING_URL not in [k["start_url"] for k in run_kwargs]
+    assert run_kwargs[0]["start_url"] == runner.PROFILES_URL
+
+
+def test_depois_da_busca_da_madrugada_relê_a_lista(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    _patch(monkeypatch, [{"ok": True}])
+    madrugada = datetime(2026, 10, 19, 2, 0, tzinfo=robot_main.schedule.TZ).astimezone(timezone.utc)
+    class Rel(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return madrugada.astimezone(tz) if tz else madrugada
+    monkeypatch.setattr(robot_main, "datetime", Rel)
+    monkeypatch.setattr(robot_main.schedule, "in_night", lambda t: True)
+    monkeypatch.setattr(robot_main.schedule, "following_fresh", lambda last, nw: last is not None)
+    asyncio.run(_run_for(0.4))
+    urls = [k["start_url"] for k in run_kwargs]
+    assert urls[0] == runner.HOME_URL and runner.FOLLOWING_URL in urls[1:3]
+
+
+def test_falha_na_releitura_nao_pausa_e_segue_para_os_perfis(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    n = []
+
+    async def fake_run(**kw):
+        run_kwargs.append(kw)
+        n.append(1)
+        return runner.RunResult(ok=kw["start_url"] != runner.FOLLOWING_URL, error="x")
+    _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=3), profiles_at=lambda: now())
+    monkeypatch.setattr(runner, "run_once", fake_run)
+    asyncio.run(_run_for(0.4))
+    urls = [k["start_url"] for k in run_kwargs]
+    assert urls[:2] == [runner.FOLLOWING_URL, runner.PROFILES_URL]
+    assert _status(env)["paused"] is False

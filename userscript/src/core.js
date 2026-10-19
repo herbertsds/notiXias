@@ -122,7 +122,7 @@ const Core = (function () {
     max_time: 'parou no limite de tempo',
   };
 
-  const MODE_LABEL = { normal: 'Normal', deep: 'Profunda (feed)', profiles: 'Profunda (perfis)' };
+  const MODE_LABEL = { normal: 'Normal', deep: 'Profunda (feed)', profiles: 'Profunda (perfis)', following: 'Contas seguidas' };
 
   // Uma linha do histórico da API em duas linhas de texto. Pode ser uma execução ({at, source, mode, ok, created, updated,
   // gap, reason, steps, error, trigger}) ou um evento ({kind: 'request'|'reschedule', at, reason}): pedido de busca

@@ -606,7 +606,7 @@ def _log_run_event(db, kind: str, reason: str, **extra) -> None:
 
 # ---------- busca pedida pelo celular / estado "rodando" / limpeza ----------
 RUNNING_STALE = timedelta(minutes=130)  # um "rodando" mais velho que o prazo máximo de uma execução é resto de uma queda
-MODE_PT = {"normal": "normal", "deep": "profunda do feed", "profiles": "perfis"}
+MODE_PT = {"normal": "normal", "deep": "profunda do feed", "profiles": "perfis", "following": "contas seguidas"}
 
 
 def robot_running(db) -> dict:

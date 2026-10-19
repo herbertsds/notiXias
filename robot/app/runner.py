@@ -16,8 +16,10 @@ log = logging.getLogger("robot")
 HOME_URL = "https://x.com/home?nx=update"
 DEEP_URL = "https://x.com/home?nx=deep"          # busca profunda do FEED
 PROFILES_URL = "https://x.com/home?nx=profiles"  # verificação dos PERFIS de quem você segue
+FOLLOWING_URL = "https://x.com/home?nx=following"  # releitura da lista de quem você segue
 NORMAL_TIMEOUT_S = 25 * 60
 DEEP_TIMEOUT_S = 60 * 60       # busca profunda do feed (até 45 min de rolagem)
+FOLLOWING_TIMEOUT_S = 20 * 60
 PROFILES_TIMEOUT_S = 120 * 60  # perfil de cada conta seguida, aba Posts e aba Respostas
 # Parecido com um Chrome comum de computador (sem "HeadlessChrome").
 USER_AGENT = (

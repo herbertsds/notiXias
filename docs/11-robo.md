@@ -139,3 +139,8 @@ Três buscas seguidas "travaram" (página em branco, vários recursos com `ERR_F
 - O robô olha a API a cada **3 s** por pedidos (`manual` salta o intervalo mínimo de 3 min e usa o modo pedido: normal → Início, deep → feed profundo, profiles → perfis). Sessão nova, horário antecipado e limpeza são conferidos a cada 5 voltas (~15 s).
 - Publica `PUT /robot/running` ao começar/terminar cada execução (com o resultado) e limpa o estado ao iniciar. Uma execução manual vira a "última busca": o próximo horário é sorteado a partir do fim dela.
 - **Limpeza diária** a partir das 06:00 (São Paulo), uma vez por data (`status.last_purge_date`): `POST /maintenance/purge {days:7}` apaga o que foi capturado há mais de 7 dias (não a posição de leitura).
+
+## Releitura automática de quem você segue (script 0.16.1)
+
+Causa do problema "capturou posts de quem não sigo": a lista de contas seguidas (`following`) só era relida à mão e por detecção ao vivo de cliques; quem foi deixado de seguir fora do navegador com o script continuava na lista, e a **verificação dos perfis** (03:00–03:30) abre o perfil de cada conta da lista e captura os posts dela. Prova: esses autores só têm capturas nos horários da verificação de perfis, nunca no feed.
+Correção: nova execução `following` (`?nx=following`, lê `/<seu @>/following` e substitui a lista via `PUT /accounts/following`). Roda **logo depois da última busca da madrugada** (a única após 01:00) e, por garantia, **imediatamente antes da verificação de perfis** se a lista ainda não foi relida desde 01:00. Se falhar, não conta para a pausa e a verificação segue com a lista antiga.

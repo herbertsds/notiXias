@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.0
+// @version      0.16.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -145,7 +145,7 @@ const Core = (function () {
     max_time: 'parou no limite de tempo',
   };
 
-  const MODE_LABEL = { normal: 'Normal', deep: 'Profunda (feed)', profiles: 'Profunda (perfis)' };
+  const MODE_LABEL = { normal: 'Normal', deep: 'Profunda (feed)', profiles: 'Profunda (perfis)', following: 'Contas seguidas' };
 
   // Uma linha do histórico da API em duas linhas de texto. Pode ser uma execução ({at, source, mode, ok, created, updated,
   // gap, reason, steps, error, trigger}) ou um evento ({kind: 'request'|'reschedule', at, reason}): pedido de busca
@@ -2046,7 +2046,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3031,7 +3031,7 @@ async function startApp() {
   function myHandle() {
     // Lê do próprio X (muda se você trocar de conta); o guardado só vale se a página não mostrar o perfil.
     let h = Following.ownHandle(document) || cfg.myHandle;
-    if (!h) {
+    if (!h && !cfg.bot) {
       const v = prompt('Seu usuário no X (sem @), para abrir a lista de quem você segue');
       h = v ? v.trim().replace(/^@/, '') : null;
     }
@@ -3041,7 +3041,7 @@ async function startApp() {
 
   function startFollowingRefresh(opts) {
     const h = myHandle();
-    if (!h) return;
+    if (!h) { botDone({ ok: false, error: 'não achei o @ da conta na página' }); return; }
     setPhase('following', { handle: h, then: opts && opts.then ? opts.then : null, deep: !!(opts && opts.deep), returnTo: location.href });
     if (location.pathname.toLowerCase() === '/' + h.toLowerCase() + '/following') onRoute();
     else go('https://x.com/' + h + '/following');
@@ -3053,7 +3053,8 @@ async function startApp() {
   }
 
   async function failFollowing(message, art) {
-    setPhase('error');
+    setPhase(cfg.bot ? 'idle' : 'error');
+    if (cfg.bot) { botDone({ ok: false, error: 'contas seguidas: ' + message }); return; }
     gm.set('nx_follow_fail_at', Date.now());
     const sk = Xdom.skeleton(art || document.querySelector('main') || document.body);
     gm.set('nx_skeleton', sk);
@@ -3074,7 +3075,7 @@ async function startApp() {
   async function runFollowingScan(token, phase) {
     cancelled = false;
     ui.hideBar();
-    const progress = (n) => ui.showOverlay({
+    const progress = (n) => beat() || ui.showOverlay({
       title: 'Atualizando contas seguidas…',
       detail: n + ' contas lidas',
       buttons: [{ label: 'Cancelar', onClick: () => { cancelled = true; } }],
@@ -3099,11 +3100,14 @@ async function startApp() {
       gm.set('nx_follow_fail_at', Date.now());
       setPhase('idle');
       ui.hideOverlay();
+      if (cfg.bot) { botDone({ ok: false, error: 'a leitura das contas seguidas não terminou (' + res.reason + ')' }); return; }
       gm.set('nx_notice', res.reason === 'cancelled' ? 'Leitura das contas seguidas cancelada' : 'A leitura das contas seguidas não terminou');
       return leaveFollowing(Object.assign({}, phase, { then: null }));
     }
+    if (cfg.bot && !res.accounts.length) { botDone({ ok: false, error: 'a lista de contas seguidas veio vazia' }); return; }
     const sum = await api.putFollowing({ accounts: res.accounts.map((a) => ({ handle: a.handle, name: a.name || null })) });
     setPhase('idle');
+    if (cfg.bot) { botDone({ ok: true, count: sum.count }); return; }
     gm.set('nx_follow_dirty', false);
     gm.set('nx_follow_fail_at', 0);
     gm.set('nx_notice', sum.count + ' contas seguidas atualizadas');

@@ -26,7 +26,7 @@ SLOW_EVERY = 5            # a cada quantas voltas olha o resto (sessão nova, ho
 PURGE_DAYS = 7            # a limpeza diária apaga o que foi capturado há mais que isto
 PURGE_FROM_HOUR = 6       # ... a partir desta hora (America/Sao_Paulo), uma vez por dia
 MIN_GAP_S = 180           # intervalo mínimo entre o fim de uma execução e o início de uma por pedido
-MODE_OF = {"normal": "normal", "deep": "deep", "profiles": "profiles"}
+MODE_OF = {"normal": "normal", "deep": "deep", "profiles": "profiles", "following": "following"}
 
 
 def load_json(path: Path, default):
@@ -77,6 +77,7 @@ def run_params(kind: str) -> tuple[str, int]:
         "normal": (runner.HOME_URL, runner.NORMAL_TIMEOUT_S),
         "deep": (runner.DEEP_URL, runner.DEEP_TIMEOUT_S),
         "profiles": (runner.PROFILES_URL, runner.PROFILES_TIMEOUT_S),
+        "following": (runner.FOLLOWING_URL, runner.FOLLOWING_TIMEOUT_S),
     }[kind]
 
 
@@ -144,6 +145,8 @@ async def main() -> None:
     status = load_json(status_path, {})
     last_run = parse_dt(status.get("last_run_at"))           # última busca normal/profunda do feed (base do sorteio)
     last_profiles = parse_dt(status.get("last_profiles_at"))  # última verificação de perfis
+    last_following = parse_dt(status.get("last_following_at"))  # última releitura da lista de quem você segue
+    pending: list = []  # execuções encadeadas: (tipo, motivo)
     last_finished = 0.0
     # Reiniciar o contêiner é pedir para retomar: zera a pausa gravada (antes ela sobrevivia ao reinício e o robô ficava
     # parado mesmo com a sessão boa). Se a causa continuar, ele falha de novo e pausa de novo.
@@ -192,46 +195,56 @@ async def main() -> None:
             continue
         status["waiting_session"] = False
 
-        now = datetime.now(timezone.utc)
-        # --- próxima busca normal/profunda do feed: o sorteio é feito UMA vez e guardado (reinício não sorteia de novo) ---
-        base = status.get("last_run_at")
-        plan = status.get("plan")
-        if plan and plan.get("base") == base and parse_dt(plan["when"]) > now:
-            when_n, deep = parse_dt(plan["when"]), bool(plan["deep"])
-            unread = plan.get("unread")
+        if pending:
+            # execução encadeada (releitura de quem você segue antes dos perfis / depois da busca da madrugada): sem espera
+            kind, why = pending.pop(0)
         else:
-            pol = await notify.fetch_policy(api_base, key)
-            interval = (pol["min_minutes"], pol["max_minutes"]) if pol else None
-            unread = pol["unread"] if pol else None
-            when_n, deep = schedule.plan(last_run, now, random, interval)
-            plan = {"base": base, "when": when_n.isoformat(), "deep": deep, "unread": unread,
-                    "interval": list(interval) if interval else None}
-            status["plan"] = plan
-        # --- próxima verificação de perfis (uma por dia, 03:00-03:30) ---
-        when_p = schedule.next_profiles(last_profiles, now, random, parse_dt(status.get("profiles_target")))
-        status["profiles_target"] = when_p.isoformat()
+            now = datetime.now(timezone.utc)
+            # --- próxima busca normal/profunda do feed: o sorteio é feito UMA vez e guardado (reinício não sorteia de novo) ---
+            base = status.get("last_run_at")
+            plan = status.get("plan")
+            if plan and plan.get("base") == base and parse_dt(plan["when"]) > now:
+                when_n, deep = parse_dt(plan["when"]), bool(plan["deep"])
+                unread = plan.get("unread")
+            else:
+                pol = await notify.fetch_policy(api_base, key)
+                interval = (pol["min_minutes"], pol["max_minutes"]) if pol else None
+                unread = pol["unread"] if pol else None
+                when_n, deep = schedule.plan(last_run, now, random, interval)
+                plan = {"base": base, "when": when_n.isoformat(), "deep": deep, "unread": unread,
+                        "interval": list(interval) if interval else None}
+                status["plan"] = plan
+            # --- próxima verificação de perfis (uma por dia, 03:00-03:30) ---
+            when_p = schedule.next_profiles(last_profiles, now, random, parse_dt(status.get("profiles_target")))
+            status["profiles_target"] = when_p.isoformat()
 
-        if when_p < when_n:
-            kind, when = "profiles", when_p
-        else:
-            kind, when = ("deep" if deep else "normal"), when_n
-        status["next_run_at"] = when.astimezone(schedule.TZ).isoformat()
-        status["next_mode"] = kind
-        save_json(status_path, status)
-        log.info("próxima busca: %s (%s%s)", status["next_run_at"], kind, f", {unread} não lidas" if unread is not None else "")
-        await notify.publish_next(api_base, key, when, MODE_OF[kind], "scheduled", unread)
+            if when_p < when_n:
+                kind, when = "profiles", when_p
+            else:
+                kind, when = ("deep" if deep else "normal"), when_n
+            status["next_run_at"] = when.astimezone(schedule.TZ).isoformat()
+            status["next_mode"] = kind
+            save_json(status_path, status)
+            log.info("próxima busca: %s (%s%s)", status["next_run_at"], kind, f", {unread} não lidas" if unread is not None else "")
+            await notify.publish_next(api_base, key, when, MODE_OF[kind], "scheduled", unread)
 
-        outcome, when, why, req = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path)
-        if outcome == "request" and req and req.get("manual"):
-            # pedida pelo celular: roda já, no modo pedido; ao terminar vira a "última busca" e o próximo horário é sorteado dali
-            kind = MODE_OF.get(req.get("mode") or "normal", "normal")
-            log.info("busca pedida pelo celular: %s", kind)
-        elif outcome == "request":
-            # busca pedida pela leitura: normal (ou profunda do feed, se for a primeira depois de 05:10/12:30)
-            kind = "deep" if schedule.is_deep(last_run, datetime.now(timezone.utc)) else "normal"
-            log.info("busca pedida pela leitura: %s", why)
-        elif kind != "profiles" and (status.get("plan") or {}).get("deep") is not None:
-            kind = "deep" if status["plan"]["deep"] else "normal"
+            outcome, when, why, req = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path)
+            if outcome == "request" and req and req.get("manual"):
+                # pedida pelo celular: roda já, no modo pedido; ao terminar vira a "última busca" e o próximo horário é sorteado dali
+                kind = MODE_OF.get(req.get("mode") or "normal", "normal")
+                log.info("busca pedida pelo celular: %s", kind)
+            elif outcome == "request":
+                # busca pedida pela leitura: normal (ou profunda do feed, se for a primeira depois de 05:10/12:30)
+                kind = "deep" if schedule.is_deep(last_run, datetime.now(timezone.utc)) else "normal"
+                log.info("busca pedida pela leitura: %s", why)
+            elif kind != "profiles" and (status.get("plan") or {}).get("deep") is not None:
+                kind = "deep" if status["plan"]["deep"] else "normal"
+
+            if kind == "profiles" and not schedule.following_fresh(last_following, datetime.now(timezone.utc)):
+                # a lista de quem você segue precisa estar em dia ANTES de verificar os perfis (senão ele confere quem deixou de seguir)
+                pending.append(("profiles", why))
+                kind = "following"
+                log.info("lista de seguidos desatualizada: relendo antes de verificar os perfis")
 
         url, timeout_s = run_params(kind)
         log.info("buscando novas (%s)…", kind)
@@ -244,14 +257,24 @@ async def main() -> None:
         finished = datetime.now(timezone.utc)
         last_finished = time.time()
         await notify.publish_running(api_base, key, False, kind, why, dict(res))
-        if kind == "profiles":
+        if kind == "following":
+            if res.get("ok"):
+                last_following = finished
+                status.update(last_following_at=finished.isoformat())
+        elif kind == "profiles":
             last_profiles = finished
             status.update(last_profiles_at=finished.isoformat(), profiles_target=None)
         else:
             last_run = finished
             status.update(last_run_at=finished.isoformat())
         status.update(last_mode=kind, last_trigger=why, last_result=dict(res))
-        if res.get("ok"):
+        if kind in ("normal", "deep") and schedule.in_night(finished) and not schedule.following_fresh(last_following, finished) and not pending:
+            pending.append(("following", "depois da última busca da madrugada"))  # tira da lista quem você deixou de seguir
+        if kind == "following" and not res.get("ok") and not res.get("login"):
+            # a lista é complementar: se falhar, segue com a antiga (não conta para a pausa) e tenta de novo antes dos perfis
+            log.error("releitura da lista de quem você segue falhou: %s", dict(res))
+            status.update(last_error=res.get("error"))
+        elif res.get("ok"):
             failures = 0
             status.update(consecutive_failures=0, last_error=None, last_ok_at=finished.isoformat())
             log.info("ok: %s", dict(res))

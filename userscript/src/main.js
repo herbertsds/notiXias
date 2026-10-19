@@ -407,11 +407,12 @@ async function startApp() {
   }
 
   // ---------- leitura ----------
-  async function openEntry(entry) {
+  // `dir`: 'fwd' (padrão) ou 'back' (veio do ◀). Guardada para, se o post não existir mais, seguir na mesma direção.
+  async function openEntry(entry, dir) {
     const label = Core.openingLabel(entry);
     if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
-    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label });
+    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label, dir: dir === 'back' ? 'back' : 'fwd' });
     gm.set('nx_mode', 'read');
     go(entry.url);
   }
@@ -448,7 +449,7 @@ async function startApp() {
     const st = await api.state();
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
-    if (q.items.length) return openEntry(q.items[0]);
+    if (q.items.length) return openEntry(q.items[0], 'back');
     showBar({ st, notice: 'Início da fila' });
   });
 
@@ -460,6 +461,18 @@ async function startApp() {
       go(cur.url);
       return 'jump';
     }
+    const plan = Core.unavailablePlan(view);
+    if (plan.direction === 'back') {
+      // Voltando: vai para a entrada ANTERIOR (e continua voltando se também não existir). Sem mexer no histórico de leitura.
+      gm.set('nx_notice', 'Post indisponível (apagado?): pulado');
+      const q = await api.queue({ before: cur.seq, limit: 1 });
+      if (q.items.length) { await openEntry(q.items[0], 'back'); return 'jump'; }
+      gm.set('nx_notice', null);
+      ui.hideLoading();
+      showBar({ st: await api.state(), notice: 'Início da fila: este post não existe mais' });
+      return 'done';
+    }
+    // Avançando: marca como visto e abre a seguinte.
     await api.views({ seqs: [cur.seq] });
     gm.set('nx_notice', 'Post indisponível (apagado?): pulado');
     const q = await api.queue({ after: cur.seq, limit: 1 });

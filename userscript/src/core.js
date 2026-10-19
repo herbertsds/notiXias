@@ -202,6 +202,14 @@ const Core = (function () {
     return { kind: 'fetch' };
   }
 
+  // O post de uma entrada não existe mais: para onde ir? Na MESMA direção em que você vinha: voltando (◀) vai para a entrada
+  // anterior; avançando (▶, retomar, busca) vai para a seguinte. Só avançando a entrada é marcada como vista (voltando, não se
+  // mexe no histórico de leitura). `view` = o `nx_view` guardado ao abrir a entrada (campo `dir`: 'back' | 'fwd').
+  function unavailablePlan(view) {
+    const back = !!view && view.dir === 'back';
+    return { direction: back ? 'back' : 'fwd', markViewed: !back };
+  }
+
   // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
   // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
   function openingLabel(entry) {
@@ -348,7 +356,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, unavailablePlan, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

@@ -362,3 +362,10 @@ test('resumeAction: ao abrir o X volta ao último aberto (mesmo já lido), não 
   assert.deepEqual(Core.resumeAction({ current: null, next_seq: null }), { kind: 'fetch' });            // nada a ler
   assert.deepEqual(Core.resumeAction(null), { kind: 'fetch' });
 });
+
+test('unavailablePlan: post que não existe mais segue na MESMA direção; só avançando marca como visto', () => {
+  assert.deepEqual(Core.unavailablePlan({ seq: 5, dir: 'back' }), { direction: 'back', markViewed: false });   // vindo do ◀: entrada anterior
+  assert.deepEqual(Core.unavailablePlan({ seq: 5, dir: 'fwd' }), { direction: 'fwd', markViewed: true });      // vindo do ▶: a seguinte
+  assert.deepEqual(Core.unavailablePlan({ seq: 5 }), { direction: 'fwd', markViewed: true });                  // entrada antiga sem direção: avança
+  assert.deepEqual(Core.unavailablePlan(null), { direction: 'fwd', markViewed: true });
+});

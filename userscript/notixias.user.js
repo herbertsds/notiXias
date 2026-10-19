@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.15.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.15.0
+// @version      0.15.1
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.15.1
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -225,6 +225,14 @@ const Core = (function () {
     return { kind: 'fetch' };
   }
 
+  // O post de uma entrada não existe mais: para onde ir? Na MESMA direção em que você vinha: voltando (◀) vai para a entrada
+  // anterior; avançando (▶, retomar, busca) vai para a seguinte. Só avançando a entrada é marcada como vista (voltando, não se
+  // mexe no histórico de leitura). `view` = o `nx_view` guardado ao abrir a entrada (campo `dir`: 'back' | 'fwd').
+  function unavailablePlan(view) {
+    const back = !!view && view.dir === 'back';
+    return { direction: back ? 'back' : 'fwd', markViewed: !back };
+  }
+
   // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
   // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
   function openingLabel(entry) {
@@ -371,7 +379,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, unavailablePlan, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -1997,7 +2005,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.15.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.15.1'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2403,11 +2411,12 @@ async function startApp() {
   }
 
   // ---------- leitura ----------
-  async function openEntry(entry) {
+  // `dir`: 'fwd' (padrão) ou 'back' (veio do ◀). Guardada para, se o post não existir mais, seguir na mesma direção.
+  async function openEntry(entry, dir) {
     const label = Core.openingLabel(entry);
     if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
-    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label });
+    gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label, dir: dir === 'back' ? 'back' : 'fwd' });
     gm.set('nx_mode', 'read');
     go(entry.url);
   }
@@ -2444,7 +2453,7 @@ async function startApp() {
     const st = await api.state();
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
-    if (q.items.length) return openEntry(q.items[0]);
+    if (q.items.length) return openEntry(q.items[0], 'back');
     showBar({ st, notice: 'Início da fila' });
   });
 
@@ -2456,6 +2465,18 @@ async function startApp() {
       go(cur.url);
       return 'jump';
     }
+    const plan = Core.unavailablePlan(view);
+    if (plan.direction === 'back') {
+      // Voltando: vai para a entrada ANTERIOR (e continua voltando se também não existir). Sem mexer no histórico de leitura.
+      gm.set('nx_notice', 'Post indisponível (apagado?): pulado');
+      const q = await api.queue({ before: cur.seq, limit: 1 });
+      if (q.items.length) { await openEntry(q.items[0], 'back'); return 'jump'; }
+      gm.set('nx_notice', null);
+      ui.hideLoading();
+      showBar({ st: await api.state(), notice: 'Início da fila: este post não existe mais' });
+      return 'done';
+    }
+    // Avançando: marca como visto e abre a seguinte.
     await api.views({ seqs: [cur.seq] });
     gm.set('nx_notice', 'Post indisponível (apagado?): pulado');
     const q = await api.queue({ after: cur.seq, limit: 1 });

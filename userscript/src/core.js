@@ -193,6 +193,15 @@ const Core = (function () {
     return who + (h.length === 1 ? ' repostou' : ' repostaram');
   }
 
+  // Ao abrir o X (ou ▶ fora de uma entrada): o que fazer? Volta ao ÚLTIMO aberto (a posição de leitura), mesmo que ele já tenha
+  // sido lido; só sem nenhuma posição abre a primeira não lida; sem nada para ler, busca novas.
+  // `st` = GET /state. Devolve { kind: 'current'|'next'|'fetch' }.
+  function resumeAction(st) {
+    if (st && st.current) return { kind: 'current' };
+    if (st && st.next_seq) return { kind: 'next' };
+    return { kind: 'fetch' };
+  }
+
   // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
   // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
   function openingLabel(entry) {
@@ -339,7 +348,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;

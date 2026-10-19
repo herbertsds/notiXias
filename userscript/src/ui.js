@@ -236,6 +236,13 @@ const Ui = (function () {
       watchHeight(inner);
     }
 
+    // Esconde/mostra a barra inferior SEM desmontá-la (vídeo em tela cheia: ela ficava na frente). Escondida, a faixa que a
+    // página reserva para ela também some (o ResizeObserver percebe o tamanho 0).
+    function setBarHidden(hidden) {
+      if (hidden) bar.host.style.setProperty('display', 'none', 'important');
+      else bar.host.style.removeProperty('display');
+    }
+
     function hideBar() {
       if (wrapNode) wrapNode.remove();
       wrapNode = null;
@@ -389,7 +396,7 @@ const Ui = (function () {
       }, 520);
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
+    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
   }
 
   return { create, readWidths };

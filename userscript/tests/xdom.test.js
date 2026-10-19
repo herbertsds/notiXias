@@ -779,3 +779,22 @@ test('setHeaderStatic: a fonte NÃO vem do <h2> do X (que cai na padrão serifad
   assert.match(st2, /font-family:\s*[^;]*sans-serif/);
   assert.doesNotMatch(st2, /-webkit-standard|Times/);
 });
+
+
+test('videoFullscreenActive: reconhece tela cheia comum, player nativo do iPhone e o visualizador de vídeo do X', () => {
+  const mk = (url, body = '<video id="v"></video>') => new JSDOM('<body>' + body + '</body>', { url }).window;
+  let w = mk('https://x.com/home');
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), false);                              // página comum
+  w = mk('https://x.com/a/status/9');
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), false);                              // post com vídeo inline
+  w = mk('https://x.com/a/status/9/mediaViewer?currentTweet=9');
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), true);                               // visualizador do X (rota)
+  w = mk('https://x.com/home', '<div data-testid="immersive-tweet-back-button-1"></div>');
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), true);                               // visualizador (elementos)
+  w = mk('https://x.com/home');
+  w.document.getElementById('v').webkitDisplayingFullscreen = true;
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), true);                               // player nativo do iPhone
+  w = mk('https://x.com/home');
+  Object.defineProperty(w.document, 'fullscreenElement', { value: w.document.getElementById('v'), configurable: true });
+  assert.equal(Xdom.videoFullscreenActive(w.document, w), true);                               // Fullscreen API
+});

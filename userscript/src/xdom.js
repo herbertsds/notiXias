@@ -464,6 +464,16 @@ const Xdom = (function () {
     return () => win.removeEventListener('ended', handler, true);
   }
 
+  // O vídeo está em TELA CHEIA agora? Qualquer um dos jeitos: tela cheia comum (`fullscreenElement`), player nativo do iPhone
+  // (`webkitDisplayingFullscreen`) ou o visualizador de vídeo do X (rota `/mediaViewer`... ou os elementos `immersive-*`).
+  function videoFullscreenActive(root, win) {
+    const doc = root.ownerDocument || root;
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) return true;
+    for (const v of root.querySelectorAll('video')) if (v.webkitDisplayingFullscreen) return true;
+    if (win.location && VIEWER_RE.test(win.location.pathname)) return true;
+    return !!root.querySelector('[data-testid^="immersive-"]');
+  }
+
   // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
   // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
   // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
@@ -662,7 +672,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

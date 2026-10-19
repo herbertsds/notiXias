@@ -354,3 +354,11 @@ test('formatRun: mostra quantas entradas foram reposicionadas', () => {
   const r = Core.formatRun({ at, source: 'robot', mode: 'normal', ok: true, created: 3, updated: 0, repositioned: 2, reason: 'anchor', steps: 12 });
   assert.match(r.sub, /3 novos · 2 reposicionados · chegou ao que já estava salvo/);
 });
+
+test('resumeAction: ao abrir o X volta ao último aberto (mesmo já lido), não à primeira não lida', () => {
+  assert.deepEqual(Core.resumeAction({ current: { seq: 7, read_at: '2026-10-18T10:00:00Z' }, next_seq: 8 }), { kind: 'current' });
+  assert.deepEqual(Core.resumeAction({ current: { seq: 7, read_at: null }, next_seq: 8 }), { kind: 'current' });
+  assert.deepEqual(Core.resumeAction({ current: null, next_seq: 1 }), { kind: 'next' });                // sem posição: a primeira
+  assert.deepEqual(Core.resumeAction({ current: null, next_seq: null }), { kind: 'fetch' });            // nada a ler
+  assert.deepEqual(Core.resumeAction(null), { kind: 'fetch' });
+});

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.14.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.14.2
+// @version      0.15.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.15.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -216,6 +216,15 @@ const Core = (function () {
     return who + (h.length === 1 ? ' repostou' : ' repostaram');
   }
 
+  // Ao abrir o X (ou ▶ fora de uma entrada): o que fazer? Volta ao ÚLTIMO aberto (a posição de leitura), mesmo que ele já tenha
+  // sido lido; só sem nenhuma posição abre a primeira não lida; sem nada para ler, busca novas.
+  // `st` = GET /state. Devolve { kind: 'current'|'next'|'fetch' }.
+  function resumeAction(st) {
+    if (st && st.current) return { kind: 'current' };
+    if (st && st.next_seq) return { kind: 'next' };
+    return { kind: 'fetch' };
+  }
+
   // Texto da tela de carregamento ao abrir uma entrada: "Abrindo o post de @ana" / "Abrindo o repost de Beto" (nome de
   // exibição se a API o conhece, senão o @); com vários, "Ana, Beto e Caio" (mais de 3: "Ana, Beto e mais 2").
   function openingLabel(entry) {
@@ -362,7 +371,7 @@ const Core = (function () {
 
   return {
     parseStatusPath, parseStatusHref, parseProfileHref, appearanceKey, formatDateBR, formatRun, formatNext, ageLabel, snowflakeMs, SPEEDS, formatSpeed,
-    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, buildBannerText, isFeedPath, toApiItem, newBatchId,
+    pickThreadTarget, splitConversation, clusterize, parseLaunch, buildBadges, buildLabelParts, openingLabel, pickSessionCookies, resumeAction, buildBannerText, isFeedPath, toApiItem, newBatchId,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;
@@ -834,6 +843,16 @@ const Xdom = (function () {
     return () => win.removeEventListener('ended', handler, true);
   }
 
+  // O vídeo está em TELA CHEIA agora? Qualquer um dos jeitos: tela cheia comum (`fullscreenElement`), player nativo do iPhone
+  // (`webkitDisplayingFullscreen`) ou o visualizador de vídeo do X (rota `/mediaViewer`... ou os elementos `immersive-*`).
+  function videoFullscreenActive(root, win) {
+    const doc = root.ownerDocument || root;
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) return true;
+    for (const v of root.querySelectorAll('video')) if (v.webkitDisplayingFullscreen) return true;
+    if (win.location && VIEWER_RE.test(win.location.pathname)) return true;
+    return !!root.querySelector('[data-testid^="immersive-"]');
+  }
+
   // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
   // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
   // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
@@ -1032,7 +1051,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -1807,6 +1826,13 @@ const Ui = (function () {
       watchHeight(inner);
     }
 
+    // Esconde/mostra a barra inferior SEM desmontá-la (vídeo em tela cheia: ela ficava na frente). Escondida, a faixa que a
+    // página reserva para ela também some (o ResizeObserver percebe o tamanho 0).
+    function setBarHidden(hidden) {
+      if (hidden) bar.host.style.setProperty('display', 'none', 'important');
+      else bar.host.style.removeProperty('display');
+    }
+
     function hideBar() {
       if (wrapNode) wrapNode.remove();
       wrapNode = null;
@@ -1960,7 +1986,7 @@ const Ui = (function () {
       }, 520);
     }
 
-    return { renderBar, hideBar, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
+    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
   }
 
   return { create, readWidths };
@@ -1971,7 +1997,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.14.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.15.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2135,6 +2161,8 @@ async function startApp() {
     });
   }
   setInterval(applySpeed, 300);
+  // Vídeo em tela cheia: a barra inferior do notiXias some (ficava na frente do vídeo) e volta quando ele sai da tela cheia.
+  if (!cfg.bot) setInterval(() => { try { ui.setBarHidden(Xdom.videoFullscreenActive(document, window)); } catch (e) { /* melhor esforço */ } }, 300);
   // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
   // Ao terminar: volta a 1x (a escolha de velocidade vale para UM vídeo) e, se pediu para sair da tela cheia e nada
   // conseguiu sair, manda para a API (esqueleto, sem texto de posts) o que a página era, para eu ajustar a regra.
@@ -2386,8 +2414,9 @@ async function startApp() {
 
   async function resumeReading() {
     const st = await api.state();
-    if (st.current && !st.current.read_at) return openEntry(st.current);
-    if (st.next_seq) {
+    const act = Core.resumeAction(st);
+    if (act.kind === 'current') return openEntry(st.current); // volta ao último aberto, mesmo já lido (não pula para a primeira não lida)
+    if (act.kind === 'next') {
       const q = await api.queue({ after: st.cursor_seq || 0, limit: 1 });
       if (q.items.length) return openEntry(q.items[0]);
     }

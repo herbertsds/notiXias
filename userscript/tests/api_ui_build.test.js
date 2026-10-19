@@ -346,3 +346,17 @@ test('Ui: botão de velocidade abre menu de opções, escolhe, fecha; some com o
   ui.hideSpeed();
   assert.equal(doc.getElementById('notixias-speed'), null);
 });
+
+
+test('Ui: setBarHidden esconde e mostra a barra inferior sem desmontá-la', () => {
+  const { ui, doc } = mountUi();
+  ui.renderBar(base({}));
+  const host = doc.getElementById('notixias-bar');
+  assert.ok(host.shadowRoot.querySelector('.wrap'));
+  ui.setBarHidden(true);
+  assert.equal(host.style.getPropertyValue('display'), 'none');
+  assert.equal(host.style.getPropertyPriority('display'), 'important');
+  assert.ok(host.shadowRoot.querySelector('.wrap'), 'continua montada (volta sem refazer nada)');
+  ui.setBarHidden(false);
+  assert.equal(host.style.getPropertyValue('display'), '');
+});

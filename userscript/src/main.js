@@ -165,6 +165,8 @@ async function startApp() {
     });
   }
   setInterval(applySpeed, 300);
+  // Vídeo em tela cheia: a barra inferior do notiXias some (ficava na frente do vídeo) e volta quando ele sai da tela cheia.
+  if (!cfg.bot) setInterval(() => { try { ui.setBarHidden(Xdom.videoFullscreenActive(document, window)); } catch (e) { /* melhor esforço */ } }, 300);
   // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
   // Ao terminar: volta a 1x (a escolha de velocidade vale para UM vídeo) e, se pediu para sair da tela cheia e nada
   // conseguiu sair, manda para a API (esqueleto, sem texto de posts) o que a página era, para eu ajustar a regra.
@@ -416,8 +418,9 @@ async function startApp() {
 
   async function resumeReading() {
     const st = await api.state();
-    if (st.current && !st.current.read_at) return openEntry(st.current);
-    if (st.next_seq) {
+    const act = Core.resumeAction(st);
+    if (act.kind === 'current') return openEntry(st.current); // volta ao último aberto, mesmo já lido (não pula para a primeira não lida)
+    if (act.kind === 'next') {
       const q = await api.queue({ after: st.cursor_seq || 0, limit: 1 });
       if (q.items.length) return openEntry(q.items[0]);
     }

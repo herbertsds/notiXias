@@ -377,3 +377,11 @@ test('formatRun: pedido manual e limpeza diária aparecem no histórico', () => 
   const p = Core.formatRun({ kind: 'purge', at, reason: 'Apagadas 5 entradas capturadas há mais de 7 dias' });
   assert.match(p.main, /Limpeza diária/); assert.equal(p.tone, 'event');
 });
+
+test('formatRun: contas seguidas mostra quem entrou e saiu', () => {
+  const at = '2026-10-19T09:00:00Z';
+  const r = Core.formatRun({ kind: 'following', at, added: ['a'], removed: ['b', 'c'], dropped: 3, total: 56 });
+  assert.match(r.main, /houve mudança \(56\)/);
+  assert.match(r.sub, /Entraram: @a · Saíram: @b, @c · 3 posts não lidos/);
+  assert.match(Core.formatRun({ kind: 'following', at, added: [], removed: [], total: 56 }).main, /sem mudanças/);
+});

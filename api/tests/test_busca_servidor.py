@@ -97,3 +97,37 @@ def test_limpeza_sem_nada_velho_nao_faz_nada(client):
     append(client, [item(2), item(1)])
     assert client.post("/api/v1/maintenance/purge", json={"days": 7}).json() == {"deleted": 0, "views": 0, "days": 7}
     assert len(queue(client)) == 2
+
+
+def _fol(client, *handles):
+    return client.put("/api/v1/accounts/following", json={"accounts": [{"handle": h, "name": h} for h in handles]})
+
+
+def _evento(client):
+    return [x for x in client.get("/api/v1/runs").json()["items"] if x.get("kind") == "following"]
+
+
+def test_releitura_da_lista_registra_quem_entrou_e_saiu_e_tira_da_fila_o_nao_lido_de_quem_saiu(client):
+    _fol(client, "ana", "bia")
+    assert _evento(client) == []                                                    # a primeira leitura não é mudança
+    append(client, [item(5, author="Bia"), item(4, author="ana"), item(3, author="bia"), item(2, author="bia")])
+    client.post("/api/v1/views", json={"seqs": [4]})                                  # o de Bia que foi lido fica
+    _fol(client, "ana", "caio")
+    ev = _evento(client)[0]
+    assert ev["added"] == ["caio"] and ev["removed"] == ["bia"] and ev["total"] == 2 and ev["dropped"] >= 1
+    restantes = [e["tweet_id"] for e in queue(client)]
+    assert "3" not in restantes and "2" not in restantes and "4" in restantes   # não lidos de Bia saíram; o lido (e a posição de leitura) ficam
+
+
+def test_lista_igual_registra_sem_mudancas(client):
+    _fol(client, "ana")
+    _fol(client, "ana")
+    ev = _evento(client)[0]
+    assert ev["added"] == [] and ev["removed"] == [] and ev["dropped"] == 0
+
+
+def test_seguir_e_deixar_de_seguir_ao_vivo_tambem_registram(client):
+    client.post("/api/v1/accounts/following/add", json={"handle": "Zeca", "name": "Zeca"})
+    client.post("/api/v1/accounts/following/remove", json={"handle": "zeca"})
+    evs = _evento(client)
+    assert evs[1]["added"] == ["zeca"] and evs[0]["removed"] == ["zeca"]

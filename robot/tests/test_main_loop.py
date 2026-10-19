@@ -438,3 +438,15 @@ def test_falha_na_releitura_nao_pausa_e_segue_para_os_perfis(env, monkeypatch):
     urls = [k["start_url"] for k in run_kwargs]
     assert urls[:2] == [runner.FOLLOWING_URL, runner.PROFILES_URL]
     assert _status(env)["paused"] is False
+
+
+def test_falha_que_o_script_nao_registrou_vai_para_o_historico(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    got = []
+
+    async def fake_report(api_base, key, kind, error, trigger=None):
+        got.append((kind, error))
+    _patch(monkeypatch, [{"ok": False, "error": "travou: sem progresso por 5 min", "stalled": True, "skipped_stalled": 4}])
+    monkeypatch.setattr(robot_main.notify, "report_failure", fake_report)
+    asyncio.run(_run_for(0.2))
+    assert got and got[0][0] == "normal" and "travou" in got[0][1] and "4 perfis pulados" in got[0][1]

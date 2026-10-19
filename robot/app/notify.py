@@ -82,3 +82,11 @@ async def publish_running(api_base: str, api_key: str, running: bool, kind: str 
 async def purge_old(api_base: str, api_key: str, days: int = 7) -> dict | None:
     """Limpeza diária: apaga do banco o que foi capturado há mais de `days` dias."""
     return await _send(api_base, api_key, "/maintenance/purge", {"days": days}, method="POST")
+
+
+async def report_failure(api_base: str, api_key: str, kind: str, error: str, trigger: str | None = None) -> None:
+    """Falha que o script não pôde registrar (página travada, tempo esgotado, sessão): entra no histórico de execuções."""
+    body = {"source": "robot", "mode": kind, "error": error[:300]}
+    if trigger:
+        body["trigger"] = trigger[:200]
+    await _send(api_base, api_key, "/runs", body, method="POST")

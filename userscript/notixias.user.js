@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.1
+// @version      0.16.2
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.2
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -153,6 +153,15 @@ const Core = (function () {
   function formatRun(run) {
     const d = new Date(run.at);
     const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (run.kind === 'following') {
+      const list = (a) => (a && a.length ? a.map((h) => '@' + h).join(', ') : 'ninguém');
+      const changed = (run.added && run.added.length) || (run.removed && run.removed.length);
+      return {
+        main: when + ' · Contas seguidas: ' + (changed ? 'houve mudança' : 'sem mudanças') + (run.total != null ? ' (' + run.total + ')' : ''),
+        sub: changed ? 'Entraram: ' + list(run.added) + ' · Saíram: ' + list(run.removed) + (run.dropped ? ' · ' + run.dropped + ' posts não lidos tirados da fila' : '') : 'A lista continua igual',
+        tone: 'event',
+      };
+    }
     if (run.kind === 'purge') return { main: when + ' · Limpeza diária', sub: run.reason, tone: 'event' };
     if (run.kind === 'request') return { main: when + ' · Busca solicitada (' + (run.source === 'manual' ? 'manual' : 'leitura') + ')', sub: 'Motivo: ' + run.reason, tone: 'event' };
     if (run.kind === 'reschedule') return { main: when + ' · Próxima busca antecipada', sub: run.reason, tone: 'event' };
@@ -2046,7 +2055,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.2'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

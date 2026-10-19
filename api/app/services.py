@@ -289,11 +289,30 @@ def following_summary(db, include: bool = False) -> dict:
     return out
 
 
-def put_following(db, accounts: list) -> dict:
-    """Substitui a lista pela lida na página de Seguindo (leitura completa)."""
+def _drop_unread_of(db, handles) -> int:
+    """Tira da fila os posts NÃO LIDOS escritos por contas que deixaram de ser seguidas (reposts de quem você segue ficam,
+    assim como o que já foi lido e a posição de leitura)."""
+    if not handles:
+        return 0
+    st = db.state.find_one({"_id": "main"}) or {}
+    flt: dict = {"removed": False, "read_at": None, "reposters": [], "$expr": {"$in": [{"$toLower": "$author"}, list(handles)]}}
+    if st.get("cursor_seq") is not None:
+        flt["seq"] = {"$ne": st["cursor_seq"]}
+    return db.entries.update_many(flt, {"$set": {"removed": True}}).modified_count
+
+
+def _log_following(db, source: str, added, removed, dropped: int, total: int) -> None:
+    _log_run_event(db, "following", "contas seguidas atualizadas", source=source,
+                   added=sorted(added), removed=sorted(removed), dropped=dropped, total=total)
+
+
+def put_following(db, accounts: list, source: str = "server") -> dict:
+    """Substitui a lista pela lida na página de Seguindo (leitura completa). Registra quem entrou e quem saiu e tira da fila
+    os posts não lidos de quem saiu."""
     uniq = {}
     for a in accounts:
         uniq[a.handle.lower()] = a
+    before = {d["_id"] for d in db.following.find({}, {"_id": 1})}
     ops = [
         UpdateOne({"_id": k}, {"$set": {"handle": a.handle, "name": a.name}, "$setOnInsert": {"added_at": now()}}, upsert=True)
         for k, a in uniq.items()
@@ -303,6 +322,9 @@ def put_following(db, accounts: list) -> dict:
     db.following.delete_many({"_id": {"$nin": list(uniq)}})
     t = now()
     db.meta.update_one({"_id": "following"}, {"$set": {"last_full_at": t, "updated_at": t}}, upsert=True)
+    added, removed = set(uniq) - before, before - set(uniq)
+    if before:  # a primeira leitura (lista vazia antes) não é "mudança"
+        _log_following(db, source, added, removed, _drop_unread_of(db, removed), len(uniq))
     return following_summary(db)
 
 
@@ -310,14 +332,19 @@ def follow_add(db, handle: str, name: str | None) -> dict:
     sets = {"handle": handle}
     if name:  # um "seguir" repetido sem nome não apaga o nome já guardado
         sets["name"] = name
+    new = db.following.find_one({"_id": handle.lower()}) is None
     db.following.update_one({"_id": handle.lower()}, {"$set": sets, "$setOnInsert": {"added_at": now()}}, upsert=True)
     db.meta.update_one({"_id": "following"}, {"$set": {"updated_at": now()}}, upsert=True)
+    if new:
+        _log_following(db, "manual", {handle.lower()}, set(), 0, db.following.count_documents({}))
     return following_summary(db)
 
 
 def follow_remove(db, handle: str) -> dict:
-    db.following.delete_one({"_id": handle.lower()})
+    had = db.following.delete_one({"_id": handle.lower()}).deleted_count
     db.meta.update_one({"_id": "following"}, {"$set": {"updated_at": now()}}, upsert=True)
+    if had:
+        _log_following(db, "manual", set(), {handle.lower()}, _drop_unread_of(db, {handle.lower()}), db.following.count_documents({}))
     return following_summary(db)
 
 

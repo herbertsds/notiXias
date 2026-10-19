@@ -257,6 +257,11 @@ async def main() -> None:
         finished = datetime.now(timezone.utc)
         last_finished = time.time()
         await notify.publish_running(api_base, key, False, kind, why, dict(res))
+        if not res.get("ok") and "at" not in res:
+            # o script não chegou a registrar (travou, tempo esgotado, sessão...): o histórico precisa mostrar a falha
+            extra = f" [{res['skipped_stalled']} perfis pulados]" if res.get("skipped_stalled") else ""
+            where = f" em {(res.get('diag') or {}).get('url', '')[:60]}" if res.get("diag") else ""
+            await notify.report_failure(api_base, key, kind, f"{res.get('error')}{extra}{where}", why)
         if kind == "following":
             if res.get("ok"):
                 last_following = finished

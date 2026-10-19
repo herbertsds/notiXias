@@ -604,6 +604,70 @@ def _log_run_event(db, kind: str, reason: str, **extra) -> None:
     db.runs.insert_one({"kind": kind, "at": now(), "source": "reading", "reason": reason, **extra})
 
 
+# ---------- busca pedida pelo celular / estado "rodando" / limpeza ----------
+RUNNING_STALE = timedelta(minutes=130)  # um "rodando" mais velho que o prazo máximo de uma execução é resto de uma queda
+MODE_PT = {"normal": "normal", "deep": "profunda do feed", "profiles": "perfis"}
+
+
+def robot_running(db) -> dict:
+    doc = db.meta.find_one({"_id": "robot_running"}, {"_id": 0}) or {}
+    running = bool(doc.get("running"))
+    if running and doc.get("updated_at") and now() - doc["updated_at"] > RUNNING_STALE:
+        running = False
+    return {**doc, "running": running}
+
+
+def set_robot_running(db, body) -> dict:
+    prev = db.meta.find_one({"_id": "robot_running"}) or {}
+    doc = {"running": body.running, "kind": body.kind, "trigger": body.trigger, "updated_at": now()}
+    if body.running:
+        doc["started_at"] = now()
+    else:
+        doc["started_at"] = prev.get("started_at")
+        doc["finished_at"] = now()
+        doc["result"] = {"ok": body.ok, "created": body.created or 0, "updated": body.updated or 0, "error": body.error}
+    db.meta.replace_one({"_id": "robot_running"}, {"_id": "robot_running", **doc}, upsert=True)
+    return {"ok": True}
+
+
+def run_now(db, mode: str) -> dict:
+    """O celular pede uma busca imediata. Recusa se já há uma rodando; um pedido manual pendente não se duplica."""
+    r = robot_running(db)
+    if r["running"]:
+        return {"accepted": False, "running": True, "kind": r.get("kind")}
+    req = db.meta.find_one({"_id": "robot_request"})
+    if req and req.get("pending"):
+        return {"accepted": True, "running": False, "already_pending": True}
+    db.meta.replace_one(
+        {"_id": "robot_request"},
+        {"_id": "robot_request", "pending": True, "reason": "busca pedida pelo celular", "manual": True, "mode": mode,
+         "threshold": None, "unread": None, "requested_at": now()},
+        upsert=True,
+    )
+    _log_run_event(db, "request", f"Busca pedida pelo celular ({MODE_PT[mode]})", source="manual", mode=mode)
+    return {"accepted": True, "running": False}
+
+
+def purge_old(db, days: int) -> dict:
+    """Apaga as entradas CAPTURADAS há mais de `days` dias (e as visualizações delas). Nunca apaga a entrada da posição de
+    leitura. Zera a referência de contagem de não lidas para a limpeza não disparar pedidos de busca por "ter diminuído"."""
+    cutoff = now() - timedelta(days=days)
+    st = db.state.find_one({"_id": "main"}) or {}
+    flt: dict = {"captured_at": {"$lt": cutoff}}
+    if st.get("cursor_seq") is not None:
+        flt["seq"] = {"$ne": st["cursor_seq"]}
+    seqs = [d["seq"] for d in db.entries.find(flt, {"seq": 1})]
+    if not seqs:
+        return {"deleted": 0, "views": 0, "days": days}
+    db.entries.delete_many({"seq": {"$in": seqs}})
+    views = db.views.delete_many({"entry_seq": {"$in": seqs}}).deleted_count
+    # entradas mais novas que estavam cobertas por uma apagada voltam a ser independentes
+    db.entries.update_many({"covered_by": {"$in": seqs}}, {"$set": {"covered": False, "covered_by": None, "cover_tentative": False}})
+    db.meta.update_one({"_id": "unread_watch"}, {"$set": {"count": count_unread(db), "updated_at": now()}}, upsert=True)
+    _log_run_event(db, "purge", f"Apagadas {len(seqs)} entradas capturadas há mais de {days} dias", source="server", deleted=len(seqs))
+    return {"deleted": len(seqs), "views": views, "days": days}
+
+
 def request_robot_run(db, reason: str, threshold: int, unread: int) -> None:
     """Pede ao robô uma busca agora (ele confere a cada poucos segundos) e deixa o motivo no histórico."""
     db.meta.replace_one(
@@ -663,7 +727,10 @@ def ack_robot_request(db) -> dict:
     )
     if not doc:
         return {"pending": False}
-    return {"pending": True, "reason": doc["reason"], "threshold": doc.get("threshold"), "unread": doc.get("unread"), "requested_at": doc["requested_at"]}
+    return {
+        "pending": True, "reason": doc["reason"], "threshold": doc.get("threshold"), "unread": doc.get("unread"),
+        "requested_at": doc["requested_at"], "manual": bool(doc.get("manual")), "mode": doc.get("mode"),
+    }
 
 
 SESSION_TTL = timedelta(hours=1)
@@ -756,6 +823,7 @@ def state_view(db) -> dict:
         "total_visible": total,
         "feed": st["feed"],
         "following": following_summary(db),
+        "robot": {"running": (rr := robot_running(db))["running"], "kind": rr.get("kind")},
         "version": st["version"],
         "updated_at": st["updated_at"],
     }

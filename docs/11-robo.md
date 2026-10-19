@@ -133,3 +133,9 @@ Quando a sessão do robô cai ("sessão do X expirada", robô pausado) basta, no
 ## Incidente de 2026-10-13/14 (robô pausado com a sessão boa)
 
 Três buscas seguidas "travaram" (página em branco, vários recursos com `ERR_FAILED`; o diagnóstico mostrou `url`, `console`, `body` vazio) e o robô pausou. A sessão **não** tinha expirado (conferido depois: o X carregava a Página Inicial logada com os mesmos cookies). Agora: pausa por falhas se recupera sozinha em 2 h e o reinício zera a pausa.
+
+## Busca pedida pelo celular e limpeza diária (script 0.16.0)
+
+- O robô olha a API a cada **3 s** por pedidos (`manual` salta o intervalo mínimo de 3 min e usa o modo pedido: normal → Início, deep → feed profundo, profiles → perfis). Sessão nova, horário antecipado e limpeza são conferidos a cada 5 voltas (~15 s).
+- Publica `PUT /robot/running` ao começar/terminar cada execução (com o resultado) e limpa o estado ao iniciar. Uma execução manual vira a "última busca": o próximo horário é sorteado a partir do fim dela.
+- **Limpeza diária** a partir das 06:00 (São Paulo), uma vez por data (`status.last_purge_date`): `POST /maintenance/purge {days:7}` apaga o que foi capturado há mais de 7 dias (não a posição de leitura).

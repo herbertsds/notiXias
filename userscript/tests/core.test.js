@@ -369,3 +369,11 @@ test('unavailablePlan: post que não existe mais segue na MESMA direção; só a
   assert.deepEqual(Core.unavailablePlan({ seq: 5 }), { direction: 'fwd', markViewed: true });                  // entrada antiga sem direção: avança
   assert.deepEqual(Core.unavailablePlan(null), { direction: 'fwd', markViewed: true });
 });
+
+test('formatRun: pedido manual e limpeza diária aparecem no histórico', () => {
+  const at = '2026-10-18T12:00:00Z';
+  assert.match(Core.formatRun({ kind: 'request', source: 'manual', at, reason: 'Busca pedida pelo celular (normal)' }).main, /Busca solicitada \(manual\)/);
+  assert.match(Core.formatRun({ kind: 'request', at, reason: 'x' }).main, /\(leitura\)/);
+  const p = Core.formatRun({ kind: 'purge', at, reason: 'Apagadas 5 entradas capturadas há mais de 7 dias' });
+  assert.match(p.main, /Limpeza diária/); assert.equal(p.tone, 'event');
+});

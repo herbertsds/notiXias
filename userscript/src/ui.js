@@ -22,6 +22,7 @@ const Ui = (function () {
     button.center .pos { font-size: 14px; color: #e7e9ea; }
     button.nav { font-size: 22px; }
     button:disabled { opacity: .3; cursor: default; }
+    button.dim { opacity: .45; }
     .menu { position: absolute; right: 6px; left: 6px; bottom: calc(100% + 6px); background: #16181c;
       border: 1px solid #536471; border-radius: 12px; padding: 4px; max-height: 60vh; overflow: auto; }
     .menu button { display: block; text-align: left; border: 0; border-radius: 8px; background: transparent;
@@ -55,6 +56,18 @@ const Ui = (function () {
     .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
+  `;
+  // Aviso rápido no topo (pílula escura): busca no servidor em andamento / resultado. Não bloqueia toques.
+  const TOAST_CSS = `
+    :host { all: initial; }
+    .t { position: fixed; top: calc(env(safe-area-inset-top) + 12px); left: 50%; transform: translate(-50%, -8px); z-index: 2147483646;
+      max-width: min(92vw, 30em); display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 999px;
+      background: rgba(15,20,25,.94); color: #e7e9ea; border: 1px solid #536471; box-shadow: 0 6px 24px rgba(0,0,0,.45);
+      font: 600 14px/1.3 -apple-system, system-ui, "Segoe UI", sans-serif; pointer-events: none; opacity: 0; transition: opacity .25s, transform .25s; }
+    .t.on { opacity: 1; transform: translate(-50%, 0); }
+    .t.ok { border-color: #00ba7c; } .t.warn { border-color: #f0b429; } .t.err { border-color: #f4212e; }
+    .sp { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #536471; border-top-color: #1d9bf0; animation: r .8s linear infinite; }
+    @keyframes r { to { transform: rotate(360deg); } }
   `;
   const SPEED_CSS = `
     :host { all: initial; }
@@ -128,6 +141,9 @@ const Ui = (function () {
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
     const spd = makeHost(doc, 'notixias-speed', SPEED_CSS + SPEED_MENU_CSS);
     const ld = makeHost(doc, 'notixias-loading', LOADING_CSS);
+    const tt = makeHost(doc, 'notixias-toast', TOAST_CSS);
+    let ttNode = null;
+    let ttTimer = null;
     let ldNode = null;
     let ldRemoveTimer = null;
     let ldFailTimer = null;
@@ -198,7 +214,7 @@ const Ui = (function () {
       row.append(cell(centerButton(m), w.center));
       if (w.next) {
         row.append(cell(el(doc, 'button', {
-          class: 'primary', 'data-act': 'next', 'aria-label': 'Próxima', disabled: !m.onNext || m.busy,
+          class: 'primary' + (m.searching ? ' dim' : ''), 'data-act': 'next', 'aria-label': 'Próxima', disabled: !m.onNext || m.busy,
           onclick: () => m.onNext && m.onNext(),
         }, m.nextLabel || '▶'), w.next));
       }
@@ -228,12 +244,34 @@ const Ui = (function () {
       if (wrapNode) wrapNode.remove();
       const menu = menuOpen
         ? el(doc, 'div', { class: 'menu', 'data-menu': '1' }, (m.menuItems || []).map((it) =>
-            el(doc, 'button', { onclick: () => { menuOpen = false; renderBar(lastModel); it.onClick(); } }, it.label)))
+            el(doc, 'button', { class: it.dim ? 'dim' : '', onclick: () => { menuOpen = false; renderBar(lastModel); it.onClick(); } }, it.label)))
         : null;
       const inner = el(doc, 'div', { class: 'inner' }, menu, m.mode === 'nav' ? navRow(m) : readRow(m));
       wrapNode = el(doc, 'div', { class: 'wrap ' + (m.layout || 'full') }, inner);
       bar.root.append(wrapNode);
       watchHeight(inner);
+    }
+
+    // Aviso no topo. o: { sticky (fica até hideToast), tone: 'ok'|'warn'|'err', spinner, ms }
+    function toast(text, o) {
+      o = o || {};
+      attach(tt);
+      clearTimeout(ttTimer);
+      if (ttNode) ttNode.remove();
+      ttNode = el(doc, 'div', { class: 't' + (o.tone ? ' ' + o.tone : ''), role: 'status' }, o.spinner ? el(doc, 'div', { class: 'sp' }) : null, el(doc, 'span', {}, text));
+      tt.root.append(ttNode);
+      const node = ttNode;
+      win.requestAnimationFrame ? win.requestAnimationFrame(() => node.classList.add('on')) : node.classList.add('on');
+      if (!o.sticky) ttTimer = setTimeout(hideToast, o.ms || 4500);
+    }
+
+    function hideToast() {
+      clearTimeout(ttTimer);
+      const node = ttNode;
+      if (!node) return;
+      ttNode = null;
+      node.classList.remove('on');
+      setTimeout(() => node.remove(), 300);
     }
 
     // Esconde/mostra a barra inferior SEM desmontá-la (vídeo em tela cheia: ela ficava na frente). Escondida, a faixa que a
@@ -396,7 +434,7 @@ const Ui = (function () {
       }, 520);
     }
 
-    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
+    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading, toast, hideToast };
   }
 
   return { create, readWidths };

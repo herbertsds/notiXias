@@ -12,7 +12,10 @@ from .models import (
     EntryPatch,
     FollowAccount,
     FollowingPut,
+    PurgeIn,
     RobotNextIn,
+    RobotRunningIn,
+    RunNowIn,
     SessionIn,
     RunReportIn,
     RunFailIn,
@@ -117,6 +120,26 @@ def put_robot_session(body: SessionIn, request: Request):
 @router.post("/robot/session/take")
 def post_robot_session_take(request: Request):
     return svc.take_robot_session(_db(request))
+
+
+@router.post("/robot/run-now")
+def post_run_now(body: RunNowIn, request: Request):
+    return svc.run_now(_db(request), body.mode)
+
+
+@router.put("/robot/running")
+def put_robot_running(body: RobotRunningIn, request: Request):
+    return svc.set_robot_running(_db(request), body)
+
+
+@router.get("/robot/running")
+def get_robot_running(request: Request):
+    return svc.robot_running(_db(request))
+
+
+@router.post("/maintenance/purge")
+def post_purge(body: PurgeIn, request: Request):
+    return svc.purge_old(_db(request), body.days)
 
 
 @router.get("/robot/next")

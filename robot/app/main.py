@@ -21,7 +21,10 @@ from . import notify, runner, schedule, session
 log = logging.getLogger("robot")
 MAX_FAILURES = 3          # falhas seguidas antes de parar de insistir (protege a conta)
 RETRY_AFTER_S = 2 * 3600  # pausa por FALHAS (não por login): tenta de novo sozinho depois disto, uma vez
-POLL_S = 15               # de quanto em quanto tempo, enquanto espera, olha a API (pedido de busca / horário antecipado)
+POLL_S = 3                # de quanto em quanto tempo, enquanto espera, olha a API em busca de pedido de busca do celular
+SLOW_EVERY = 5            # a cada quantas voltas olha o resto (sessão nova, horário antecipado, limpeza diária)
+PURGE_DAYS = 7            # a limpeza diária apaga o que foi capturado há mais que isto
+PURGE_FROM_HOUR = 6       # ... a partir desta hora (America/Sao_Paulo), uma vez por dia
 MIN_GAP_S = 180           # intervalo mínimo entre o fim de uma execução e o início de uma por pedido
 MODE_OF = {"normal": "normal", "deep": "deep", "profiles": "profiles"}
 
@@ -77,25 +80,45 @@ def run_params(kind: str) -> tuple[str, int]:
     }[kind]
 
 
+async def maybe_purge(status, status_path, api_base, key) -> None:
+    """Limpeza diária da manhã: uma vez por data, a partir das 06:00 (horário de São Paulo)."""
+    local = datetime.now(timezone.utc).astimezone(schedule.TZ)
+    today = local.date().isoformat()
+    if local.hour < PURGE_FROM_HOUR or status.get("last_purge_date") == today:
+        return
+    res = await notify.purge_old(api_base, key, PURGE_DAYS)
+    if res is None:
+        return  # a API não respondeu: tenta de novo na próxima volta
+    status.update(last_purge_date=today, last_purge_deleted=res.get("deleted"))
+    save_json(status_path, status)
+    log.info("limpeza diária: %s entradas capturadas há mais de %s dias apagadas", res.get("deleted"), PURGE_DAYS)
+
+
 async def wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path=None):
-    """Espera até `when`. Devolve ("due", when, None) | ("request", when, motivo) e atualiza o horário se a API o antecipar."""
+    """Espera até `when`. Devolve ("due", when, None, None) | ("request", when, motivo, pedido) e atualiza o horário se a API o
+    antecipar. `pedido` traz `manual`/`mode` quando a busca foi pedida pelo celular (sai na hora, sem o intervalo mínimo)."""
+    n = 0
     while True:
         now = datetime.now(timezone.utc)
         left = (when - now).total_seconds()
         if left <= 0:
-            return "due", when, None
+            return "due", when, None, None
         await asyncio.sleep(min(left, POLL_S))
-        if state_path is not None:
+        slow = n % SLOW_EVERY == 0
+        n += 1
+        if slow:
+            await maybe_purge(status, status_path, api_base, key)
+        if slow and state_path is not None:
             await receive_session(api_base, key, state_path)   # sessão nova enviada pelo dono (menu do script): já vale
         # pedido de busca imediata (a leitura atravessou 30/15/6 não lidas)
         req = await notify.take_request(api_base, key)
         if req:
-            wait = MIN_GAP_S - (time.time() - last_finished) if last_finished else 0
+            wait = MIN_GAP_S - (time.time() - last_finished) if last_finished and not req.get("manual") else 0
             if wait > 0:
                 await asyncio.sleep(wait)
-            return "request", when, req.get("reason")
+            return "request", when, req.get("reason"), req
         # horário antecipado pela API (a faixa de intervalo diminuiu): só vale para a busca normal e se couber nas regras
-        if kind != "profiles":
+        if slow and kind != "profiles":
             nxt = await notify.fetch_next(api_base, key)
             if nxt and nxt.get("state") == "scheduled" and nxt.get("at") and nxt.get("mode") != "profiles":
                 new_at = datetime.fromisoformat(nxt["at"])
@@ -127,6 +150,7 @@ async def main() -> None:
     failures = 0
     status.update(paused=False, consecutive_failures=0, paused_reason=None, retry_at=None)
     paused_at_mtime = None
+    await notify.publish_running(api_base, read_api_key(), False, None)   # sobra de uma queda: nada está rodando agora
     log.info("robô iniciado (última busca: %s, perfis: %s, falhas seguidas: %s)", last_run, last_profiles, failures)
 
     while True:
@@ -197,8 +221,12 @@ async def main() -> None:
         log.info("próxima busca: %s (%s%s)", status["next_run_at"], kind, f", {unread} não lidas" if unread is not None else "")
         await notify.publish_next(api_base, key, when, MODE_OF[kind], "scheduled", unread)
 
-        outcome, when, why = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path)
-        if outcome == "request":
+        outcome, when, why, req = await wait_for_turn(status, status_path, api_base, key, when, kind, last_run, last_finished, state_path)
+        if outcome == "request" and req and req.get("manual"):
+            # pedida pelo celular: roda já, no modo pedido; ao terminar vira a "última busca" e o próximo horário é sorteado dali
+            kind = MODE_OF.get(req.get("mode") or "normal", "normal")
+            log.info("busca pedida pelo celular: %s", kind)
+        elif outcome == "request":
             # busca pedida pela leitura: normal (ou profunda do feed, se for a primeira depois de 05:10/12:30)
             kind = "deep" if schedule.is_deep(last_run, datetime.now(timezone.utc)) else "normal"
             log.info("busca pedida pela leitura: %s", why)
@@ -207,6 +235,7 @@ async def main() -> None:
 
         url, timeout_s = run_params(kind)
         log.info("buscando novas (%s)…", kind)
+        await notify.publish_running(api_base, key, True, kind, why)
         try:
             res = await runner.run_once(api_base=api_base, api_key=key, bundle=bundle, state_path=state_path,
                                         start_url=url, timeout_s=timeout_s, why=why)
@@ -214,6 +243,7 @@ async def main() -> None:
             res = runner.RunResult(ok=False, error=f"erro inesperado: {str(e)[:200]}")
         finished = datetime.now(timezone.utc)
         last_finished = time.time()
+        await notify.publish_running(api_base, key, False, kind, why, dict(res))
         if kind == "profiles":
             last_profiles = finished
             status.update(last_profiles_at=finished.isoformat(), profiles_target=None)

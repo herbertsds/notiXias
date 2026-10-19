@@ -360,3 +360,42 @@ test('Ui: setBarHidden esconde e mostra a barra inferior sem desmontá-la', () =
   ui.setBarHidden(false);
   assert.equal(host.style.getPropertyValue('display'), '');
 });
+
+test('Api: rotas da busca no servidor', async () => {
+  const { api, calls } = fakeApi(() => ({ status: 200, json: {} }));
+  await api.runNow({ mode: 'deep' }); await api.robotRunning();
+  assert.deepEqual(calls.map((c) => c.method + ' ' + c.url.replace('http://localhost:8010/api/v1', '')), ['POST /robot/run-now', 'GET /robot/running']);
+  assert.deepEqual(JSON.parse(calls[0].body), { mode: 'deep' });
+});
+
+test('Ui: com busca em andamento o ▶ e o item do menu ficam esmaecidos, mas continuam clicáveis', () => {
+  const { ui, doc } = mountUi();
+  const hits = [];
+  ui.renderBar(base({ onNext: () => hits.push('next'), searching: true, menuItems: [{ label: 'Buscar', onClick: () => hits.push('menu'), dim: true }, { label: 'Outro', onClick: () => {} }] }));
+  const next = barRoot(doc).querySelector('[data-act="next"]');
+  assert.ok(next.classList.contains('dim'));
+  assert.equal(next.disabled, false);
+  next.click();
+  assert.deepEqual(hits, ['next']);
+  ui.renderBar(base({}));
+  assert.ok(!barRoot(doc).querySelector('[data-act="next"]').classList.contains('dim'));
+});
+
+test('Ui: aviso no topo aparece, se substitui, some sozinho e sticky fica até esconder', async () => {
+  const { ui, doc } = mountUi();
+  ui.toast('Aguardando uma busca concluir…', { sticky: true, spinner: true });
+  const root = () => doc.getElementById('notixias-toast').shadowRoot;
+  assert.match(root().querySelector('.t').textContent, /Aguardando uma busca concluir/);
+  assert.ok(root().querySelector('.sp'));
+  ui.toast('2 posts novos', { tone: 'ok', ms: 20 });
+  assert.equal(root().querySelectorAll('.t').length, 1);
+  assert.ok(root().querySelector('.t').classList.contains('ok'));
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(root().querySelectorAll('.t').length, 0);
+  ui.toast('fica', { sticky: true });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(root().querySelectorAll('.t').length, 1);
+  ui.hideToast();
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(root().querySelectorAll('.t').length, 0);
+});

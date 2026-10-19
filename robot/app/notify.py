@@ -56,3 +56,29 @@ async def take_session(api_base: str, api_key: str) -> dict | None:
     """Sessão do X enviada pelo navegador do dono ({auth_token, ct0}), se houver. A API a entrega uma vez e a apaga."""
     got = await _get(api_base, api_key, "/robot/session/take", method="POST")
     return got if got and got.get("pending") else None
+
+
+async def _send(api_base: str, api_key: str, path: str, body: dict, method: str = "PUT"):
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.request(method, f"{api_base}/api/v1{path}", json=body, headers=_headers(api_key))
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:  # noqa: BLE001  (informativo: nunca derruba o robô)
+        log.warning("API %s %s falhou: %s", method, path, str(e)[:120])
+        return None
+
+
+async def publish_running(api_base: str, api_key: str, running: bool, kind: str | None, trigger: str | None = None,
+                          result: dict | None = None) -> None:
+    """Diz à API que uma execução começou/terminou (o celular espera isto para mostrar o resultado e liberar os botões)."""
+    body: dict = {"running": running, "kind": kind, "trigger": (trigger or "")[:200] or None}
+    if not running and result is not None:
+        body.update(ok=bool(result.get("ok")), created=int(result.get("created") or 0),
+                    updated=int(result.get("updated") or 0), error=(result.get("error") or None) and str(result["error"])[:300])
+    await _send(api_base, api_key, "/robot/running", body)
+
+
+async def purge_old(api_base: str, api_key: str, days: int = 7) -> dict | None:
+    """Limpeza diária: apaga do banco o que foi capturado há mais de `days` dias."""
+    return await _send(api_base, api_key, "/maintenance/purge", {"days": days}, method="POST")

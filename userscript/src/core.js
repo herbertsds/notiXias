@@ -130,7 +130,8 @@ const Core = (function () {
   function formatRun(run) {
     const d = new Date(run.at);
     const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    if (run.kind === 'request') return { main: when + ' · Busca solicitada (leitura)', sub: 'Motivo: ' + run.reason, tone: 'event' };
+    if (run.kind === 'purge') return { main: when + ' · Limpeza diária', sub: run.reason, tone: 'event' };
+    if (run.kind === 'request') return { main: when + ' · Busca solicitada (' + (run.source === 'manual' ? 'manual' : 'leitura') + ')', sub: 'Motivo: ' + run.reason, tone: 'event' };
     if (run.kind === 'reschedule') return { main: when + ' · Próxima busca antecipada', sub: run.reason, tone: 'event' };
     const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (MODE_LABEL[run.mode] || 'Normal');
     const why = run.trigger ? 'Motivo: ' + run.trigger : null;

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.15.1
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.15.1
+// @version      0.16.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -153,7 +153,8 @@ const Core = (function () {
   function formatRun(run) {
     const d = new Date(run.at);
     const when = isNaN(d.getTime()) ? '?' : pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    if (run.kind === 'request') return { main: when + ' · Busca solicitada (leitura)', sub: 'Motivo: ' + run.reason, tone: 'event' };
+    if (run.kind === 'purge') return { main: when + ' · Limpeza diária', sub: run.reason, tone: 'event' };
+    if (run.kind === 'request') return { main: when + ' · Busca solicitada (' + (run.source === 'manual' ? 'manual' : 'leitura') + ')', sub: 'Motivo: ' + run.reason, tone: 'event' };
     if (run.kind === 'reschedule') return { main: when + ' · Próxima busca antecipada', sub: run.reason, tone: 'event' };
     const main = when + ' · ' + (run.source === 'robot' ? 'Automática' : 'Manual') + ' · ' + (MODE_LABEL[run.mode] || 'Normal');
     const why = run.trigger ? 'Motivo: ' + run.trigger : null;
@@ -1571,6 +1572,8 @@ const Api = (function () {
       anchor: (depth) => call('GET', '/queue/anchor', { params: { depth } }),
       append: (body) => call('POST', '/queue/append', { body }),
       runs: (limit) => call('GET', '/runs', { params: { limit } }),
+      runNow: (body) => call('POST', '/robot/run-now', { body }),
+      robotRunning: () => call('GET', '/robot/running'),
       putSession: (body) => call('PUT', '/robot/session', { body }),
       runFailed: (body) => call('POST', '/runs', { body }),
       runReport: (body) => call('POST', '/runs/report', { body }),
@@ -1620,6 +1623,7 @@ const Ui = (function () {
     button.center .pos { font-size: 14px; color: #e7e9ea; }
     button.nav { font-size: 22px; }
     button:disabled { opacity: .3; cursor: default; }
+    button.dim { opacity: .45; }
     .menu { position: absolute; right: 6px; left: 6px; bottom: calc(100% + 6px); background: #16181c;
       border: 1px solid #536471; border-radius: 12px; padding: 4px; max-height: 60vh; overflow: auto; }
     .menu button { display: block; text-align: left; border: 0; border-radius: 8px; background: transparent;
@@ -1653,6 +1657,18 @@ const Ui = (function () {
     .rw.empty { color: #9aa0a6; text-align: center; border: 0; }
     button { appearance: none; border: 1px solid #536471; background: #16181c; color: #e7e9ea;
       border-radius: 999px; padding: 12px 20px; font-size: 16px; min-height: 44px; cursor: pointer; }
+  `;
+  // Aviso rápido no topo (pílula escura): busca no servidor em andamento / resultado. Não bloqueia toques.
+  const TOAST_CSS = `
+    :host { all: initial; }
+    .t { position: fixed; top: calc(env(safe-area-inset-top) + 12px); left: 50%; transform: translate(-50%, -8px); z-index: 2147483646;
+      max-width: min(92vw, 30em); display: flex; align-items: center; gap: 10px; padding: 11px 18px; border-radius: 999px;
+      background: rgba(15,20,25,.94); color: #e7e9ea; border: 1px solid #536471; box-shadow: 0 6px 24px rgba(0,0,0,.45);
+      font: 600 14px/1.3 -apple-system, system-ui, "Segoe UI", sans-serif; pointer-events: none; opacity: 0; transition: opacity .25s, transform .25s; }
+    .t.on { opacity: 1; transform: translate(-50%, 0); }
+    .t.ok { border-color: #00ba7c; } .t.warn { border-color: #f0b429; } .t.err { border-color: #f4212e; }
+    .sp { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #536471; border-top-color: #1d9bf0; animation: r .8s linear infinite; }
+    @keyframes r { to { transform: rotate(360deg); } }
   `;
   const SPEED_CSS = `
     :host { all: initial; }
@@ -1726,6 +1742,9 @@ const Ui = (function () {
     const ov = makeHost(doc, 'notixias-overlay', OVERLAY_CSS);
     const spd = makeHost(doc, 'notixias-speed', SPEED_CSS + SPEED_MENU_CSS);
     const ld = makeHost(doc, 'notixias-loading', LOADING_CSS);
+    const tt = makeHost(doc, 'notixias-toast', TOAST_CSS);
+    let ttNode = null;
+    let ttTimer = null;
     let ldNode = null;
     let ldRemoveTimer = null;
     let ldFailTimer = null;
@@ -1796,7 +1815,7 @@ const Ui = (function () {
       row.append(cell(centerButton(m), w.center));
       if (w.next) {
         row.append(cell(el(doc, 'button', {
-          class: 'primary', 'data-act': 'next', 'aria-label': 'Próxima', disabled: !m.onNext || m.busy,
+          class: 'primary' + (m.searching ? ' dim' : ''), 'data-act': 'next', 'aria-label': 'Próxima', disabled: !m.onNext || m.busy,
           onclick: () => m.onNext && m.onNext(),
         }, m.nextLabel || '▶'), w.next));
       }
@@ -1826,12 +1845,34 @@ const Ui = (function () {
       if (wrapNode) wrapNode.remove();
       const menu = menuOpen
         ? el(doc, 'div', { class: 'menu', 'data-menu': '1' }, (m.menuItems || []).map((it) =>
-            el(doc, 'button', { onclick: () => { menuOpen = false; renderBar(lastModel); it.onClick(); } }, it.label)))
+            el(doc, 'button', { class: it.dim ? 'dim' : '', onclick: () => { menuOpen = false; renderBar(lastModel); it.onClick(); } }, it.label)))
         : null;
       const inner = el(doc, 'div', { class: 'inner' }, menu, m.mode === 'nav' ? navRow(m) : readRow(m));
       wrapNode = el(doc, 'div', { class: 'wrap ' + (m.layout || 'full') }, inner);
       bar.root.append(wrapNode);
       watchHeight(inner);
+    }
+
+    // Aviso no topo. o: { sticky (fica até hideToast), tone: 'ok'|'warn'|'err', spinner, ms }
+    function toast(text, o) {
+      o = o || {};
+      attach(tt);
+      clearTimeout(ttTimer);
+      if (ttNode) ttNode.remove();
+      ttNode = el(doc, 'div', { class: 't' + (o.tone ? ' ' + o.tone : ''), role: 'status' }, o.spinner ? el(doc, 'div', { class: 'sp' }) : null, el(doc, 'span', {}, text));
+      tt.root.append(ttNode);
+      const node = ttNode;
+      win.requestAnimationFrame ? win.requestAnimationFrame(() => node.classList.add('on')) : node.classList.add('on');
+      if (!o.sticky) ttTimer = setTimeout(hideToast, o.ms || 4500);
+    }
+
+    function hideToast() {
+      clearTimeout(ttTimer);
+      const node = ttNode;
+      if (!node) return;
+      ttNode = null;
+      node.classList.remove('on');
+      setTimeout(() => node.remove(), 300);
     }
 
     // Esconde/mostra a barra inferior SEM desmontá-la (vídeo em tela cheia: ela ficava na frente). Escondida, a faixa que a
@@ -1994,7 +2035,7 @@ const Ui = (function () {
       }, 520);
     }
 
-    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading };
+    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading, toast, hideToast };
   }
 
   return { create, readWidths };
@@ -2005,7 +2046,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.15.1'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2038,7 +2079,7 @@ async function startApp() {
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
   // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
-  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_skeleton', 'nx_view'];
+  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_search', 'nx_skeleton', 'nx_view'];
   const gmCache = new Map();
   // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
   const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
@@ -2323,9 +2364,9 @@ async function startApp() {
     return [
       { label: 'Execuções…', onClick: showRuns },
       { label: 'Enviar sessão do X para o robô', onClick: sendSession },
-      { label: 'Buscar novas agora', onClick: () => startFetch() },
-      { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true) },
-      { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun() },
+      { label: 'Buscar novas agora', onClick: () => startFetch(), dim: serverBusy(st) },
+      { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true), dim: serverBusy(st) },
+      { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun(), dim: serverBusy(st) },
       { label: followingLabel(st), onClick: () => startFollowingRefresh() },
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
@@ -2374,6 +2415,7 @@ async function startApp() {
       navItems: NAV_ITEMS(),
       menuItems: menuItems(st || {}),
       busy,
+      searching: serverBusy(st) && (!inEntry || st.unread_after === 0),
     };
   }
 
@@ -2570,8 +2612,102 @@ async function startApp() {
     return 'done';
   }
 
+  // ---------- busca no SERVIDOR (o celular/navegador nunca rola o feed para buscar) ----------
+  const POLL_MS = 3000;
+  const PICKUP_MAX_MS = 150 * 1000;        // o robô olha pedidos a cada ~3 s; passou disto sem começar, algo está errado
+  const RUN_MAX_MS = 130 * 60 * 1000;      // maior prazo de uma execução do robô (perfis: 120 min)
+  const MODE_LABEL = { normal: 'busca', deep: 'busca profunda do feed', profiles: 'verificação de perfis' };
+  let watching = false;
+  const serverBusy = (st) => watching || !!(st && st.robot && st.robot.running);
+
+  function searchResultText(r) {
+    if (!r || !r.result) return { text: 'Busca concluída', tone: 'ok' };
+    if (r.result.ok === false) return { text: 'A busca falhou' + (r.result.error ? ': ' + r.result.error : ''), tone: 'err' };
+    const n = (r.result.created || 0);
+    return { text: n > 0 ? n + (n === 1 ? ' post novo' : ' posts novos') : 'Nada novo: você está em dia', tone: 'ok' };
+  }
+
+  async function refreshBarCounts() {
+    try {
+      const st = await api.state();
+      if (barState && !barState.message) { barState.st = st; drawBar(); } else if (barState) drawBar();
+    } catch (e) { /* a contagem se atualiza na próxima leitura */ }
+  }
+
+  // Acompanha a busca do servidor até acabar e então atualiza a contagem. `since`: início da execução anterior (para saber
+  // que a de agora é outra).
+  async function watchServerSearch(since, label, t0start) {
+    if (watching) return;
+    watching = true;
+    const t0 = t0start || Date.now();
+    gm.set('nx_search', { since: since || null, label, t0 }); // sobrevive à navegação (abrir um post recarrega a página)
+    drawBar();
+    ui.toast('Aguardando o servidor… (' + label + ')', { sticky: true, spinner: true });
+    let started = !!t0start;
+    try {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        let r;
+        try { r = await api.robotRunning(); } catch (e) { if (Date.now() - t0 > RUN_MAX_MS) throw e; continue; }
+        const mine = r.started_at && r.started_at !== since;
+        if (r.running) started = true;
+        else if (started || (mine && r.finished_at)) {
+          const out = searchResultText(r);
+          ui.toast(out.text, { tone: out.tone, ms: 6000 });
+          await refreshBarCounts();
+          return;
+        }
+        if (!started && Date.now() - t0 > PICKUP_MAX_MS) {
+          ui.toast('O servidor não começou a busca. Tente de novo mais tarde.', { tone: 'err', ms: 7000 });
+          return;
+        }
+        if (Date.now() - t0 > RUN_MAX_MS) {
+          ui.toast('A busca está demorando demais no servidor.', { tone: 'warn', ms: 7000 });
+          return;
+        }
+      }
+    } catch (e) {
+      ui.toast('Não consegui falar com o servidor: ' + (e && e.message ? e.message : 'erro'), { tone: 'err', ms: 7000 });
+    } finally {
+      watching = false;
+      gm.set('nx_search', null);
+      drawBar();
+    }
+  }
+
+  // Voltou de uma navegação no meio da espera: retoma o acompanhamento.
+  function resumeServerSearch() {
+    const s = gm.get('nx_search', null);
+    if (!s || watching || cfg.bot) return;
+    if (Date.now() - s.t0 > RUN_MAX_MS) { gm.set('nx_search', null); return; }
+    watchServerSearch(s.since, s.label, s.t0);
+  }
+
+  async function requestServerSearch(mode) {
+    ui.hideOverlay();
+    if (watching) { ui.toast('Aguardando uma busca concluir…', { tone: 'warn', ms: 3500, spinner: true }); return; }
+    try {
+      const before = await api.robotRunning();
+      if (before.running) {
+        ui.toast('Já há uma busca em andamento. Aguardando uma busca concluir…', { tone: 'warn', spinner: true, sticky: true });
+        watchServerSearch(before.started_at, 'em andamento');
+        return;
+      }
+      const r = await api.runNow({ mode });
+      if (!r.accepted) {
+        ui.toast('Já há uma busca em andamento. Aguardando uma busca concluir…', { tone: 'warn', spinner: true, sticky: true });
+        watchServerSearch(before.started_at, 'em andamento');
+        return;
+      }
+      watchServerSearch(before.started_at, MODE_LABEL[mode] || 'busca');
+    } catch (e) {
+      handleError(e);
+    }
+  }
+
   // ---------- busca de novas ----------
   async function startFetch(deep) {
+    if (!cfg.bot) return requestServerSearch(deep ? 'deep' : 'normal');
     // Sem a lista de contas seguidas (nunca lida), lê primeiro; se falhou há pouco, segue sem ela.
     try {
       const f = await api.following();
@@ -2728,6 +2864,7 @@ async function startApp() {
 
   // Verificação dos perfis (a "profunda dos perfis"): não lê o feed, só os perfis de quem você segue.
   async function startProfilesRun() {
+    if (!cfg.bot) return requestServerSearch('profiles');
     ui.hideOverlay();
     // Fronteira: o começo da última verificação de perfis concluída, no máximo 24 h atrás.
     let boundary = Date.now() - 24 * 3600 * 1000;
@@ -3092,12 +3229,15 @@ async function startApp() {
       if (token !== routeToken) return;
       feed = st.feed;
       flushFollowOps();
+      resumeServerSearch();
       const cmd = takeLaunch();
       if (cmd) {
         ui.hideOverlay();
-        if (cmd === 'update') return await startFetch(false);
-        if (cmd === 'deep') return await startFetch(true);
-        if (cmd === 'profiles') return await startProfilesRun();
+        if (cmd === 'update' || cmd === 'deep' || cmd === 'profiles') {
+          await (cmd === 'profiles' ? startProfilesRun() : startFetch(cmd === 'deep'));
+          if (!cfg.bot) return await resumeReading(); // o celular não rola o feed: a busca roda no servidor e a leitura continua
+          return;
+        }
         if (cmd === 'following') return startFollowingRefresh();
         if (cmd === 'read') return await resumeReading();
       }

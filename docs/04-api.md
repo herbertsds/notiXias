@@ -93,6 +93,9 @@ Histórico de execuções, da mais recente para a mais antiga: `{ items: [{ at, 
 
 - `GET /robot/policy` → `{ unread, tier: "low"|"mid"|"high", min_minutes, max_minutes }` (menos de 50: 10–25; 50–99: 30–45; 100+: 45–60).
 - `GET /robot/next` → o horário que a API guarda (`{ at, mode, state, unread, rescheduled_by? }`); o robô o adota se foi antecipado.
+- `POST /robot/run-now {mode: normal|deep|profiles}` → busca imediata pedida pelo celular: `{accepted, running, kind?, already_pending?}`; recusa (`accepted:false`) se há execução rodando. Cria o pedido (`manual:true`, `mode`) e registra "Busca solicitada (manual)".
+- `PUT /robot/running` (robô: `{running, kind, trigger, ok, created, updated, error}`) e `GET /robot/running` (`{running, kind, started_at, finished_at, result}`); "rodando" com mais de 130 min sem atualização é tratado como resto de queda. `GET /state` traz `robot: {running, kind}`.
+- `POST /maintenance/purge {days=7}` → apaga as entradas **capturadas** (`captured_at`) há mais de N dias e as visualizações delas; nunca a entrada da posição de leitura; registra evento "Limpeza diária". O robô chama às 06:00 (São Paulo), uma vez por data.
 - `GET /robot/request` e `POST /robot/request/ack` → pedido de busca imediata (`{ pending, reason, threshold, unread, requested_at }`); o `ack` devolve o motivo e limpa.
 - Depois de `PUT /state`, `POST /queue/append`, `/entries/cover`, `/entries/settle` e `/entries/uncover` a API confere a contagem de não lidas contra a última guardada (`meta.unread_watch`). Se **diminuiu**: atravessar 30, 15 ou 6 cria o pedido (e uma linha `kind: "request"` no histórico); mudar para uma faixa menor com o próximo horário mais longe que o máximo da nova faixa sorteia um horário novo (linha `kind: "reschedule"`).
 - `GET /runs/deep-last?mode=deep|profiles` → fronteira de cada tipo. `mode` das execuções: `normal` | `deep` (feed) | `profiles`; `trigger` opcional guarda o motivo de uma execução pedida.

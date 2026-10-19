@@ -65,6 +65,28 @@ class RobotNextIn(BaseModel):
     unread: int | None = Field(default=None, ge=0)  # não lidas quando o horário foi sorteado (informativo)
 
 
+class RunNowIn(BaseModel):
+    """Pedido do celular: o servidor busca AGORA (o celular nunca rola o feed)."""
+
+    mode: Literal["normal", "deep", "profiles"] = "normal"
+
+
+class RobotRunningIn(BaseModel):
+    """O robô informa que começou/terminou uma execução (e o resultado, ao terminar)."""
+
+    running: bool
+    kind: Literal["normal", "deep", "profiles"] | None = None
+    trigger: str | None = Field(default=None, max_length=200)
+    ok: bool | None = None
+    created: int | None = Field(default=None, ge=0, le=1_000_000)
+    updated: int | None = Field(default=None, ge=0, le=1_000_000)
+    error: str | None = Field(default=None, max_length=300)
+
+
+class PurgeIn(BaseModel):
+    days: int = Field(default=7, ge=2, le=365)
+
+
 class SessionIn(BaseModel):
     """Os dois cookies de login do X (o navegador do dono os envia para o robô). Nunca são registrados em log."""
 

@@ -55,7 +55,7 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
     published.clear()
     run_kwargs.clear()
     world.clear()
-    world.update(policy=None, next=None, requests=[], intervals=[], session=None)
+    world.update(policy=None, next=None, requests=[], intervals=[], session=None, running=[], purges=[])
 
     async def fake_publish(api_base, key, when, mode, state, unread=None):
         published.append((when, mode, state))
@@ -67,7 +67,17 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
         return world["next"]
 
     async def fake_take(api_base, key):
-        return {"pending": True, "reason": world["requests"].pop(0)} if world["requests"] else None
+        if not world["requests"]:
+            return None
+        r = world["requests"].pop(0)
+        return {"pending": True, **r} if isinstance(r, dict) else {"pending": True, "reason": r}
+
+    async def fake_running(api_base, key, running, kind, trigger=None, result=None):
+        world["running"].append((running, kind, result and result.get("ok")))
+
+    async def fake_purge(api_base, key, days=7):
+        world["purges"].append(days)
+        return {"deleted": 3}
 
     async def fake_session(api_base, key):
         got, world["session"] = world["session"], None
@@ -82,6 +92,8 @@ def _patch(monkeypatch, results, *, normal_at=None, profiles_at=None):
     monkeypatch.setattr(robot_main.notify, "fetch_next", fake_next)
     monkeypatch.setattr(robot_main.notify, "take_request", fake_take)
     monkeypatch.setattr(robot_main.notify, "take_session", fake_session)
+    monkeypatch.setattr(robot_main.notify, "publish_running", fake_running)
+    monkeypatch.setattr(robot_main.notify, "purge_old", fake_purge)
     monkeypatch.setattr(runner, "run_once", fake_run)
     monkeypatch.setattr(robot_main.schedule, "next_run", fake_next_run)
     monkeypatch.setattr(robot_main.schedule, "next_profiles",
@@ -314,3 +326,64 @@ def test_nova_tentativa_depois_da_pausa_que_falha_de_novo_pausa_de_novo(env, mon
     asyncio.run(_run_for(0.45))                                        # 3 falhas, pausa, UMA tentativa aos 0,25 s, pausa de novo
     st = _status(env)
     assert len(calls) == 4 and st["paused"] is True and st["paused_reason"] == "failures"
+
+
+def test_busca_pedida_pelo_celular_ignora_o_intervalo_minimo_usa_o_modo_e_publica_o_estado(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": True, "created": 2}], normal_at=lambda: now() + timedelta(hours=1))
+    world["requests"] = [{"reason": "busca pedida pelo celular", "manual": True, "mode": "deep"}]
+    asyncio.run(_run_for(0.4))
+    assert len(calls) == 1
+    assert run_kwargs[0]["start_url"] == runner.DEEP_URL and run_kwargs[0]["timeout_s"] == runner.DEEP_TIMEOUT_S
+    assert world["running"][0] == (False, None, None)                       # ao iniciar, limpa o "rodando" de uma queda
+    assert (True, "deep", None) in world["running"] and (False, "deep", True) in world["running"]
+    assert _status(env)["last_mode"] == "deep"
+
+
+def test_busca_manual_logo_apos_outra_nao_espera_os_tres_minutos(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    calls = _patch(monkeypatch, [{"ok": True}])                              # a normal roda já; depois vem o pedido manual
+    monkeypatch.setattr(robot_main, "MIN_GAP_S", 3600)                       # um pedido AUTOMÁTICO esperaria 1 h
+    world["requests"] = []
+
+    async def scenario():
+        task = asyncio.create_task(robot_main.main())
+        await REAL_SLEEP(0.2)
+        n = len(calls)
+        world["requests"].append({"reason": "manual", "manual": True, "mode": "normal"})
+        await REAL_SLEEP(0.3)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return n
+    n = asyncio.run(scenario())
+    assert len(calls) > n
+
+
+def test_limpeza_diaria_roda_uma_vez_por_data_depois_das_6h(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=1))
+    manha = datetime(2026, 10, 18, 9, 0, tzinfo=robot_main.schedule.TZ)
+    class Rel(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return manha.astimezone(tz) if tz else manha
+    monkeypatch.setattr(robot_main, "datetime", Rel)
+    asyncio.run(_run_for(0.4))
+    assert world["purges"] == [7]
+    assert _status(env)["last_purge_date"] == "2026-10-18"
+
+
+def test_limpeza_diaria_nao_roda_antes_das_6h(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    _patch(monkeypatch, [{"ok": True}], normal_at=lambda: now() + timedelta(hours=1))
+    cedo = datetime(2026, 10, 18, 4, 0, tzinfo=robot_main.schedule.TZ)
+    class Rel(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cedo.astimezone(tz) if tz else cedo
+    monkeypatch.setattr(robot_main, "datetime", Rel)
+    asyncio.run(_run_for(0.3))
+    assert world["purges"] == []

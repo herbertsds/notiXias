@@ -2,7 +2,7 @@
 
 Regras (decididas pelo dono):
 - A cada X minutos, com X sorteado a CADA execução, busca novas. A faixa de X depende de quantas mensagens ainda não foram
-  lidas (a API calcula): menos de 50 -> 10 a 25 min; de 50 a 99 -> 30 a 45; 100 ou mais -> 45 a 60.
+  lidas (a API calcula): menos de 50 -> 10 a 25 min; de 50 a 99 -> 30 a 45; 100 ou mais -> 45 a 135 (2h15).
 - Madrugada: depois de 01:00 roda UMA única vez e fica parado até 05:10; às 05:10 volta a buscar, e essa primeira
   busca do dia é PROFUNDA (varredura mais longa, para recuperar algo que tenha ficado para trás durante a pausa).
 

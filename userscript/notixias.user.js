@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.2
+// @version      0.16.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2055,7 +2055,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2064,6 +2064,7 @@ async function startApp() {
     layout: 'full', // 'full' | 'left' | 'right'  (modo uma mão: botões em ~65% da largura, no lado escolhido)
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
+    autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
     exitFullscreenOnEnd: true, // ao terminar, o vídeo sai da tela cheia
@@ -2088,7 +2089,7 @@ async function startApp() {
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
   // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
-  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_search', 'nx_skeleton', 'nx_view'];
+  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_search', 'nx_session_auto_at', 'nx_skeleton', 'nx_view'];
   const gmCache = new Map();
   // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
   const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
@@ -2372,7 +2373,8 @@ async function startApp() {
   function menuItems(st) {
     return [
       { label: 'Execuções…', onClick: showRuns },
-      { label: 'Enviar sessão do X para o robô', onClick: sendSession },
+      { label: st && st.robot && st.robot.paused ? '⚠ Robô parado: enviar sessão do X agora' : 'Enviar sessão do X para o robô', onClick: sendSession },
+      { label: 'Enviar sessão sozinho se o robô parar: ' + (cfg.autoSendSession ? 'sim' : 'não'), onClick: () => { cfg.autoSendSession = !cfg.autoSendSession; saveCfg(); drawBar(); } },
       { label: 'Buscar novas agora', onClick: () => startFetch(), dim: serverBusy(st) },
       { label: 'Buscar novas (varredura profunda do feed)', onClick: () => startFetch(true), dim: serverBusy(st) },
       { label: 'Verificar perfis de quem sigo (profunda)', onClick: () => startProfilesRun(), dim: serverBusy(st) },
@@ -3028,6 +3030,20 @@ async function startApp() {
     }
   }
 
+  // Robô parado (sessão vencida / bloqueio): manda sozinho o login deste navegador, no máximo a cada 30 min. Só funciona onde
+  // o script lê cookies (Tampermonkey do computador); no iPhone fica o aviso no menu.
+  async function autoSendSession(st) {
+    if (cfg.bot || !cfg.autoSendSession || !(st && st.robot && st.robot.paused)) return;
+    if (Date.now() - gm.get('nx_session_auto_at', 0) < 30 * 60 * 1000) return;
+    gm.set('nx_session_auto_at', Date.now());
+    try {
+      const picked = Core.pickSessionCookies(await listCookies());
+      if (!picked) return;
+      await api.putSession(picked);
+      ui.toast('O robô estava parado: enviei a sessão do X deste navegador.', { tone: 'ok', ms: 7000 });
+    } catch (e) { /* sem GM_cookie (iPhone) ou sem login: o menu avisa */ }
+  }
+
   // ---------- contas seguidas ----------
   function followingLabel(st) {
     const f = st && st.following;
@@ -3243,6 +3259,7 @@ async function startApp() {
       feed = st.feed;
       flushFollowOps();
       resumeServerSearch();
+      autoSendSession(st);
       const cmd = takeLaunch();
       if (cmd) {
         ui.hideOverlay();

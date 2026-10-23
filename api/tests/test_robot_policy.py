@@ -9,7 +9,7 @@ def test_faixas_de_intervalo_por_nao_lidas():
     assert rp.tier_for(0)["max_minutes"] == 25 and rp.tier_for(49) == {"tier": "low", "min_minutes": 10, "max_minutes": 25}
     assert rp.tier_for(50) == {"tier": "mid", "min_minutes": 30, "max_minutes": 45}
     assert rp.tier_for(99)["tier"] == "mid"
-    assert rp.tier_for(100) == {"tier": "high", "min_minutes": 45, "max_minutes": 60}
+    assert rp.tier_for(100) == {"tier": "high", "min_minutes": 45, "max_minutes": 135}
     assert rp.tier_for(5000)["tier"] == "high"
 
 
@@ -98,7 +98,7 @@ def _set_next(client, minutes, mode="normal"):
 
 def test_mudar_de_faixa_antecipa_a_proxima_busca_se_ela_passar_do_maximo_novo(client):
     _entries(client, 105)
-    _cursor(client, 5)                                            # sobram 100 (faixa alta, 45-60)
+    _cursor(client, 5)                                            # sobram 100 (faixa alta, 45-135)
     _set_next(client, 55)
     _cursor(client, 6)                                            # 99: faixa média (30-45); faltam 55 > 45
     nxt = client.get("/api/v1/robot/next").json()

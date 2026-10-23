@@ -26,6 +26,7 @@ SLOW_EVERY = 5            # a cada quantas voltas olha o resto (sessão nova, ho
 PURGE_DAYS = 7            # a limpeza diária apaga o que foi capturado há mais que isto
 PURGE_FROM_HOUR = 6       # ... a partir desta hora (America/Sao_Paulo), uma vez por dia
 MIN_GAP_S = 180           # intervalo mínimo entre o fim de uma execução e o início de uma por pedido
+PROFILES_ENABLED = os.environ.get("ROBOT_PROFILES") == "1"  # verificação diária de perfis: desligada (nunca concluiu); ROBOT_PROFILES=1 religa
 MODE_OF = {"normal": "normal", "deep": "deep", "profiles": "profiles", "following": "following"}
 
 
@@ -215,10 +216,14 @@ async def main() -> None:
                         "interval": list(interval) if interval else None}
                 status["plan"] = plan
             # --- próxima verificação de perfis (uma por dia, 03:00-03:30) ---
-            when_p = schedule.next_profiles(last_profiles, now, random, parse_dt(status.get("profiles_target")))
-            status["profiles_target"] = when_p.isoformat()
+            if PROFILES_ENABLED:
+                when_p = schedule.next_profiles(last_profiles, now, random, parse_dt(status.get("profiles_target")))
+                status["profiles_target"] = when_p.isoformat()
+            else:
+                when_p = None
+                status["profiles_target"] = None
 
-            if when_p < when_n:
+            if when_p is not None and when_p < when_n:
                 kind, when = "profiles", when_p
             else:
                 kind, when = ("deep" if deep else "normal"), when_n

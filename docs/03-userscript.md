@@ -428,3 +428,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.1: modo robô lê a lista de contas seguidas (`?nx=following`) sem navegar para outra página ao terminar e informa o resultado; `Contas seguidas` aparece nos rótulos do histórico.
 
 0.16.2: o histórico de execuções mostra "Contas seguidas" (quem entrou, quem saiu, quantos posts não lidos foram tirados da fila) e falhas do robô que o script não registrou (página travada, tempo esgotado).
+
+0.16.3: se o robô está parado (`state.robot.paused`: sessão vencida ou 3 falhas), o item do menu vira "⚠ Robô parado: enviar sessão do X agora" e, com "Enviar sessão sozinho se o robô parar" ligado (padrão), o script manda sozinho o login do navegador (Tampermonkey; no máximo a cada 30 min) ao abrir o X. Faixa alta de não lidas agora 45–135 min.

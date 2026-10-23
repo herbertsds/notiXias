@@ -36,9 +36,9 @@ def test_pedido_repetido_nao_duplica_e_busca_em_andamento_recusa(client):
 
 
 def test_estado_rodando_aparece_no_state_e_traz_o_resultado_ao_terminar(client):
-    assert client.get("/api/v1/state").json()["robot"] == {"running": False, "kind": None}
+    assert client.get("/api/v1/state").json()["robot"] == {"running": False, "kind": None, "paused": False}
     client.put("/api/v1/robot/running", json={"running": True, "kind": "deep", "trigger": "busca pedida pelo celular"})
-    assert client.get("/api/v1/state").json()["robot"] == {"running": True, "kind": "deep"}
+    assert client.get("/api/v1/state").json()["robot"] == {"running": True, "kind": "deep", "paused": False}
     client.put("/api/v1/robot/running", json={"running": False, "kind": "deep", "ok": True, "created": 4, "updated": 1})
     d = _running(client)
     assert d["running"] is False and d["result"] == {"ok": True, "created": 4, "updated": 1, "error": None}
@@ -131,3 +131,10 @@ def test_seguir_e_deixar_de_seguir_ao_vivo_tambem_registram(client):
     client.post("/api/v1/accounts/following/remove", json={"handle": "zeca"})
     evs = _evento(client)
     assert evs[1]["added"] == ["zeca"] and evs[0]["removed"] == ["zeca"]
+
+
+def test_estado_informa_quando_o_robo_esta_parado_esperando_sessao(client):
+    client.put("/api/v1/robot/next", json={"at": None, "mode": "normal", "state": "paused"})
+    assert client.get("/api/v1/state").json()["robot"]["paused"] is True
+    client.put("/api/v1/robot/next", json={"at": "2026-10-23T10:00:00+00:00", "mode": "normal", "state": "scheduled"})
+    assert client.get("/api/v1/state").json()["robot"]["paused"] is False

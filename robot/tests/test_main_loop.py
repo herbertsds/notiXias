@@ -24,6 +24,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("BUNDLE_PATH", str(bundle))
     monkeypatch.setenv("API_KEY", "k")
     (tmp_path / "data").mkdir()
+    monkeypatch.setattr(robot_main, "PROFILES_ENABLED", True)   # os testes de perfis ligam; um teste próprio cobre o desligado
     return tmp_path / "data"
 
 
@@ -450,3 +451,13 @@ def test_falha_que_o_script_nao_registrou_vai_para_o_historico(env, monkeypatch)
     monkeypatch.setattr(robot_main.notify, "report_failure", fake_report)
     asyncio.run(_run_for(0.2))
     assert got and got[0][0] == "normal" and "travou" in got[0][1] and "4 perfis pulados" in got[0][1]
+
+
+def test_verificacao_de_perfis_desligada_nunca_agenda_nem_roda(env, monkeypatch):
+    (env / "x_state.json").write_text("{}")
+    monkeypatch.setattr(robot_main, "PROFILES_ENABLED", False)
+    _patch(monkeypatch, [{"ok": True}], profiles_at=lambda: now())          # o horário dos perfis seria "já"
+    asyncio.run(_run_for(0.3))
+    urls = [k["start_url"] for k in run_kwargs]
+    assert urls and runner.PROFILES_URL not in urls and runner.FOLLOWING_URL not in urls[:1]
+    assert _status(env)["profiles_target"] is None

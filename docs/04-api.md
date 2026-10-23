@@ -91,7 +91,7 @@ Histórico de execuções, da mais recente para a mais antiga: `{ items: [{ at, 
 
 ### Ritmo do robô e pedidos de busca (por não lidas)
 
-- `GET /robot/policy` → `{ unread, tier: "low"|"mid"|"high", min_minutes, max_minutes }` (menos de 50: 10–25; 50–99: 30–45; 100+: 45–60).
+- `GET /robot/policy` → `{ unread, tier: "low"|"mid"|"high", min_minutes, max_minutes }` (menos de 50: 10–25; 50–99: 30–45; 100+: 45–135).
 - `GET /robot/next` → o horário que a API guarda (`{ at, mode, state, unread, rescheduled_by? }`); o robô o adota se foi antecipado.
 - `POST /robot/run-now {mode: normal|deep|profiles}` → busca imediata pedida pelo celular: `{accepted, running, kind?, already_pending?}`; recusa (`accepted:false`) se há execução rodando. Cria o pedido (`manual:true`, `mode`) e registra "Busca solicitada (manual)".
 - `PUT /robot/running` (robô: `{running, kind, trigger, ok, created, updated, error}`) e `GET /robot/running` (`{running, kind, started_at, finished_at, result}`); "rodando" com mais de 130 min sem atualização é tratado como resto de queda. `GET /state` traz `robot: {running, kind}`.

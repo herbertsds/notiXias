@@ -850,7 +850,7 @@ def state_view(db) -> dict:
         "total_visible": total,
         "feed": st["feed"],
         "following": following_summary(db),
-        "robot": {"running": (rr := robot_running(db))["running"], "kind": rr.get("kind")},
+        "robot": {"running": (rr := robot_running(db))["running"], "kind": rr.get("kind"), "paused": (robot_next_doc(db) or {}).get("state") in ("paused", "waiting_session")},
         "version": st["version"],
         "updated_at": st["updated_at"],
     }

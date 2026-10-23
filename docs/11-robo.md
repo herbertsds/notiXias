@@ -21,7 +21,7 @@ Modo robô (`cfg.bot` no script): **não abre nem lê entradas** e portanto não
 |---|---|
 | menos de 50 | 10 a 25 min |
 | de 50 a 99 | 30 a 45 min |
-| 100 ou mais | 45 a 60 min |
+| 100 ou mais | 45 a 135 min (2h15) |
 
 (Os valores exatos 50 e 100 caem na faixa de cima; o pedido dizia "mais de"/"menos de" sem tratar a igualdade.)
 
@@ -114,7 +114,7 @@ A profunda das 12:50 travou em torno da 13:00 (cerca da conta 27 de 57, página 
 
 ## Decisões de 2026-10-09 (revisar)
 
-1. Faixas de não lidas: 100 e 50 exatos caem na faixa de cima (45–60 e 30–45).
+1. Faixas de não lidas: 100 e 50 exatos caem na faixa de cima (45–135 e 30–45).
 2. A contagem de não lidas é a "depois da posição atual" (`unread_after`), sem as cobertas.
 3. O horário antecipado é sorteado dentro da nova faixa **a partir de agora** (não "o menor entre o atual e o máximo").
 4. A verificação de perfis perdida (robô parado entre 03:00 e 03:30) **não é recuperada**: vai para o dia seguinte.
@@ -146,3 +146,5 @@ Causa do problema "capturou posts de quem não sigo": a lista de contas seguidas
 Correção: nova execução `following` (`?nx=following`, lê `/<seu @>/following` e substitui a lista via `PUT /accounts/following`). Roda **logo depois da última busca da madrugada** (a única após 01:00) e, por garantia, **imediatamente antes da verificação de perfis** se a lista ainda não foi relida desde 01:00. Se falhar, não conta para a pausa e a verificação segue com a lista antiga.
 
 **Histórico (0.16.2):** toda releitura da lista (e cada seguir/deixar de seguir ao vivo) grava um evento `following` com `added`, `removed`, `dropped` e `total`; os posts **não lidos** escritos por contas que saíram da lista (sem repost de quem você segue, sem a posição de leitura) são tirados da fila (`removed: true`). Falhas que o script não consegue registrar (travou, tempo esgotado, sessão, não abriu o X) agora são enviadas pelo robô a `POST /runs`; antes só apareciam no `status.json`, por isso a verificação de perfis que travava no meio do caminho não deixava rastro no histórico.
+
+**Perfis desligados (0.16.3):** a verificação diária de perfis não roda mais (`ROBOT_PROFILES=1` no ambiente do robô a religa); o pedido manual `profiles` continua possível. A releitura da lista de seguidos depois da busca da madrugada continua. Faixa de intervalo com 100+ não lidas: 45–135 min.

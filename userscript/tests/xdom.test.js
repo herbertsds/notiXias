@@ -798,3 +798,33 @@ test('videoFullscreenActive: reconhece tela cheia comum, player nativo do iPhone
   Object.defineProperty(w.document, 'fullscreenElement', { value: w.document.getElementById('v'), configurable: true });
   assert.equal(Xdom.videoFullscreenActive(w.document, w), true);                               // Fullscreen API
 });
+
+test('disableCaptions: aperta "Desativar legendas" uma vez por botão e ignora "Ativar legendas"', () => {
+  const w = new JSDOM('<body><div data-testid="videoComponent"><video></video><button aria-label="Desativar legendas" id="off"></button><button aria-label="Ativar legendas" id="on"></button></div></body>', { url: 'https://x.com/a/status/1' }).window;
+  const clicks = [];
+  w.document.getElementById('off').addEventListener('click', () => clicks.push('off'));
+  w.document.getElementById('on').addEventListener('click', () => clicks.push('on'));
+  assert.equal(Xdom.disableCaptions(w.document), true);
+  assert.equal(Xdom.disableCaptions(w.document), false);          // o mesmo botão não é apertado de novo (respeita quem ligou depois)
+  assert.deepEqual(clicks, ['off']);
+  const e = new JSDOM('<button aria-label="Turn off captions" id="x"></button>', { url: 'https://x.com/' }).window;
+  let n = 0;
+  e.document.getElementById('x').addEventListener('click', () => n++);
+  Xdom.disableCaptions(e.document);
+  assert.equal(n, 1);
+});
+
+test('fullscreenVideoPlaying: só vale com tela cheia E vídeo tocando', () => {
+  const w = new JSDOM('<body><video></video></body>', { url: 'https://x.com/a/status/1' }).window;
+  const v = w.document.querySelector('video');
+  Object.defineProperty(v, 'paused', { value: false, configurable: true });
+  Object.defineProperty(v, 'readyState', { value: 4 });
+  assert.equal(Xdom.fullscreenVideoPlaying(w.document, w), false);                // tocando, mas inline
+  const f = new JSDOM('<body><video></video></body>', { url: 'https://x.com/a/status/1/mediaViewer' }).window;
+  const fv = f.document.querySelector('video');
+  Object.defineProperty(fv, 'paused', { value: false, configurable: true });
+  Object.defineProperty(fv, 'readyState', { value: 4 });
+  assert.equal(Xdom.fullscreenVideoPlaying(f.document, f), true);                 // visualizador do X + tocando
+  Object.defineProperty(fv, 'paused', { value: true, configurable: true });
+  assert.equal(Xdom.fullscreenVideoPlaying(f.document, f), false);                // pausado
+});

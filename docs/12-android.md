@@ -22,3 +22,6 @@ docker compose --profile build run --rm android-build      # gera android/app/bu
 ## Limites conhecidos / a validar no aparelho
 - Não testado num aparelho ainda (nesta máquina só há compilação). Pontos a validar: login no X dentro do WebView, vídeo em tela cheia, botão voltar, barra inferior, envio de sessão.
 - Ainda sem tela cheia imersiva (barras do sistema visíveis). Ícone: o passarinho azul do antigo logo do Twitter (ícone adaptativo, `res/drawable/ic_launcher_foreground.xml`).
+
+## Tela do celular (0.1.3)
+O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os mudos do feed). O app desfaz isso (varredura a cada 1 s em `MainActivity.applyAwake`) e só mantém a tela acesa quando o script avisa (`nx_awake`, via ponte) que há vídeo **tocando em tela cheia**, ou quando o WebView está em tela cheia nativa. Fora disso vale o tempo de tela do sistema.

@@ -474,6 +474,31 @@ const Xdom = (function () {
     return !!root.querySelector('[data-testid^="immersive-"]');
   }
 
+  // Legendas (closed caption) desligadas por padrão: desliga as faixas de texto do <video> e aperta, UMA vez por botão, o
+  // "Desativar legendas" do player do X (o aria-label muda para "Ativar..." depois; se o dono ligar de novo, respeita).
+  const CAPTION_OFF_RE = /(desativ|desligar|ocultar|esconder|turn off|hide|disable).{0,24}(legenda|caption|subtitle)/i;
+  const capDone = typeof WeakSet !== 'undefined' ? new WeakSet() : { has: () => false, add: () => {} };
+  function disableCaptions(root) {
+    let did = false;
+    for (const v of root.querySelectorAll('video')) {
+      try { for (const t of v.textTracks || []) if (t.mode === 'showing') { t.mode = 'disabled'; did = true; } } catch (e) { /* segue */ }
+    }
+    for (const b of root.querySelectorAll('button, [role="button"]')) {
+      if (capDone.has(b) || !CAPTION_OFF_RE.test(b.getAttribute('aria-label') || '')) continue;
+      capDone.add(b);
+      b.click();
+      did = true;
+    }
+    return did;
+  }
+
+  // Um vídeo está TOCANDO em tela cheia? (o app do Android só mantém a tela do celular acesa nesse caso)
+  function fullscreenVideoPlaying(root, win) {
+    if (!videoFullscreenActive(root, win)) return false;
+    for (const v of root.querySelectorAll('video')) if (!v.paused && !v.ended && v.readyState >= 2) return true;
+    return false;
+  }
+
   // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
   // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
   // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
@@ -672,7 +697,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

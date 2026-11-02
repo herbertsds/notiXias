@@ -11,7 +11,7 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /** Ponte entre a página (https://x.com) e o app: armazenamento, rede e cookies do script. */
-class Bridge(private val store: Store, private val net: Net) : WebViewCompat.WebMessageListener {
+class Bridge(private val store: Store, private val net: Net, private val onAwake: (Boolean) -> Unit) : WebViewCompat.WebMessageListener {
     private val pool = Executors.newFixedThreadPool(4)
 
     override fun onPostMessage(view: WebView, message: WebMessageCompat, sourceOrigin: Uri, isMainFrame: Boolean, replyProxy: JavaScriptReplyProxy) {
@@ -31,7 +31,12 @@ class Bridge(private val store: Store, private val net: Net) : WebViewCompat.Web
 
     private fun handle(m: JSONObject): Any? = when (m.optString("op")) {
         "get" -> store.get(m.optString("key"))
-        "set" -> { store.set(m.optString("key"), m.optString("value")); true }
+        "set" -> {
+            // "nx_awake": o script avisa se há vídeo tocando em tela cheia (só então a tela do celular fica acesa)
+            if (m.optString("key") == "nx_awake") onAwake(m.optString("value") == "true")
+            else store.set(m.optString("key"), m.optString("value"))
+            true
+        }
         "http" -> net.http(m.getJSONObject("req"))
         "cookies" -> cookies()
         else -> JSONObject().put("error", "operação desconhecida")

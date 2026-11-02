@@ -11,6 +11,7 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
+    captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
     exitFullscreenOnEnd: false, // ao terminar (a cada volta do loop), o vídeo sai da tela cheia; desligado: o loop segue em tela cheia
@@ -115,6 +116,7 @@ async function startApp() {
 
   let routeToken = 0;
   let lastHref = '';
+  let prevPath = '';
   let cancelled = false;
   let busy = false;
   let feed = { url: 'https://x.com/home', tab_index: 1 };
@@ -170,6 +172,17 @@ async function startApp() {
   setInterval(applySpeed, 300);
   // Vídeo em tela cheia: a barra inferior do notiXias some (ficava na frente do vídeo) e volta quando ele sai da tela cheia.
   if (!cfg.bot) setInterval(() => { try { ui.setBarHidden(Xdom.videoFullscreenActive(document, window)); } catch (e) { /* melhor esforço */ } }, 300);
+  // Legendas desligadas por padrão e, para o app do Android, aviso de "vídeo tocando em tela cheia" (só então a tela fica acesa).
+  if (!cfg.bot) {
+    let awake = false;
+    setInterval(() => {
+      try {
+        if (cfg.captionsOff) Xdom.disableCaptions(document);
+        const now = Xdom.fullscreenVideoPlaying(document, window);
+        if (now !== awake) { awake = now; gm.set('nx_awake', now); }
+      } catch (e) { /* melhor esforço */ }
+    }, 600);
+  }
   // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
   // Ao terminar: volta a 1x (a escolha de velocidade vale para UM vídeo) e, se pediu para sair da tela cheia e nada
   // conseguiu sair, manda para a API (esqueleto, sem texto de posts) o que a página era, para eu ajustar a regra.
@@ -335,6 +348,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
       { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },
       { label: 'Sair da tela cheia ao terminar: ' + (cfg.exitFullscreenOnEnd ? 'sim' : 'não'), onClick: () => { cfg.exitFullscreenOnEnd = !cfg.exitFullscreenOnEnd; saveCfg(); drawBar(); } },
@@ -1193,9 +1207,24 @@ async function startApp() {
     showBar({ st: null, message: '⚠ ' + (e && e.message ? e.message : 'Erro desconhecido') });
   }
 
+  // Voltar do visualizador de vídeo (/usuario/status/ID/mediaViewer) para o post de onde ele veio: é só sair da tela cheia.
+  // Não reabre a entrada (nada de tela de carregamento, rolagem ao topo etc.): só refaz a barra.
+  const viewerStatusId = (p) => { const m = /^\/[^/]+\/status\/(\d+)\/(?:mediaViewer|video\/\d+|photo\/\d+)/i.exec(p || ''); return m ? m[1] : null; };
+
   async function onRoute() {
     const token = ++routeToken;
+    const fromPath = prevPath;
+    prevPath = location.pathname;
     setLabels(null);
+    const here = Core.parseStatusPath(location.pathname);
+    if (!cfg.bot && here && viewerStatusId(fromPath) === here.id && isEntryPath()) {
+      ui.hideLoading();
+      try {
+        const st = await api.state();
+        if (token === routeToken) renderEntryBar(st);
+      } catch (e) { handleError(e); }
+      return;
+    }
     // Abrindo um post da fila: cobre a página já (antes de falar com a API); em qualquer outra página, descobre.
     if (!cfg.bot && isEntryPath()) ui.showLoading((gm.get('nx_view', null) || {}).label); else ui.hideLoading();
     try {

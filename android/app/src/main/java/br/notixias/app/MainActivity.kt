@@ -6,7 +6,10 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JsPromptResult
@@ -37,6 +40,27 @@ class MainActivity : Activity() {
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
     private val io = Executors.newSingleThreadExecutor()
+    private var scriptAwake = false      // o script avisou: vídeo tocando em tela cheia
+    private val ui = Handler(Looper.getMainLooper())
+    private val sweeper = object : Runnable {
+        override fun run() { applyAwake(); ui.postDelayed(this, 1000) }
+    }
+
+    /** A tela do celular só fica acesa com vídeo tocando em tela cheia; fora disso vale o tempo de tela do sistema. */
+    private fun applyAwake() {
+        val allowed = scriptAwake || customView != null
+        if (allowed) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            // o WebView pede "tela acesa" por conta própria enquanto qualquer vídeo toca (inclusive os mudos do feed): desfaz
+            if (::web.isInitialized) clearKeepOn(web)
+        }
+    }
+
+    private fun clearKeepOn(v: View) {
+        if (v.keepScreenOn) v.keepScreenOn = false
+        if (v is ViewGroup) for (i in 0 until v.childCount) clearKeepOn(v.getChildAt(i))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,10 +90,14 @@ class MainActivity : Activity() {
             cacheMode = WebSettings.LOAD_DEFAULT
         }
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
-        WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net))
+        WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net) { on -> runOnUiThread { scriptAwake = on; applyAwake() } })
         installScript()
 
         web.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                scriptAwake = false   // página nova: o script avisa de novo se houver vídeo em tela cheia
+                applyAwake()
+            }
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
                 val host = u.host ?: ""
@@ -147,11 +175,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::web.isInitialized) { web.onResume(); checkScriptUpdate() }
+        if (::web.isInitialized) { web.onResume(); checkScriptUpdate(); ui.post(sweeper) }
     }
 
     override fun onPause() {
+        ui.removeCallbacks(sweeper)
         if (::web.isInitialized) { web.onPause(); CookieManager.getInstance().flush() }
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onPause()
     }
 

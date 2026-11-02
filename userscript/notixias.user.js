@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.3
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.3
+// @version      0.16.4
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.4
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2055,7 +2055,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.3'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.4'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2067,7 +2067,7 @@ async function startApp() {
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
-    exitFullscreenOnEnd: true, // ao terminar, o vídeo sai da tela cheia
+    exitFullscreenOnEnd: false, // ao terminar (a cada volta do loop), o vídeo sai da tela cheia; desligado: o loop segue em tela cheia
     noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
     videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
@@ -2119,6 +2119,8 @@ async function startApp() {
   await gm.load();
   let cfg = Object.assign({}, DEFAULTS, gm.get('nx_cfg', {}));
   const saveCfg = () => gm.set('nx_cfg', cfg);
+  // 0.16.4: sair da tela cheia a cada volta do loop atrapalhava; desliga uma vez nas instalações que tinham guardado "sim".
+  if (!cfg.fsLoopMigrated) { cfg.exitFullscreenOnEnd = false; cfg.fsLoopMigrated = true; saveCfg(); }
 
   function gmRequest({ method, url, headers, body }) {
     return new Promise((resolve, reject) => {

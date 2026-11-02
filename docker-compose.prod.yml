@@ -37,6 +37,8 @@ services:
       MONGO_DB: ${MONGO_DB:-notixias}
       API_KEY_HASH: ${API_KEY_HASH}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./userscript:/userscript:ro   # o app do Android baixa daqui o script mais novo (GET /api/v1/userscript)
     depends_on:
       mongo:
         condition: service_healthy

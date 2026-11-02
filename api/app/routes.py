@@ -1,8 +1,12 @@
+import hashlib
+import os
+import re
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pymongo import DESCENDING
 
 from . import services as svc
@@ -32,6 +36,24 @@ router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_key)])
 
 def _db(request: Request):
     return request.app.state.db
+
+
+# ---------- script (o app do Android busca a versão mais nova aqui) ----------
+@router.get("/userscript")
+def get_userscript(request: Request):
+    """O userscript gerado, com ETag: quem já tem a versão recebe 304 (sem corpo). Exige a chave como o resto da API."""
+    path = Path(os.environ.get("USERSCRIPT_PATH", "/userscript/notixias.user.js"))
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="script indisponível no servidor")
+    data = path.read_bytes()
+    etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    m = re.search(rb"@version\s+(\S+)", data[:2000])
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if m:
+        headers["X-Nx-Version"] = m.group(1).decode("ascii", "ignore")
+    return Response(content=data, media_type="application/javascript; charset=utf-8", headers=headers)
 
 
 # ---------- estado ----------

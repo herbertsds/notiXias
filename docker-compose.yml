@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     volumes:
       - ./api:/app
+      - ./userscript:/userscript:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     networks: [notixias_net]
 
@@ -44,6 +45,17 @@ services:
       - ./api:/app
     command: ["pytest", "-q"]
     networks: [notixias_net]
+
+  # APK do Android: docker compose --profile build run --rm android-build  ->  android/app/build/outputs/apk/debug/app-debug.apk
+  android-build:
+    profiles: ["build"]
+    build:
+      context: ./android
+    volumes:
+      - .:/work
+      - android_gradle_cache:/root/.gradle
+    working_dir: /work/android
+    command: ["gradle", "--no-daemon", "assembleDebug"]
 
   # Testes do userscript: docker compose --profile test run --rm userscript-test
   userscript-test:
@@ -76,6 +88,7 @@ services:
     command: ["pytest", "-q", "tests/test_schedule.py", "tests/test_runner_e2e.py"]
 
 volumes:
+  android_gradle_cache:
   notixias_mongo_data:
 
 networks:

@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'br.notixias.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'br.notixias.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}
+
+// O script que vai junto do app é o gerado em userscript/ (a cópia de fábrica; o app ainda baixa a mais nova do servidor).
+tasks.register('copyUserscript', Copy) {
+    from file('../../userscript/notixias.user.js')
+    into file('src/main/assets')
+}
+preBuild.dependsOn 'copyUserscript'

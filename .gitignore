@@ -8,3 +8,9 @@ __pycache__/
 backups/
 robot_data/
 .venv-robot/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/app/src/main/assets/notixias.user.js
+*.apk

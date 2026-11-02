@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = Store(this)
+        store.seedDefaults()
         net = Net(store)
         scripts = ScriptStore(this)
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }

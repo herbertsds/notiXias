@@ -3,6 +3,10 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Endereço da API e (se existir o arquivo local, fora do git) a chave: já vêm configurados no APK, que fica só com você.
+def keyFile = file('../../.secrets/prod_api_key.txt')
+def defaultKey = keyFile.exists() ? keyFile.text.trim() : ''
+
 android {
     namespace 'br.notixias.app'
     compileSdk 34
@@ -11,8 +15,10 @@ android {
         applicationId 'br.notixias.app'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.1.1'
+        buildConfigField 'String', 'DEFAULT_API_URL', '"https://notixias.163.176.176.10.nip.io"'
+        buildConfigField 'String', 'DEFAULT_API_KEY', '"' + defaultKey + '"'
     }
     buildTypes {
         release { minifyEnabled false }
@@ -22,6 +28,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+    buildFeatures { buildConfig true }
 }
 
 dependencies {

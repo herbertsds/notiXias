@@ -25,6 +25,15 @@ class Store(context: Context) {
         prefs.edit().putString("v_$key", v).apply()
     }
 
+    /** Primeira abertura (ou configuração incompleta): preenche o endereço da API e a chave que vieram no APK. */
+    fun seedDefaults() {
+        val cfg = try { JSONObject(get("nx_cfg") ?: "{}") } catch (e: Exception) { JSONObject() }
+        var changed = false
+        if (apiBase().isEmpty() && BuildConfig.DEFAULT_API_URL.isNotEmpty()) { cfg.put("apiBaseUrl", BuildConfig.DEFAULT_API_URL); changed = true }
+        if (apiKey().isEmpty() && BuildConfig.DEFAULT_API_KEY.isNotEmpty()) { cfg.put("apiKey", BuildConfig.DEFAULT_API_KEY); changed = true }
+        if (changed) set("nx_cfg", cfg.toString())
+    }
+
     fun apiKey(): String = prefs.getString("api_key", "") ?: ""
 
     /** Endereço da API (ex.: https://servidor), sem barra no fim; vazio se ainda não configurado. */

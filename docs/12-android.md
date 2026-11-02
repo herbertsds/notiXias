@@ -17,7 +17,7 @@ docker compose --profile build run --rm android-build      # gera android/app/bu
 ## Instalar e configurar
 1. Passe o APK para o celular e instale.
 2. Abra o app, entre no X (login manual, com e-mail/senha; o login pelo Google é bloqueado em WebView).
-3. Menu ⋯ da barra → "Configurar API…" (endereço do servidor e a chave).
+3. O endereço da API (`https://notixias.163.176.176.10.nip.io`) já vem no APK; a chave também, se existir `.secrets/prod_api_key.txt` na hora de compilar (arquivo fora do git). **Esse APK contém a chave: não o compartilhe.** Sem o arquivo, use Menu ⋯ → "Configurar API…".
 
 ## Limites conhecidos / a validar no aparelho
 - Não testado num aparelho ainda (nesta máquina só há compilação). Pontos a validar: login no X dentro do WebView, vídeo em tela cheia, botão voltar, barra inferior, envio de sessão.

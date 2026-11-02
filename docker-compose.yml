@@ -54,6 +54,7 @@ services:
     volumes:
       - .:/work
       - android_gradle_cache:/root/.gradle
+      - android_debug_key:/root/.android   # a chave de debug fica a mesma entre compilações (senão o Android recusa atualizar por cima)
     working_dir: /work/android
     command: ["gradle", "--no-daemon", "assembleDebug"]
 
@@ -89,6 +90,7 @@ services:
 
 volumes:
   android_gradle_cache:
+  android_debug_key:
   notixias_mongo_data:
 
 networks:

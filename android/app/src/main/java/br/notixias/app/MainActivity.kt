@@ -42,6 +42,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = Store(this)
         store.seedDefaults()
+        Toast.makeText(this, "notiXias app ${BuildConfig.VERSION_NAME} · API ${if (store.apiBase().isNotEmpty()) "ok" else "sem endereço"} · chave ${if (store.apiKey().isNotEmpty()) "ok" else "ausente"}", Toast.LENGTH_LONG).show()
         net = Net(store)
         scripts = ScriptStore(this)
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }

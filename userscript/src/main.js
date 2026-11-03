@@ -355,6 +355,10 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Enviar diagnóstico do player', onClick: () => {
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: 'diagnóstico do player de vídeo' })
+            .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
+        } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {
           const arts = Xdom.articles ? Xdom.articles(document) : [];
           const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);

@@ -341,6 +341,26 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
+  // Diagnóstico do player (sem texto de post): botões e controles do vídeo visível, com `aria-label`, para achar o botão de
+  // tela cheia de verdade do X.
+  function playerDebug(root, win) {
+    const vv = visibleVideo(root, win);
+    if (!vv) return 'nenhum vídeo visível';
+    const v = vv.video;
+    const art = v.closest('article') || root;
+    const tag = (n) => n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '');
+    const out = ['video ' + v.videoWidth + 'x' + v.videoHeight + ' paused=' + v.paused + ' muted=' + v.muted + ' fs=' + !!(root.ownerDocument || root).fullscreenElement];
+    const chain = [];
+    for (let n = v; n && n !== art; n = n.parentElement) chain.push(tag(n));
+    out.push('cadeia: ' + chain.join(' < '));
+    const scope = v.closest('[data-testid="videoPlayer"]') || art;
+    Array.from(scope.querySelectorAll('button,[role="button"],[role="slider"],[aria-label],[data-testid]')).slice(0, 60).forEach((n) => {
+      const r = n.getBoundingClientRect();
+      out.push('  ' + tag(n) + ' aria="' + (n.getAttribute('aria-label') || '').slice(0, 60) + '" rect=' + [r.left, r.top, r.width, r.height].map(Math.round).join(',') + ' vis=' + (r.width > 0 && r.height > 0));
+    });
+    return out.join('\n');
+  }
+
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -877,7 +897,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

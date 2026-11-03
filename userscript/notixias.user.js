@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.32
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.32
+// @version      0.16.33
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.33
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -738,6 +738,26 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
+  // Diagnóstico do player (sem texto de post): botões e controles do vídeo visível, com `aria-label`, para achar o botão de
+  // tela cheia de verdade do X.
+  function playerDebug(root, win) {
+    const vv = visibleVideo(root, win);
+    if (!vv) return 'nenhum vídeo visível';
+    const v = vv.video;
+    const art = v.closest('article') || root;
+    const tag = (n) => n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '');
+    const out = ['video ' + v.videoWidth + 'x' + v.videoHeight + ' paused=' + v.paused + ' muted=' + v.muted + ' fs=' + !!(root.ownerDocument || root).fullscreenElement];
+    const chain = [];
+    for (let n = v; n && n !== art; n = n.parentElement) chain.push(tag(n));
+    out.push('cadeia: ' + chain.join(' < '));
+    const scope = v.closest('[data-testid="videoPlayer"]') || art;
+    Array.from(scope.querySelectorAll('button,[role="button"],[role="slider"],[aria-label],[data-testid]')).slice(0, 60).forEach((n) => {
+      const r = n.getBoundingClientRect();
+      out.push('  ' + tag(n) + ' aria="' + (n.getAttribute('aria-label') || '').slice(0, 60) + '" rect=' + [r.left, r.top, r.width, r.height].map(Math.round).join(',') + ' vis=' + (r.width > 0 && r.height > 0));
+    });
+    return out.join('\n');
+  }
+
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -1274,7 +1294,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2260,7 +2280,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.32'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.33'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2614,6 +2634,10 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Enviar diagnóstico do player', onClick: () => {
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: 'diagnóstico do player de vídeo' })
+            .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
+        } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {
           const arts = Xdom.articles ? Xdom.articles(document) : [];
           const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);

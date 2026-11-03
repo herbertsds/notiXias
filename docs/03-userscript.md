@@ -466,3 +466,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.20: `Alt + seta para cima` (botão X do controle no app Android) chama `Xdom.openMediaFullscreen`: com vídeo visível aperta o botão de tela cheia do player (aria-label "tela cheia/full screen/expandir"; sem ele, toca no player); sem vídeo, toca na foto mais visível (visualizador de fotos). Depende do aria-label do botão do X, não verificado na página real.
 
 0.16.21: (1) o botão X do controle (Alt+seta para cima) não procura mais o botão de tela cheia do player: navega (internamente, `go`) para o visualizador do X, `/usuario/status/ID/video/1` (vídeo visível) ou o link `/photo/N` (foto mais visível); (2) **tocar no vídeo** (fora de botões/controles) abre o visualizador em vez de dar play/pause (menu "Tocar no vídeo abre em tela cheia"); o mudo/som segue a preferência do X. Já em tela cheia o toque é do player.
+
+0.16.22: ao abrir o visualizador (toque no vídeo ou botão X), o vídeo do visualizador volta ao mudo/som que o do feed tinha (`openViewer`: até ~4,5 s, aperta o botão de som do X se o estado difere; sem o botão, usa `muted`).

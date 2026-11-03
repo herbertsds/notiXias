@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.21
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.21
+// @version      0.16.22
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.22
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1103,7 +1103,7 @@ const Xdom = (function () {
     const vv = visibleVideo(root, win);
     if (vv) {
       const path = videoViewerPath(vv.video);
-      if (path) { go(path); return 'video'; }
+      if (path) { go(path, vv.video); return 'video'; }
     }
     let best = null;
     for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
@@ -2260,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.21'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.22'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3560,6 +3560,32 @@ async function startApp() {
     }
   }, 300);
 
+  // Abre o visualizador de vídeo mantendo o estado do som: o player do visualizador começa com som, então, ao aparecer, volta ao
+  // mudo/som que o vídeo do feed tinha (aperta o botão de som do X, para a tela dele ficar certa; se não houver, usa `muted`).
+  function openViewer(path, fromVideo) {
+    const wantMuted = fromVideo ? !!fromVideo.muted : null;
+    go(path);
+    if (wantMuted === null) return;
+    let ok = 0;
+    let n = 0;
+    const iv = setInterval(() => {
+      n++;
+      try {
+        const v = Array.from(document.querySelectorAll('video')).filter((x) => x !== fromVideo && x.getBoundingClientRect().width > 150).pop();
+        if (v && !v.paused) {
+          if (v.muted === wantMuted) ok++;
+          else {
+            ok = 0;
+            const comp = v.closest('[data-testid="videoComponent"],[data-testid="videoPlayer"]') || document;
+            const btn = comp.querySelector('[data-testid="mute-button"]');
+            if (btn) btn.click(); else v.muted = wantMuted;
+          }
+        }
+      } catch (err) { /* melhor esforço */ }
+      if (ok >= 3 || n > 30) clearInterval(iv);
+    }, 150);
+  }
+
   // Tocar no vídeo (fora dos controles) abre o visualizador em tela cheia, em vez de dar play/pause. O mudo/som segue o
   // estado atual do X (o visualizador usa a mesma preferência). Já em tela cheia, o toque é do player.
   window.addEventListener('click', (e) => {
@@ -3573,14 +3599,14 @@ async function startApp() {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
-    go(path);
+    openViewer(path, vp.querySelector('video'));
   }, true);
 
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, go); } catch (err) { /* melhor esforço */ } } // botão X do controle
+    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, openViewer); } catch (err) { /* melhor esforço */ } } // botão X do controle
   });
 
   // Comando pela URL (atalho do iPhone: https://x.com/home?nx=update): guarda e limpa o parâmetro.

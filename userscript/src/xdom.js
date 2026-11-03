@@ -706,7 +706,7 @@ const Xdom = (function () {
     const vv = visibleVideo(root, win);
     if (vv) {
       const path = videoViewerPath(vv.video);
-      if (path) { go(path); return 'video'; }
+      if (path) { go(path, vv.video); return 'video'; }
     }
     let best = null;
     for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {

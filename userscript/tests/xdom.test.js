@@ -831,7 +831,7 @@ test('fullscreenVideoPlaying: só vale com tela cheia E vídeo tocando', () => {
 
 test('setLandscapeLayout: texto à esquerda e mídia do post (não a do citado) à direita, só deitado e fora de tela cheia', () => {
   const html = '<body><header role="banner"></header><main><div data-testid="primaryColumn"><div id="col"><article data-testid="tweet">' +
-    '<div id="common"><div id="t"><div data-testid="tweetText">oi</div></div><div id="m"><div data-testid="tweetPhoto"></div></div>' +
+    '<div id="common"><div id="h"><div data-testid="User-Name"></div></div><div id="t"><div data-testid="tweetText">oi</div></div><div id="m"><div data-testid="tweetPhoto"></div></div>' +
     '<div role="link"><div data-testid="tweetPhoto" id="quoted"></div></div></div>' +
     '<a href="/u/status/55"><time></time></a></article></div></div></main></body>';
   const w = new JSDOM(html, { url: 'https://x.com/u/status/55' }).window;
@@ -841,6 +841,7 @@ test('setLandscapeLayout: texto à esquerda e mídia do post (não a do citado) 
   assert.equal(d.getElementById('common').hasAttribute('data-nx-grid'), true);
   assert.equal(d.getElementById('m').hasAttribute('data-nx-media'), true);
   assert.equal(d.getElementById('t').hasAttribute('data-nx-media'), false);
+  assert.equal(d.getElementById('h').hasAttribute('data-nx-media'), false);
   assert.equal(d.querySelector('main').hasAttribute('data-nx-wide'), true);
   w.innerWidth = 400; w.innerHeight = 900; // em pé: desfaz
   assert.equal(Xdom.setLandscapeLayout(d, w, true), false);

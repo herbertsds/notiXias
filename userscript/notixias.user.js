@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.6
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.6
+// @version      0.16.7
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.7
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -696,8 +696,10 @@ const Xdom = (function () {
     const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
     const text = art.querySelector('[data-testid="tweetText"]');
     if (!media || !text || media.contains(text)) return false;
+    // Sobe até conter também o cabeçalho (nome/foto): a mídia começa no topo do post, não no topo do texto.
+    const head = art.querySelector('[data-testid="User-Name"]');
     let common = media.parentElement;
-    while (common && !common.contains(text)) common = common.parentElement;
+    while (common && !(common.contains(text) && (!head || common.contains(head)))) common = common.parentElement;
     if (!common || common === art || common.contains(art)) return false;
     let mediaBlock = media;
     while (mediaBlock.parentElement !== common) mediaBlock = mediaBlock.parentElement;
@@ -2141,7 +2143,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.6'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.7'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

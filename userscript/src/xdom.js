@@ -299,8 +299,10 @@ const Xdom = (function () {
     const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
     const text = art.querySelector('[data-testid="tweetText"]');
     if (!media || !text || media.contains(text)) return false;
+    // Sobe até conter também o cabeçalho (nome/foto): a mídia começa no topo do post, não no topo do texto.
+    const head = art.querySelector('[data-testid="User-Name"]');
     let common = media.parentElement;
-    while (common && !common.contains(text)) common = common.parentElement;
+    while (common && !(common.contains(text) && (!head || common.contains(head)))) common = common.parentElement;
     if (!common || common === art || common.contains(art)) return false;
     let mediaBlock = media;
     while (mediaBlock.parentElement !== common) mediaBlock = mediaBlock.parentElement;

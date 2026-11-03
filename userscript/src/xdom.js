@@ -303,14 +303,22 @@ const Xdom = (function () {
     const tag = (n) => (n ? n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '') : '-');
     const rect = (n) => { if (!n) return '-'; const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
     const lines = [];
-    articles(root).slice(0, 4).forEach((art, i) => {
+    // Posts com a barra de ações por cima do texto vêm primeiro (os de "Descubra mais" estão longe do topo da página).
+    const overlaps = (art) => {
+      const t = art.querySelector('[data-testid="tweetText"]');
+      const g = art.querySelector('[role="group"]');
+      return !!(t && g && g.getBoundingClientRect().top < t.getBoundingClientRect().bottom - 2);
+    };
+    const all = articles(root);
+    const picked = all.filter(overlaps).concat(all.filter((a) => !overlaps(a))).slice(0, 4);
+    picked.forEach((art, i) => {
       const medias = Array.from(art.querySelectorAll(MEDIA_SEL));
       const own = medias.find((n) => !n.closest('[role="link"]'));
       const grid = art.querySelector('[' + GRID_ATTR + ']');
       const block = art.querySelector('[' + MEDIA_ATTR + ']');
       const chain = [];
       for (let n = own; n && n !== art; n = n.parentElement) chain.push(tag(n));
-      lines.push('post ' + i + ': mídias=' + medias.length + ' própria=' + tag(own) + ' texto=' + !!art.querySelector('[data-testid="tweetText"]') +
+      lines.push('post ' + i + (overlaps(art) ? ' [AÇÕES SOBRE O TEXTO]' : '') + ': mídias=' + medias.length + ' própria=' + tag(own) + ' texto=' + !!art.querySelector('[data-testid="tweetText"]') +
         ' nome=' + !!art.querySelector('[data-testid="User-Name"]') + ' grade=' + !!grid + ' bloco=' + !!block);
       lines.push('  cadeia da mídia (de baixo p/ cima): ' + chain.join(' < '));
       if (grid) lines.push('  grade ' + tag(grid) + ' display=' + win.getComputedStyle(grid).display + ' cols=' + win.getComputedStyle(grid).gridTemplateColumns + ' rect=' + rect(grid));

@@ -458,3 +458,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.16: (1) mídia dentro de `[role=link]` (foto, card, carrossel de cards são âncoras) agora conta como do post: só é de "outro post" o `[role=link]` que contém texto/nome próprios (o citado); (2) a altura máxima passa a usar `zoom` no bloco (encolhe largura e altura juntas), com no máximo 3 ajustes pela medida real: no diagnóstico, mudar a largura não mudava a altura do bloco de fotos.
 
 0.16.17: `layoutDebug` lista também os itens da grade (retângulo, position, altura, overflow, margem, linha/coluna) e os retângulos do texto e da barra de ações — para achar por que, em alguns posts, a barra de ações (comentários, reposts, curtidas) aparece por cima do texto na tela deitada.
+
+0.16.18: `layoutDebug` escolhe primeiro os posts em que a barra de ações está sobre o texto (marcados `[AÇÕES SOBRE O TEXTO]`), pois os afetados ficam em "Descubra mais", longe do topo.

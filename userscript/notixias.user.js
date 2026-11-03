@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.16
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.16
+// @version      0.16.17
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.17
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -712,6 +712,19 @@ const Xdom = (function () {
       lines.push('  cadeia da mídia (de baixo p/ cima): ' + chain.join(' < '));
       if (grid) lines.push('  grade ' + tag(grid) + ' display=' + win.getComputedStyle(grid).display + ' cols=' + win.getComputedStyle(grid).gridTemplateColumns + ' rect=' + rect(grid));
       if (block) lines.push('  bloco rect=' + rect(block) + ' col=' + win.getComputedStyle(block).gridColumnStart + ' estilo-largura=' + block.style.width);
+      if (grid) {
+        const items = [];
+        const walk = (el) => { for (const c of el.children) { if (c.hasAttribute(FLAT_ATTR)) walk(c); else items.push(c); } };
+        walk(grid);
+        items.slice(0, 14).forEach((c, k) => {
+          const cs = win.getComputedStyle(c);
+          lines.push('  item ' + k + ' ' + tag(c) + (c.querySelector('[data-testid="tweetText"]') ? ' (texto)' : '') + (c.querySelector('[role="group"]') ? ' (ações)' : '') +
+            ' rect=' + rect(c) + ' pos=' + cs.position + ' h=' + cs.height + ' maxH=' + cs.maxHeight + ' ov=' + cs.overflow + ' mt=' + cs.marginTop + ' row=' + cs.gridRowStart + ' col=' + cs.gridColumnStart + ' filhos=' + c.children.length);
+        });
+        const t = art.querySelector('[data-testid="tweetText"]');
+        const g = art.querySelector('[role="group"]');
+        lines.push('  tweetText rect=' + rect(t) + ' | ações rect=' + rect(g));
+      }
       lines.push('  artigo rect=' + rect(art));
     });
     return lines.join('\n');
@@ -2208,7 +2221,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.16'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.17'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

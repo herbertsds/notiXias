@@ -300,9 +300,11 @@ class MainActivity : Activity() {
         } else View.SYSTEM_UI_FLAG_VISIBLE
     }
 
-    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pede ao script um ponto do vídeo visível e dá um TOQUE de
-    // verdade ali (o toque no vídeo põe em tela cheia; o navegador só aceita tela cheia depois de um gesto do usuário real).
-    private fun toggleVideoFullscreen() {
+    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pergunta ao script onde está o botão "Tela cheia" do player
+    // do vídeo visível (e o formato do vídeo) e o aperta com um TOQUE de verdade (o navegador só aceita tela cheia depois de um
+    // gesto real). Se o vídeo e o celular estão em posições diferentes (em pé x deitado), trava antes a orientação do vídeo, espera
+    // girar e pergunta de novo (a tela mudou de tamanho). Sem vídeo na tela, manda Alt+seta para cima (o script abre a foto).
+    private fun toggleVideoFullscreen(retried: Boolean = false) {
         if (!::web.isInitialized) return
         if (customView != null) {
             web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
@@ -315,6 +317,18 @@ class MainActivity : Activity() {
                 return@evaluateJavascript
             }
             val o = org.json.JSONObject(json)
+            val videoPortrait = if (o.isNull("portrait")) null else o.optBoolean("portrait")
+            val phonePortrait = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+            if (!retried && videoPortrait != null && videoPortrait != phonePortrait) {
+                setOrientation(if (videoPortrait) "portrait" else "landscape")
+                ui.postDelayed({ toggleVideoFullscreen(retried = true) }, 900)
+                return@evaluateJavascript
+            }
+            if (!o.has("x")) {
+                setOrientation("auto")
+                Toast.makeText(this, "Botão de tela cheia não está na tela: toque no vídeo para mostrar os controles", Toast.LENGTH_SHORT).show()
+                return@evaluateJavascript
+            }
             val d = resources.displayMetrics.density
             tap(o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
         }

@@ -916,19 +916,24 @@ test('setLandscapeLayout: foto/card dentro de âncora [role=link] conta como mí
   assert.equal(w.document.getElementById('cards').hasAttribute('data-nx-media'), true);
 });
 
-test('openMediaFullscreen: vídeo visível -> caminho do visualizador de vídeo; sem vídeo, foto visível -> link da foto', () => {
-  const art = (inner) => '<body><article data-testid="tweet">' + inner + '<a href="/u/status/1"><time></time></a></article></body>';
+test('openMediaFullscreen: foto visível -> link da foto; sem foto, null', () => {
   const rect = { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300 };
-  const w = new JSDOM(art('<div data-testid="videoComponent"><video id="v"></video></div>'), { url: 'https://x.com/u/status/1' }).window;
-  w.innerWidth = 900; w.innerHeight = 400;
-  w.document.getElementById('v').getBoundingClientRect = () => rect;
-  const seen = [];
-  assert.equal(Xdom.openMediaFullscreen(w.document, w, (p) => seen.push(p)), 'video');
-  assert.deepEqual(seen, ['/u/status/1/video/1']);
-  const p = new JSDOM(art('<a href="/u/status/1/photo/1"><div data-testid="tweetPhoto" id="p"></div></a>'), { url: 'https://x.com/u/status/1' }).window;
+  const p = new JSDOM('<body><article data-testid="tweet"><a href="/u/status/1/photo/1"><div data-testid="tweetPhoto" id="p"></div></a></article></body>', { url: 'https://x.com/u/status/1' }).window;
   p.innerWidth = 900; p.innerHeight = 400;
   p.document.getElementById('p').getBoundingClientRect = () => rect;
+  const seen = [];
   assert.equal(Xdom.openMediaFullscreen(p.document, p, (x) => seen.push(x)), 'photo');
-  assert.equal(seen[1], '/u/status/1/photo/1');
+  assert.deepEqual(seen, ['/u/status/1/photo/1']);
   assert.equal(Xdom.openMediaFullscreen(new JSDOM('<body></body>').window.document, p, () => {}), null);
+});
+
+test('fullscreenButtonPoint: acha o botão "Tela cheia" do player (não o de sair) e o formato do vídeo', () => {
+  const w = new JSDOM('<body><div data-testid="videoPlayer"><video id="v"></video><button aria-label="Sair da tela cheia" id="x"></button><button aria-label="Tela cheia" id="b"></button></div></body>', { url: 'https://x.com/u/status/1' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const box = (id, l, t, wd, h) => { w.document.getElementById(id).getBoundingClientRect = () => ({ left: l, top: t, right: l + wd, bottom: t + h, width: wd, height: h }); };
+  box('v', 0, 0, 400, 300); box('x', 10, 10, 20, 20); box('b', 360, 260, 40, 40);
+  const v = w.document.getElementById('v');
+  Object.defineProperty(v, 'videoWidth', { value: 360 }); Object.defineProperty(v, 'videoHeight', { value: 640 });
+  assert.deepEqual(Xdom.fullscreenButtonPoint(w.document, w), { portrait: true, x: 380, y: 280 });
+  assert.equal(Xdom.fullscreenButtonPoint(new JSDOM('<body></body>').window.document, w), null);
 });

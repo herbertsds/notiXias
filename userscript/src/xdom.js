@@ -712,22 +712,9 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
-  // Caminho do visualizador de vídeo (tela cheia do X) do post que contém `el`: /usuario/status/ID/video/1.
-  function videoViewerPath(el) {
-    const art = el.closest ? el.closest('article') : null;
-    const p = art ? primaryStatus(art) : null;
-    return p ? '/' + p.author + '/status/' + p.id + '/video/1' : null;
-  }
-
-  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> visualizador de vídeo do X; sem
-  // vídeo, a foto mais visível -> visualizador de fotos. `go(caminho)` navega (internamente, sem recarregar). Devolve
-  // 'video', 'photo' ou null. Não depende de botão do player (o X só mostra os controles depois de um toque).
+  // Abre a foto mais visível no visualizador de fotos do X (botão X do controle, quando não há vídeo na tela).
+  // `go(caminho)` navega internamente. Devolve 'photo' ou null.
   function openMediaFullscreen(root, win, go) {
-    const vv = visibleVideo(root, win);
-    if (vv) {
-      const path = videoViewerPath(vv.video);
-      if (path) { go(path, vv.video); return 'video'; }
-    }
     let best = null;
     for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
       const r = ph.getBoundingClientRect();
@@ -741,6 +728,29 @@ const Xdom = (function () {
     if (!a) return null;
     go(a.getAttribute('href'));
     return 'photo';
+  }
+
+  // Botão "Tela cheia" do player do vídeo visível (achado pelo diagnóstico: `button` com aria-label "Tela cheia", dentro de
+  // `videoPlayer`). Devolve o centro dele (px do CSS) e se o vídeo é retrato; sem o botão na tela, só o formato.
+  const FS_BUTTON_RE = /(tela cheia|full ?screen)/i;
+  const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
+  function fullscreenButtonPoint(root, win) {
+    const vv = visibleVideo(root, win);
+    if (!vv) return null;
+    const v = vv.video;
+    const out = { portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
+    const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
+    for (const b of scope.querySelectorAll('button, [role="button"]')) {
+      const label = b.getAttribute('aria-label') || '';
+      if (!FS_BUTTON_RE.test(label) || FS_EXIT_RE.test(label)) continue;
+      const r = b.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < win.innerWidth && r.top < win.innerHeight) {
+        out.x = Math.round((Math.max(r.left, 0) + Math.min(r.right, win.innerWidth)) / 2);
+        out.y = Math.round((Math.max(r.top, 0) + Math.min(r.bottom, win.innerHeight)) / 2);
+        break;
+      }
+    }
+    return out;
   }
 
   // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
@@ -897,7 +907,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

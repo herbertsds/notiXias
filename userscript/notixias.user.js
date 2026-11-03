@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.44
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.44
+// @version      0.16.45
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.45
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1133,10 +1133,11 @@ const Xdom = (function () {
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
   // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
   // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
-  function fullscreenButton(root, win) {
-    const vv = visibleVideo(root, win);
-    if (!vv) return null;
-    const v = vv.video;
+  // `video` (opcional): o vídeo tocado; sem ele (ou fora da página), o mais visível.
+  function fullscreenButton(root, win, video) {
+    let v = video && video.isConnected ? video : null;
+    if (!v) { const vv = visibleVideo(root, win); v = vv && vv.video; }
+    if (!v) return null;
     const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
     let button = null;
     for (const b of scope.querySelectorAll('button, [role="button"]')) {
@@ -2303,7 +2304,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.44'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.45'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3694,20 +3695,55 @@ async function startApp() {
     if (Date.now() - fsExitAt < 800 && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
     const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
     if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
-    const f0 = Xdom.fullscreenButton(document, window);
+    // O vídeo TOCADO (não "o mais visível"), e o post dele: ao girar a tela o X redesenha tudo e o vídeo é outro elemento.
+    const v0 = vp.querySelector('video');
+    if (!v0) return;
+    const art0 = v0.closest('article');
+    const p0 = art0 && Xdom.parseArticle(art0);
+    const id0 = p0 && p0.id;
+    const findVideo = () => {
+      if (v0.isConnected) return v0;
+      if (id0) {
+        for (const a of Xdom.articles(document)) {
+          const p = Xdom.parseArticle(a);
+          const v = p && p.id === id0 && a.querySelector('video');
+          if (v) return v;
+        }
+      }
+      const vv = Xdom.visibleVideo(document, window);
+      return vv && vv.video;
+    };
+    const f0 = Xdom.fullscreenButton(document, window, v0);
     if (!f0) return;
-    // Com o botão já na página, o toque não faz mais nada além da tela cheia; sem ele (o X só o desenha com os controles), o
-    // toque segue o padrão (mostra os controles) e a tela cheia sai assim que o botão aparecer, tudo no mesmo gesto.
-    // Em retrato o X desenha só a "mini UI" (pausar e som), sem botão de tela cheia, e o toque abre o visualizador do X (que não é
-    // tela cheia de verdade): aí pedimos a tela cheia ao próprio player (`requestFullscreen`), no mesmo gesto.
-    // "mini": sem o botão do X e em tela estreita (retrato) ou com a mini UI: a tela cheia é pedida por nós.
+    // Com o botão "Tela cheia" do X na página (paisagem), ele é apertado. Em retrato o X desenha só a "mini UI" (pausar e som), sem
+    // esse botão, e o toque abriria o visualizador do X (que não é tela cheia): aí pedimos a tela cheia ao próprio player.
     const mini = !f0.button && (window.innerWidth < 600 || !!vp.querySelector('[data-testid^="video-player-mini-ui"]'));
     if (!f0.button && !mini) sendPlayerDiag('toque no vídeo sem botão "Tela cheia"');
     if (f0.button || mini) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
-    const before = pointerState && pointerState.video === f0.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f0.video.paused, muted: f0.video.muted };
+    const before = pointerState && pointerState.video === v0 && Date.now() - pointerState.at < 4000 ? pointerState : { paused: v0.paused, muted: v0.muted };
+    // Tudo tem de acontecer dentro do gesto do toque (o navegador o aceita por ~5 s): as tentativas param em 4,5 s.
+    const deadline = Date.now() + 4500;
+    let attempts = 0;
+    let lastErr = null;
+    const giveUp = (msg) => { gm.set('nx_orient', 'auto'); ui.toast(msg, { tone: 'warn', ms: 4000 }); };
+    const restore = (v) => [150, 500, 1200].forEach((ms) => setTimeout(() => {
+      try {
+        // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
+        if (!before.paused && v.paused) v.play().catch(() => {});
+        if (v.muted !== before.muted) v.muted = before.muted;
+      } catch (err) { /* melhor esforço */ }
+    }, ms));
+    const inFs = () => !!document.fullscreenElement || Xdom.videoFullscreenActive(document, window);
     const press = () => {
-      const g = Xdom.fullscreenButton(document, window); // o X redesenha o post ao girar: acha de novo
-      if (!g) { gm.set('nx_orient', 'auto'); ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
+      if (inFs()) return;
+      const v = findVideo();
+      const g = v && Xdom.fullscreenButton(document, window, v);
+      // O X ainda está redesenhando (depois de girar): espera o vídeo voltar, em vez de desistir de cara.
+      if (!g || (!g.button && !mini)) {
+        if (Date.now() < deadline) { setTimeout(press, 150); return; }
+        return giveUp('Vídeo não encontrado para a tela cheia');
+      }
+      attempts++;
       if (g.button) g.button.click();
       else {
         // Sem botão (retrato): tela cheia pedida ao elemento que inclui os controles do player (pausar/som), não só ao <video>.
@@ -3716,36 +3752,40 @@ async function startApp() {
         try {
           fsNote('pedindo tela cheia (nossa) em ' + el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : ''));
           const r = req && req.call(el);
-          if (r && r.then) r.then(() => { ownFs = true; fsNote('entrou (nossa)'); }, () => {});
-          if (r && r.catch) r.catch((err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); });
-        } catch (err) { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); }
+          if (r && r.then) r.then(() => { ownFs = true; fsNote('entrou (nossa)'); }, (err) => { lastErr = err; fsNote('recusada: ' + (err && err.message)); });
+        } catch (err) { lastErr = err; }
       }
-      // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
-      [150, 500, 1200].forEach((ms) => setTimeout(() => {
-        try {
-          if (!before.paused && g.video.paused) g.video.play().catch(() => {});
-          if (g.video.muted !== before.muted) g.video.muted = before.muted;
-        } catch (err) { /* melhor esforço */ }
-      }, ms));
+      restore(g.video);
+      // Conferência: se em 1 s não estiver em tela cheia (o X redesenhou o player no meio, ou o pedido foi recusado), tenta de novo
+      // enquanto o gesto do toque vale.
+      setTimeout(() => {
+        if (inFs()) return;
+        const active = !navigator.userActivation || navigator.userActivation.isActive;
+        if (attempts < 4 && Date.now() < deadline && active) return press();
+        giveUp('Tela cheia não abriu' + (lastErr && lastErr.message ? ': ' + lastErr.message : '') + '. Toque de novo.');
+      }, 1000);
     };
-    // Sempre pede ao app a orientação do vídeo (em pé x deitado) ANTES: se a tela já está nela, só a trava (o X tenta travar em
-    // deitado ao entrar em tela cheia); se não está, espera a tela girar (o gesto do toque vale por alguns segundos).
+    // Orientação do vídeo (em pé x deitado) pedida ao app SEMPRE antes (o X tenta travar em deitado ao entrar em tela cheia). Se a
+    // tela precisa girar, espera ela estar na orientação pedida E o tamanho parar de mudar por 300 ms (o X termina de redesenhar).
     const start = () => {
-      const g = Xdom.fullscreenButton(document, window) || f0;
-      const wantPortrait = g.portrait !== null ? g.portrait : null;
-      if (wantPortrait === null) return press();
-      const phonePortrait = window.innerHeight > window.innerWidth;
-      gm.set('nx_orient', wantPortrait ? 'portrait' : 'landscape');
-      if (wantPortrait === phonePortrait) return press();
-      let done = false;
-      const once = () => { if (done) return; done = true; window.removeEventListener('resize', once); setTimeout(press, 400); };
-      window.addEventListener('resize', once);
-      setTimeout(once, 1500);
+      const g = Xdom.fullscreenButton(document, window, findVideo() || v0) || f0;
+      const want = g.portrait;
+      if (want !== null) gm.set('nx_orient', want ? 'portrait' : 'landscape');
+      if (want === null || want === (window.innerHeight > window.innerWidth)) return press();
+      let last = '';
+      let same = 0;
+      const iv = setInterval(() => {
+        const size = window.innerWidth + 'x' + window.innerHeight;
+        same = size === last ? same + 1 : 0;
+        last = size;
+        const ok = (window.innerHeight > window.innerWidth) === want;
+        if ((ok && same >= 3) || Date.now() > deadline - 1500) { clearInterval(iv); press(); }
+      }, 100);
     };
     if (f0.button || mini) return start();
     let tries = 0;
     const iv = setInterval(() => {
-      const g = Xdom.fullscreenButton(document, window);
+      const g = Xdom.fullscreenButton(document, window, findVideo() || v0);
       if ((g && g.button) || ++tries > 15) { clearInterval(iv); if (g && g.button) start(); }
     }, 100);
   }, true);

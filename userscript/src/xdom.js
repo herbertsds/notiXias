@@ -736,10 +736,11 @@ const Xdom = (function () {
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
   // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
   // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
-  function fullscreenButton(root, win) {
-    const vv = visibleVideo(root, win);
-    if (!vv) return null;
-    const v = vv.video;
+  // `video` (opcional): o vídeo tocado; sem ele (ou fora da página), o mais visível.
+  function fullscreenButton(root, win, video) {
+    let v = video && video.isConnected ? video : null;
+    if (!v) { const vv = visibleVideo(root, win); v = vv && vv.video; }
+    if (!v) return null;
     const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
     let button = null;
     for (const b of scope.querySelectorAll('button, [role="button"]')) {

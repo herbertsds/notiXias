@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.33
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.33
+// @version      0.16.34
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.34
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2280,7 +2280,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.33'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.34'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2635,7 +2635,7 @@ async function startApp() {
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
       { label: 'Enviar diagnóstico do player', onClick: () => {
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: 'diagnóstico do player de vídeo' })
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: ('diagnóstico do player de vídeo; tapVideoViewer=' + cfg.tapVideoViewer + ' v' + NX_VERSION).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {

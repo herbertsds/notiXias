@@ -356,7 +356,7 @@ async function startApp() {
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
       { label: 'Enviar diagnóstico do player', onClick: () => {
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: 'diagnóstico do player de vídeo' })
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: ('diagnóstico do player de vídeo; tapVideoViewer=' + cfg.tapVideoViewer + ' v' + NX_VERSION).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {

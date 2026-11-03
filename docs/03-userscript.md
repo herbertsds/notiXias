@@ -490,3 +490,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.32: tela cheia depois de girar a tela: o X redesenha o post e o elemento guardado saía da página ("element is not connected"). Agora, ao pedir a tela cheia, se o vídeo não estiver mais na página, acha o vídeo visível de novo (`Xdom.visibleVideo`) e recalcula o elemento com os controles; espera 400 ms (não 150) depois do giro.
 
 0.16.33: menu "Enviar diagnóstico do player" (`Xdom.playerDebug`): botões/controles do vídeo visível com `aria-label`, para achar o botão de tela cheia nativo do X.
+
+0.16.34: o diagnóstico do player inclui a versão do script e o valor de `tapVideoViewer`.

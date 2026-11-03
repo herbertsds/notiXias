@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.13
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.13
+// @version      0.16.14
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.14
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -562,7 +562,7 @@ const Xdom = (function () {
     if (!el || ctx.n >= 400 || depth > 14) return '';
     ctx.n++;
     let line = '  '.repeat(depth) + el.tagName.toLowerCase();
-    for (const a of ['data-testid', 'role']) {
+    for (const a of ['data-testid', 'role', 'data-nx-grid', 'data-nx-flat', 'data-nx-media', 'data-nx-fit', 'data-nx-wide']) {
       const v = el.getAttribute(a);
       if (v) line += ' ' + a + '=' + v;
     }
@@ -2183,7 +2183,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.13'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.14'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2536,6 +2536,13 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Enviar diagnóstico do layout', onClick: () => {
+          const arts = Xdom.articles ? Xdom.articles(document) : [];
+          const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);
+          const meta = 'inner=' + window.innerWidth + 'x' + window.innerHeight + ' land=' + document.documentElement.hasAttribute('data-nx-land') + ' cfg=' + cfg.landscapeLayout;
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: sk.slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
+            .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
+        } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },

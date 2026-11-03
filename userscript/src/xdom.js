@@ -165,7 +165,7 @@ const Xdom = (function () {
     if (!el || ctx.n >= 400 || depth > 14) return '';
     ctx.n++;
     let line = '  '.repeat(depth) + el.tagName.toLowerCase();
-    for (const a of ['data-testid', 'role']) {
+    for (const a of ['data-testid', 'role', 'data-nx-grid', 'data-nx-flat', 'data-nx-media', 'data-nx-fit', 'data-nx-wide']) {
       const v = el.getAttribute(a);
       if (v) line += ' ' + a + '=' + v;
     }

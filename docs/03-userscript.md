@@ -450,3 +450,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.12: tela deitada — **todo tweet com mídia da página** (o principal, as respostas e o post citado dentro de um) ganha a mesma grade texto à esquerda / mídia à direita (`layoutScope`); no post citado (`[role=link]`) só contam o texto, a mídia e o nome dele. Mídia fora de qualquer grade só tem a altura limitada.
 
 0.16.13: tela deitada — post **só com foto/vídeo (sem texto)** e **carrossel/várias fotos** também entram: o texto passa a ser opcional (o cabeçalho é a âncora) e a mídia também é reconhecida por `a[href*="/photo/"]` e `img` de `pbs.twimg.com/media`; várias fotos ficam juntas no bloco da direita.
+
+0.16.14: menu "Enviar diagnóstico do layout": manda para a API (`/health/skeleton`, sem texto de posts) o esqueleto dos 3 primeiros posts da página, já com as marcas `data-nx-*` do layout deitado. Serve para ver na estrutura real do X por que uma foto/vídeo não foi para a coluna da direita.

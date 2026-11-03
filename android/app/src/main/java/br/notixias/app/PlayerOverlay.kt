@@ -65,6 +65,9 @@ class PlayerOverlay(
     private var startMs = 0L
     private var resumeAfterHold = false
     private var speed = 1f
+    // Orientação de antes de abrir: ao fechar, a tela volta para ela (retrato/paisagem), mesmo que o vídeo tenha girado.
+    private val wasLandscape = act.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    private val prevRequested = act.requestedOrientation
     private var stallToken = 0
 
     private val root = FrameLayout(act).apply { setBackgroundColor(Color.BLACK) }
@@ -497,7 +500,9 @@ class PlayerOverlay(
         ui.removeCallbacksAndMessages(null)
         try { player.release() } catch (e: Exception) { /* já liberado */ }
         parent.removeView(root)
-        act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        act.requestedOrientation = if (wasLandscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        // solta de novo depois que a tela girou (volta ao modo que o app tinha antes)
+        Handler(Looper.getMainLooper()).postDelayed({ act.requestedOrientation = prevRequested }, 1500)
         onClosed()
     }
 

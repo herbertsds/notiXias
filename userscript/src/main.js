@@ -791,6 +791,8 @@ async function startApp() {
     activating = true;
     routeToken++;
     holdVideos(false);
+    window.scrollTo(0, 0); // o X pode ter rolado a tela de trás até o post: sempre abre no topo
+    pinTop(2000);
     if (!slotEntry || slotEntry.seq !== entry.seq || !preloadP) startPreload(entry, a.dir);
     // A barra aparece já (posição estimada a partir da tela anterior); a de verdade vem da API logo depois.
     if (a.st && a.st.current) {
@@ -864,6 +866,8 @@ async function startApp() {
     }
     appRole = a.role;
   };
+  // Tela de trás: o X rola sozinho até o post (também quando a página termina de carregar mídia); mantém no topo.
+  setInterval(() => { if (appRole === 'standby' && window.scrollY > 0) window.scrollTo(0, 0); }, 700);
   // Voltar do Android na tela da fila: é navegação nossa (não abre a tela por cima).
   window.nxBack = () => { selfNavAt = Date.now(); history.back(); };
 

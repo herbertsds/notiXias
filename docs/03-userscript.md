@@ -522,3 +522,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.19.0: player de vídeo do app. No app, tocar no vídeo (ou o botão X do controle) manda `nx_player` ao app com os links do vídeo, o formato (largura x altura), se estava mudo e o ponto em que estava; o vídeo da página é pausado. Os links vêm do captador no `shim.js` (guarda as variantes mp4/HLS que o X já envia nas respostas da API, achadas pelo pôster do `<video>` ou pelo id do post). Sem link (ou GIF), o toque segue o comportamento do X. No app ficam desligados o botão de velocidade, legendas, loop, "voltar a 1x", sair da tela cheia ao terminar, bloqueio de avanço do vídeo, aviso de tela acesa e os itens de menu correspondentes; no navegador (Tampermonkey/iPhone) tudo segue como antes.
 
 0.19.1: ao fechar o player do app, o script (`nxPlayerClosed`) recentra a página no vídeo (alguns ajustes em 1,5 s, porque a tela gira de volta e o X reflui).
+
+0.19.2: tela de trás (standby) volta ao topo a cada 0,7 s se o X a rolar sozinho até o post; ao vir para a frente, rola ao topo na hora e segura o topo por 2 s.

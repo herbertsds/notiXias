@@ -77,3 +77,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.5.1:** em rede com franquia (dados móveis; `isActiveNetworkMetered`) o app guarda só 10 s de cada vídeo; no Wi-Fi continuam 5 min. Se a rede mudar para Wi-Fi enquanto o post ainda está sendo olhado (as buscas de vídeo duram ~30 s por post), o download completa o que faltar. Nova permissão: `ACCESS_NETWORK_STATE`.
 
 **0.5.2:** os botões do player voltam a ser ícones, desenhados no código (`IconView`): fechar, play/pause, voltar/avançar 10 s, som/mudo, cadeado. Círculos quase transparentes, sem borda, traço fino branco. Qualidade e velocidade seguem como texto (são valores).
+
+**0.5.3:** ao fechar o player, a tela volta para a orientação de antes de abrir (retrato/paisagem) e depois de 1,5 s volta ao modo anterior do app. Script de fábrica 0.19.2 (telas de trás ficam no topo).

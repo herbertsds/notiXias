@@ -359,14 +359,14 @@ const Xdom = (function () {
       for (let n = v; n && n.parentElement && n !== doc.body; n = n.parentElement) {
         const h = n.getBoundingClientRect().height;
         const ph = n.parentElement.getBoundingClientRect().height;
-        if (ph > 0 && h > ph + 2) { a = n; break; }
+        if (ph > 0 && h > ph + 20) { a = n; break; } // folga: o vídeo em si tem transform de 1,005 e passa 2px do pai
       }
       if (!a) return false;
     }
     const st = a.__nxV || (a.__nxV = { tries: 0, z: 1 });
     const ph = a.parentElement.getBoundingClientRect().height;
     const h = a.getBoundingClientRect().height;
-    if (st.tries >= 3 || !(h > ph + 2) || !(ph > 0)) return a.hasAttribute(VFIT_ATTR);
+    if (st.tries >= 3 || !(h > ph + 4) || !(ph > 0)) return a.hasAttribute(VFIT_ATTR);
     st.tries++;
     st.z = Math.max(0.2, st.z * (ph / h));
     a.style.setProperty('zoom', String(st.z), 'important');

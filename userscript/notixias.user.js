@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.39
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.39
+// @version      0.16.40
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.40
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2303,7 +2303,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.39'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.40'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3533,6 +3533,7 @@ async function startApp() {
 
   async function onRoute() {
     const token = ++routeToken;
+    if (!cfg.bot && /\/status\/\d+\/(?:video|mediaViewer)/i.test(location.pathname)) setTimeout(() => sendPlayerDiag('visualizador de vídeo aberto'), 2500);
     const fromPath = prevPath;
     prevPath = location.pathname;
     setLabels(null);
@@ -3614,6 +3615,17 @@ async function startApp() {
     return JSON.stringify({ x: Math.round((r.left + r.right) / 2), y: Math.round(r.top + (r.bottom - r.top) * 0.4) });
   };
 
+  // Diagnóstico do player (botões com aria-label, sem texto de post), no máximo a cada 20 s: mandado quando o toque no vídeo não
+  // acha o botão "Tela cheia" (modo retrato) e quando o X abre o visualizador de vídeo (rota /video/N).
+  let lastPlayerDiagAt = 0;
+  function sendPlayerDiag(why) {
+    if (cfg.bot || Date.now() - lastPlayerDiagAt < 20000) return;
+    lastPlayerDiagAt = Date.now();
+    try {
+      api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: ('inner=' + window.innerWidth + 'x' + window.innerHeight + '\n' + Xdom.playerDebug(document, window)).slice(0, 20000), note: ('diagnóstico do player: ' + why + ' v' + NX_VERSION).slice(0, 500) }).catch(() => {});
+    } catch (e) { /* melhor esforço */ }
+  }
+
   // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
   // girando a tela (pelo app) para a posição do vídeo. O toque do dono é um gesto real, e o gesto vale por alguns segundos, então
   // dá para esperar a tela girar. Em tela cheia, o toque é do X.
@@ -3635,6 +3647,7 @@ async function startApp() {
     if (!f0) return;
     // Com o botão já na página, o toque não faz mais nada além da tela cheia; sem ele (o X só o desenha com os controles), o
     // toque segue o padrão (mostra os controles) e a tela cheia sai assim que o botão aparecer, tudo no mesmo gesto.
+    if (!f0.button) sendPlayerDiag('toque no vídeo sem botão "Tela cheia"');
     if (f0.button) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
     const before = pointerState && pointerState.video === f0.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f0.video.paused, muted: f0.video.muted };
     const press = () => {

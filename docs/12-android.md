@@ -47,3 +47,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.11:** botão X: com a tela cheia aberta (`customView`), chama `document.exitFullscreen()`; senão pergunta ao script `window.nxVideoCenter()` e dá um **toque real** (`dispatchTouchEvent`) no vídeo — o toque no vídeo entra em tela cheia com gesto válido (a tecla F9 não foi confiável). Sem vídeo, manda Alt+seta para cima (foto). Diagnóstico temporário: botões de controle sem função mostram um aviso com o nome do código.
 
 **0.1.12:** tela cheia de vídeo em modo imersivo (`immersive()`: esconde barra de status/navegação e usa o recorte da câmera; volta ao sair). Voltar com a tela cheia aberta também pede `exitFullscreen` à página.
+
+**0.1.13:** ao entrar em tela cheia, o app lê `videoWidth x videoHeight` do vídeo (`lockOrientationToVideo`): mais alto que largo → `SCREEN_ORIENTATION_SENSOR_PORTRAIT`; senão `SENSOR_LANDSCAPE`. Se o vídeo ainda não carregou (0x0), tenta até 8 vezes a cada 300 ms. Ao sair, `UNSPECIFIED` (volta a seguir o celular).

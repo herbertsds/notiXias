@@ -138,6 +138,7 @@ class MainActivity : Activity() {
                 root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 web.visibility = View.GONE
                 immersive(true)
+                lockOrientationToVideo(0)
             }
             override fun onHideCustomView() {
                 customView?.let { root.removeView(it) }
@@ -146,6 +147,7 @@ class MainActivity : Activity() {
                 customCallback = null
                 web.visibility = View.VISIBLE
                 immersive(false)
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
 
@@ -261,6 +263,30 @@ class MainActivity : Activity() {
             return true
         }
         return super.dispatchGenericMotionEvent(event)
+    }
+
+    /**
+     * Vídeo em tela cheia abre na posição certa, qualquer que seja a do celular: retrato (mais alto que largo) trava em pé,
+     * paisagem trava deitado (o sensor ainda vira de cabeça para baixo). Lê o tamanho do vídeo na página; se ele ainda não
+     * carregou (0x0), tenta de novo algumas vezes. Ao sair da tela cheia a orientação volta a seguir o celular.
+     */
+    private fun lockOrientationToVideo(attempt: Int) {
+        if (!::web.isInitialized || customView == null) return
+        web.evaluateJavascript(
+            "(function(){var f=document.fullscreenElement;var v=(f&&(f.tagName==='VIDEO'?f:f.querySelector('video')))||document.querySelector('video');" +
+                "return v?v.videoWidth+'x'+v.videoHeight:'0x0'})()"
+        ) { raw ->
+            val m = Regex("(\\d+)x(\\d+)").find(raw ?: "")
+            val w = m?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val h = m?.groupValues?.get(2)?.toIntOrNull() ?: 0
+            if (customView == null) return@evaluateJavascript
+            if (w > 0 && h > 0) {
+                requestedOrientation = if (h > w) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else if (attempt < 8) {
+                ui.postDelayed({ lockOrientationToVideo(attempt + 1) }, 300)
+            }
+        }
     }
 
     /** Tela cheia de vídeo cobre tudo, inclusive a barra de status (hora, bateria) e o recorte da câmera; ao sair, volta ao normal. */

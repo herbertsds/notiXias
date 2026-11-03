@@ -915,3 +915,22 @@ test('setLandscapeLayout: foto/card dentro de âncora [role=link] conta como mí
   assert.equal(Xdom.setLandscapeLayout(w.document, w, true), true);
   assert.equal(w.document.getElementById('cards').hasAttribute('data-nx-media'), true);
 });
+
+test('openMediaFullscreen: aperta o botão de tela cheia do vídeo visível; sem vídeo, abre a foto visível', () => {
+  const w = new JSDOM('<body><div data-testid="videoComponent" id="c"><video id="v"></video><button aria-label="Tela cheia" id="b"></button></div></body>', { url: 'https://x.com/u/status/1' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const rect = { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300 };
+  w.document.getElementById('v').getBoundingClientRect = () => rect;
+  let clicked = 0;
+  w.document.getElementById('b').addEventListener('click', () => clicked++);
+  assert.equal(Xdom.openMediaFullscreen(w.document, w), 'video');
+  assert.equal(clicked, 1);
+  const p = new JSDOM('<body><a href="/u/status/1/photo/1" id="a"><div data-testid="tweetPhoto" id="p"></div></a></body>', { url: 'https://x.com/u/status/1' }).window;
+  p.innerWidth = 900; p.innerHeight = 400;
+  p.document.getElementById('p').getBoundingClientRect = () => rect;
+  let pc = 0;
+  p.document.getElementById('a').addEventListener('click', (e) => { e.preventDefault(); pc++; });
+  assert.equal(Xdom.openMediaFullscreen(p.document, p), 'photo');
+  assert.equal(pc, 1);
+  assert.equal(Xdom.openMediaFullscreen(new JSDOM('<body></body>').window.document, p), null);
+});

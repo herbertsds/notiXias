@@ -692,6 +692,32 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
+  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> aperta o botão de tela cheia do player
+  // (ou, sem ele, toca no player, o que mostra os controles/abre o visualizador); sem vídeo, a foto mais visível -> toca nela
+  // (abre o visualizador de fotos do X). Devolve 'video', 'photo' ou null. Clique por script basta: a rota do X é interna.
+  const FS_BTN_RE = /(tela cheia|full ?screen|expandir|expand)/i;
+  function openMediaFullscreen(root, win) {
+    const vv = visibleVideo(root, win);
+    if (vv) {
+      const scope = vv.component || vv.video.parentElement || root;
+      const btn = Array.from(scope.querySelectorAll('button, [role="button"]')).find((b) => FS_BTN_RE.test(b.getAttribute('aria-label') || ''));
+      (btn || vv.component || vv.video).click();
+      return 'video';
+    }
+    let best = null;
+    for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
+      const r = ph.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const w = Math.max(0, Math.min(r.right, win.innerWidth) - Math.max(r.left, 0));
+      const h = Math.max(0, Math.min(r.bottom, win.innerHeight) - Math.max(r.top, 0));
+      const share = (w * h) / (r.width * r.height);
+      if (share >= 0.3 && (!best || w * h > best.area)) best = { el: ph, area: w * h };
+    }
+    if (!best) return null;
+    (best.el.closest('a') || best.el).click();
+    return 'photo';
+  }
+
   // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
   // escolher 1x depois de outra velocidade tem de devolver o vídeo ao normal, e o padrão (1x, nunca mexido) deixa o X
   // em paz. O navegador pode recusar velocidades baixas demais (o iOS limita): então o vídeo segue como estava.
@@ -846,7 +872,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

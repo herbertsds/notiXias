@@ -37,3 +37,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **Cruzeta (0.1.6):** cima/baixo rolam a página 40% da altura da tela (suave; segurar repete). Atende tanto `KEYCODE_DPAD_UP/DOWN` quanto o eixo `AXIS_HAT_Y` (`dispatchGenericMotionEvent`), conforme o modo do controle. Esquerda/direita não fazem nada.
 
 **0.1.7:** R1/L1 trocados por **R2/L2** (tecla `BUTTON_R2/L2` ou eixo analógico `RTRIGGER/GAS`, `LTRIGGER/BRAKE` a partir de 50%).
+
+**0.1.8:** botão **X** do controle manda Alt+seta para cima; o script (0.16.20) abre em tela cheia o vídeo visível (botão de tela cheia do player) ou, sem vídeo, a foto mais visível.

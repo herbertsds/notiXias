@@ -246,6 +246,7 @@ class MainActivity : Activity() {
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R2 -> "ArrowRight"
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L2 -> "ArrowLeft"
+            KeyEvent.KEYCODE_BUTTON_X -> "ArrowUp"   // abre a mídia da tela em tela cheia (o script trata Alt+seta para cima)
             else -> return super.dispatchKeyEvent(event)
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) sendNav(dir)

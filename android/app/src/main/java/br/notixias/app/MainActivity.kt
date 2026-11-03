@@ -193,15 +193,39 @@ class MainActivity : Activity() {
         if (::web.isInitialized) web.saveState(outState)
     }
 
-    // Cruzeta (D-pad) do controle: cada toque rola a página um pouco (40% da altura da tela); segurar repete. Há controles que
-    // mandam a cruzeta como teclas (DPAD_UP/DOWN) e outros como eixo (HAT_Y): os dois são atendidos.
+    // Rolagem pelo controle (cruzeta e analógico): um toque rola um passo (40% da altura da tela); só segurando repete
+    // (primeiro depois de HOLD_FIRST_MS, depois a cada HOLD_EVERY_MS). A cruzeta pode vir como teclas (DPAD_UP/DOWN) ou como
+    // eixo (HAT_Y), e o analógico como AXIS_Y (esquerdo) ou AXIS_RZ (direito): cada fonte guarda a sua direção (-1, 0, 1) e vale
+    // a primeira diferente de 0. Os eventos do analógico são consumidos, para o WebView não rolar sozinho sem parar.
     private fun scrollPage(down: Boolean) {
         if (!::web.isInitialized) return
         val sign = if (down) "" else "-"
         web.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
     }
 
-    private var hatY = 0f
+    private var keyDir = 0
+    private var hatDir = 0
+    private var stickDir = 0
+    private var heldDir = 0
+    private val holdRepeat = object : Runnable {
+        override fun run() {
+            if (heldDir == 0) return
+            scrollPage(heldDir > 0)
+            ui.postDelayed(this, HOLD_EVERY_MS)
+        }
+    }
+
+    private fun updateScroll() {
+        val d = if (keyDir != 0) keyDir else if (hatDir != 0) hatDir else stickDir
+        if (d == heldDir) return
+        heldDir = d
+        ui.removeCallbacks(holdRepeat)
+        if (d != 0) {
+            scrollPage(d > 0)
+            ui.postDelayed(holdRepeat, HOLD_FIRST_MS)
+        }
+    }
+
     private var rTrig = false
     private var lTrig = false
 
@@ -224,14 +248,15 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_MOVE && (event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0) {
+        if ((event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0 && event.action == MotionEvent.ACTION_MOVE) {
             triggerAxes(event)
-            val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
-            if (y != hatY) {
-                hatY = y
-                if (y != 0f) scrollPage(y > 0f)
-                return true
-            }
+            val hat = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            hatDir = if (hat > 0.5f) 1 else if (hat < -0.5f) -1 else 0
+            val stick = if (Math.abs(event.getAxisValue(MotionEvent.AXIS_Y)) >= Math.abs(event.getAxisValue(MotionEvent.AXIS_RZ)))
+                event.getAxisValue(MotionEvent.AXIS_Y) else event.getAxisValue(MotionEvent.AXIS_RZ)
+            stickDir = if (stick > 0.6f) 1 else if (stick < -0.6f) -1 else 0
+            updateScroll()
+            return true
         }
         return super.dispatchGenericMotionEvent(event)
     }
@@ -240,7 +265,10 @@ class MainActivity : Activity() {
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-            if (event.action == KeyEvent.ACTION_DOWN) scrollPage(event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN)
+            val d = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) keyDir = d
+            else if (event.action == KeyEvent.ACTION_UP && keyDir == d) keyDir = 0
+            updateScroll()
             return true
         }
         val dir = when (event.keyCode) {
@@ -267,5 +295,10 @@ class MainActivity : Activity() {
             ::web.isInitialized && web.canGoBack() -> web.goBack()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
+    }
+
+    companion object {
+        private const val HOLD_FIRST_MS = 450L
+        private const val HOLD_EVERY_MS = 250L
     }
 }

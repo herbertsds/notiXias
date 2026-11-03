@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.18
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.18
+// @version      0.16.19
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.19
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -658,10 +658,10 @@ const Xdom = (function () {
   const LAND_CSS =
     'html[' + LAND_ATTR + '] header[role="banner"],html[' + LAND_ATTR + '] [data-testid="sidebarColumn"]{display:none!important}' +
     '[' + WIDE_ATTR + ']{max-width:none!important;width:100%!important;min-width:0!important;flex:1 1 auto!important}' +
-    '[' + GRID_ATTR + ']{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;align-items:start}' +
+    '[' + GRID_ATTR + ']{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:repeat(29,auto) 1fr;column-gap:16px;align-items:start}' +
     '[' + FLAT_ATTR + ']{display:contents!important}' +
     '[' + GRID_ATTR + ']>*,[' + FLAT_ATTR + ']>*{grid-column:1}' +
-    '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:stretch;min-width:0}';
+    '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 30;justify-self:stretch;min-width:0}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"],a[href*="/photo/"],img[src*="pbs.twimg.com/media"]';
 
   // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): o bloco é reduzido com `zoom` (encolhe largura E
@@ -2229,7 +2229,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.18'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.19'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

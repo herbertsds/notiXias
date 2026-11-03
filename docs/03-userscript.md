@@ -460,3 +460,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.17: `layoutDebug` lista também os itens da grade (retângulo, position, altura, overflow, margem, linha/coluna) e os retângulos do texto e da barra de ações — para achar por que, em alguns posts, a barra de ações (comentários, reposts, curtidas) aparece por cima do texto na tela deitada.
 
 0.16.18: `layoutDebug` escolhe primeiro os posts em que a barra de ações está sobre o texto (marcados `[AÇÕES SOBRE O TEXTO]`), pois os afetados ficam em "Descubra mais", longe do topo.
+
+0.16.19: corrige a barra de ações sobre o texto na tela deitada. Diagnóstico: a mídia ocupava 20 linhas `auto` e a altura dela era dividida igualmente entre elas (358/20 ≈ 18 px), deixando a linha do texto (66 px) menor que o texto. Agora a grade tem 29 linhas `auto` + 1 linha `1fr` e a mídia cobre as 30: a altura extra vai só para a linha flexível.

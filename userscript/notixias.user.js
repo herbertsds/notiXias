@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.29
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.29
+// @version      0.16.30
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.30
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2260,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.29'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.30'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3565,7 +3565,12 @@ async function startApp() {
   // Android manda de verdade (não sintética) quando o botão X do controle é apertado. O MESMO vídeo continua tocando, então
   // mudo/som e posição não mudam. Se o navegador recusar, cai no visualizador do X.
   function enterVideoFullscreen(video, fallbackPath) {
-    const el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
+    // O elemento em tela cheia tem de incluir os CONTROLES do player (som, barra, botão de sair), que ficam fora do `<video>`:
+    // sobe até o primeiro ancestral que os contém (limitado ao `videoPlayer`/post).
+    const ctrl = '[data-testid="mute-button"],[data-testid="scrubber"],[data-testid="playButton"]';
+    let el = video;
+    while (el.parentElement && !el.querySelector(ctrl) && !el.matches('article')) el = el.parentElement;
+    if (el.matches('article') || el === video.ownerDocument.body) el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
     // Sem cair no visualizador do X (rota que não ocupa a tela): se o navegador recusar, avisa o motivo.
     const fail = (err) => ui.toast('Tela cheia recusada: ' + ((err && err.message) || err || 'sem suporte'), { tone: 'warn', ms: 5000 });
     try {

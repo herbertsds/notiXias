@@ -45,3 +45,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.10:** cruzeta e analógico (esquerdo `AXIS_Y`, direito `AXIS_RZ`) rolam **um passo por toque**; só segurando repete (1º repique após 450 ms, depois a cada 250 ms). Os eventos do analógico são consumidos (antes o WebView rolava sem parar).
 
 **0.1.11:** botão X: com a tela cheia aberta (`customView`), chama `document.exitFullscreen()`; senão pergunta ao script `window.nxVideoCenter()` e dá um **toque real** (`dispatchTouchEvent`) no vídeo — o toque no vídeo entra em tela cheia com gesto válido (a tecla F9 não foi confiável). Sem vídeo, manda Alt+seta para cima (foto). Diagnóstico temporário: botões de controle sem função mostram um aviso com o nome do código.
+
+**0.1.12:** tela cheia de vídeo em modo imersivo (`immersive()`: esconde barra de status/navegação e usa o recorte da câmera; volta ao sair). Voltar com a tela cheia aberta também pede `exitFullscreen` à página.

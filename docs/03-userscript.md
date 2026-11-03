@@ -482,3 +482,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.28: o botão X do controle (F9) também **sai** da tela cheia quando o vídeo já está em tela cheia (`Xdom.leaveFullscreen`, ou `document.exitFullscreen`).
 
 0.16.29: se o navegador recusar a tela cheia, mostra o motivo num aviso (não cai mais no visualizador do X); `window.nxVideoCenter()` devolve um ponto do vídeo visível para o app do Android tocar (botão X do controle).
+
+0.16.30: a tela cheia do vídeo é pedida no primeiro ancestral que contém os controles do player (`mute-button`/`scrubber`), não só no `videoPlayer`: sem eles não havia botão para sair (o toque em tela cheia segue o comportamento padrão do X).

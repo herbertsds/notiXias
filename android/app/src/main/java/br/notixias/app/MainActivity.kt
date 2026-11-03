@@ -137,6 +137,7 @@ class MainActivity : Activity() {
                 customCallback = callback
                 root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 web.visibility = View.GONE
+                immersive(true)
             }
             override fun onHideCustomView() {
                 customView?.let { root.removeView(it) }
@@ -144,6 +145,7 @@ class MainActivity : Activity() {
                 customCallback?.onCustomViewHidden()
                 customCallback = null
                 web.visibility = View.VISIBLE
+                immersive(false)
             }
         }
 
@@ -261,6 +263,21 @@ class MainActivity : Activity() {
         return super.dispatchGenericMotionEvent(event)
     }
 
+    /** Tela cheia de vídeo cobre tudo, inclusive a barra de status (hora, bateria) e o recorte da câmera; ao sair, volta ao normal. */
+    @Suppress("DEPRECATION")
+    private fun immersive(on: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = if (on) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
+        window.decorView.systemUiVisibility = if (on) {
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        } else View.SYSTEM_UI_FLAG_VISIBLE
+    }
+
     // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pede ao script um ponto do vídeo visível e dá um TOQUE de
     // verdade ali (o toque no vídeo põe em tela cheia; o navegador só aceita tela cheia depois de um gesto do usuário real).
     private fun toggleVideoFullscreen() {
@@ -325,7 +342,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            customView != null -> web.webChromeClient?.onHideCustomView()
+            customView != null -> { web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null); web.webChromeClient?.onHideCustomView() }
             ::web.isInitialized && web.canGoBack() -> web.goBack()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
         }

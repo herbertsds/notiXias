@@ -75,3 +75,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.5.0:** vídeos das telas vizinhas baixados para o armazenamento (`VideoCache.kt`, Media3 `SimpleCache`). A cada 3 s o app pergunta às telas da janela (frente + 3 de cada lado) quais vídeos o post delas tem (`__nxMediaDump`, no `shim.js`) e baixa a melhor qualidade em mp4, até 5 minutos por vídeo. O player lê pelo mesmo cache e abre na hora. Quando o post sai da janela, o vídeo é cancelado e apagado; o cache inteiro é apagado ao abrir o app. Só mp4 (HLS não é guardado).
 
 **0.5.1:** em rede com franquia (dados móveis; `isActiveNetworkMetered`) o app guarda só 10 s de cada vídeo; no Wi-Fi continuam 5 min. Se a rede mudar para Wi-Fi enquanto o post ainda está sendo olhado (as buscas de vídeo duram ~30 s por post), o download completa o que faltar. Nova permissão: `ACCESS_NETWORK_STATE`.
+
+**0.5.2:** os botões do player voltam a ser ícones, desenhados no código (`IconView`): fechar, play/pause, voltar/avançar 10 s, som/mudo, cadeado. Círculos quase transparentes, sem borda, traço fino branco. Qualidade e velocidade seguem como texto (são valores).

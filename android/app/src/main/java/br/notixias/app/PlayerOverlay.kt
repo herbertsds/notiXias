@@ -78,9 +78,9 @@ class PlayerOverlay(
     private val controls = FrameLayout(act)
     private val spinner = ProgressBar(act)
     private val badge: TextView
-    private val playBtn: TextView
-    private val muteBtn: TextView
-    private val lockBtn: TextView
+    private val playBtn: IconView
+    private val muteBtn: IconView
+    private val lockBtn: IconView
     private val qualityBtn: TextView
     private val speedBtn: TextView
     private val seek = SeekBar(act)
@@ -122,23 +122,23 @@ class PlayerOverlay(
 
         // ---- controles ----
         val top = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(button("✕", 56) { close() })
+        top.addView(iconButton(Icon.CLOSE) { close() }, LinearLayout.LayoutParams(dp(BTN), dp(BTN)))
         top.addView(View(act), LinearLayout.LayoutParams(0, 1, 1f))
-        qualityBtn = button(variants.firstOrNull()?.label ?: "", 56, wide = true) { pickQuality() }
-        top.addView(qualityBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
-        speedBtn = button("1x", 56, wide = true) { pickSpeed() }
-        top.addView(speedBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
-        muteBtn = button(if (muted) "Mudo" else "Som", 56, wide = true) { toggleMute() }
-        top.addView(muteBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
-        lockBtn = button("Fixo", 56, wide = true) { toggleLock() }
-        top.addView(lockBtn, LinearLayout.LayoutParams(-2, dp(56)))
+        qualityBtn = button(variants.firstOrNull()?.label ?: "") { pickQuality() }
+        top.addView(qualityBtn, LinearLayout.LayoutParams(-2, dp(BTN)).apply { rightMargin = dp(10) })
+        speedBtn = button("1x") { pickSpeed() }
+        top.addView(speedBtn, LinearLayout.LayoutParams(-2, dp(BTN)).apply { rightMargin = dp(10) })
+        muteBtn = iconButton(if (muted) Icon.MUTED else Icon.SOUND) { toggleMute() }
+        top.addView(muteBtn, LinearLayout.LayoutParams(dp(BTN), dp(BTN)).apply { rightMargin = dp(10) })
+        lockBtn = iconButton(Icon.LOCK) { toggleLock() }
+        top.addView(lockBtn, LinearLayout.LayoutParams(dp(BTN), dp(BTN)))
         controls.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
 
         val mid = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        mid.addView(button("⟲ 10", 64, wide = true) { seekBy(-10_000) }, LinearLayout.LayoutParams(-2, dp(64)).apply { rightMargin = dp(28) })
-        playBtn = button(PAUSE, 88) { togglePlay() }
-        mid.addView(playBtn, LinearLayout.LayoutParams(dp(88), dp(88)))
-        mid.addView(button("10 ⟳", 64, wide = true) { seekBy(10_000) }, LinearLayout.LayoutParams(-2, dp(64)).apply { leftMargin = dp(28) })
+        mid.addView(iconButton(Icon.BACK10) { seekBy(-10_000) }, LinearLayout.LayoutParams(dp(60), dp(60)).apply { rightMargin = dp(32) })
+        playBtn = iconButton(Icon.PAUSE) { togglePlay() }
+        mid.addView(playBtn, LinearLayout.LayoutParams(dp(84), dp(84)))
+        mid.addView(iconButton(Icon.FWD10) { seekBy(10_000) }, LinearLayout.LayoutParams(dp(60), dp(60)).apply { leftMargin = dp(32) })
         controls.addView(mid, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
 
         posText = label("0:00", 14f)
@@ -188,7 +188,7 @@ class PlayerOverlay(
                 }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                playBtn.text = if (isPlaying) PAUSE else PLAY
+                playBtn.kind = if (isPlaying) Icon.PAUSE else Icon.PLAY
                 if (isPlaying) scheduleHide() else { ui.removeCallbacks(hide); if (firstReady && !longHeld) showControls() }
             }
             override fun onVideoSizeChanged(size: VideoSize) {
@@ -227,10 +227,8 @@ class PlayerOverlay(
     }
 
     // ---------- interface ----------
-    // Discreto: quase transparente, com um fio branco fino.
-    private fun pill() = GradientDrawable().apply {
-        setColor(0x1FFFFFFF); setStroke(dp(1), 0x66FFFFFF); cornerRadius = dp(28).toFloat()
-    }
+    // Clean: círculos/pílulas quase transparentes, sem borda, com ícones brancos desenhados.
+    private fun pill(r: Int = 28) = GradientDrawable().apply { setColor(0x26FFFFFF); cornerRadius = dp(r).toFloat() }
 
     private fun label(text: String, size: Float) = TextView(act).apply {
         this.text = text
@@ -240,12 +238,77 @@ class PlayerOverlay(
         setPadding(dp(6), 0, dp(6), 0)
     }
 
-    private fun button(text: String, size: Int, wide: Boolean = false, onClick: () -> Unit) = label(text, if (size >= 80) 30f else 16f).apply {
-        background = pill()
-        if (wide) setPadding(dp(16), 0, dp(16), 0)
-        minimumWidth = dp(size)
-        minimumHeight = dp(size)
+    /** Botão de texto (valores: qualidade e velocidade). */
+    private fun button(text: String, onClick: () -> Unit) = label(text, 15f).apply {
+        background = pill(BTN / 2)
+        setPadding(dp(16), 0, dp(16), 0)
+        minimumWidth = dp(BTN)
+        minimumHeight = dp(BTN)
         setOnClickListener { onClick(); if (!closed) scheduleHide() }
+    }
+
+    private fun iconButton(kind: Icon, onClick: () -> Unit) = IconView(act, kind).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x26FFFFFF) }
+        setOnClickListener { onClick(); if (!closed) scheduleHide() }
+    }
+
+    private enum class Icon { CLOSE, PLAY, PAUSE, BACK10, FWD10, SOUND, MUTED, LOCK, UNLOCK }
+
+    /** Ícone desenhado em traço fino branco (grade de 24 unidades). */
+    private class IconView(ctx: android.content.Context, k: Icon) : View(ctx) {
+        var kind: Icon = k
+            set(v) { field = v; invalidate() }
+        private val line = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE; color = 0xF2FFFFFF.toInt()
+            strokeCap = android.graphics.Paint.Cap.ROUND; strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xF2FFFFFF.toInt() }
+        private val txt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xF2FFFFFF.toInt(); textAlign = android.graphics.Paint.Align.CENTER; isFakeBoldText = true
+        }
+
+        override fun onDraw(c: android.graphics.Canvas) {
+            val box = minOf(width, height) * 0.5f          // o ícone ocupa metade do botão
+            val u = box / 24f
+            c.save()
+            c.translate((width - box) / 2f, (height - box) / 2f)
+            c.scale(u, u)
+            line.strokeWidth = 1.9f
+            when (kind) {
+                Icon.CLOSE -> { c.drawLine(5f, 5f, 19f, 19f, line); c.drawLine(19f, 5f, 5f, 19f, line) }
+                Icon.PLAY -> { val p = android.graphics.Path().apply { moveTo(7f, 4f); lineTo(20f, 12f); lineTo(7f, 20f); close() }; c.drawPath(p, fill) }
+                Icon.PAUSE -> { c.drawRoundRect(5f, 4f, 10f, 20f, 1.5f, 1.5f, fill); c.drawRoundRect(14f, 4f, 19f, 20f, 1.5f, 1.5f, fill) }
+                Icon.BACK10, Icon.FWD10 -> {
+                    c.save()
+                    if (kind == Icon.BACK10) c.scale(-1f, 1f, 12f, 12f)
+                    val r = android.graphics.RectF(3f, 4f, 21f, 22f)
+                    c.drawArc(r, -80f, 310f, false, line)
+                    // ponta da seta no fim do arco (230°), apontando no sentido do giro
+                    val a = Math.toRadians(230.0)
+                    val px = (12 + 9 * Math.cos(a)).toFloat(); val py = (13 + 9 * Math.sin(a)).toFloat()
+                    c.drawLine(px, py, px - 1f, py + 4.6f, line); c.drawLine(px, py, px + 4.6f, py + 1.4f, line)
+                    c.restore()
+                    txt.textSize = 8.5f
+                    c.drawText("10", 12f, 16f, txt)
+                }
+                Icon.SOUND, Icon.MUTED -> {
+                    val sp = android.graphics.Path().apply { moveTo(3f, 9.5f); lineTo(7.5f, 9.5f); lineTo(12.5f, 5f); lineTo(12.5f, 19f); lineTo(7.5f, 14.5f); lineTo(3f, 14.5f); close() }
+                    c.drawPath(sp, fill)
+                    if (kind == Icon.SOUND) {
+                        c.drawArc(android.graphics.RectF(10f, 8f, 17f, 16f), -50f, 100f, false, line)
+                        c.drawArc(android.graphics.RectF(8f, 4.5f, 21f, 19.5f), -50f, 100f, false, line)
+                    } else { c.drawLine(16f, 9f, 22f, 15f, line); c.drawLine(22f, 9f, 16f, 15f, line) }
+                }
+                Icon.LOCK, Icon.UNLOCK -> {
+                    c.drawRoundRect(5f, 11f, 19f, 21f, 2.5f, 2.5f, line)
+                    val sh = android.graphics.Path()
+                    if (kind == Icon.LOCK) { sh.moveTo(8f, 11f); sh.lineTo(8f, 8f); sh.arcTo(android.graphics.RectF(8f, 3f, 16f, 13f), 180f, 180f); sh.lineTo(16f, 11f) }
+                    else { sh.moveTo(8f, 11f); sh.lineTo(8f, 8f); sh.arcTo(android.graphics.RectF(8f, 3f, 16f, 13f), 180f, 180f); sh.lineTo(16f, 6f) }
+                    c.drawPath(sh, line)
+                }
+            }
+            c.restore()
+        }
     }
 
     private val hide = Runnable { hideControls() }
@@ -339,7 +402,7 @@ class PlayerOverlay(
     private fun toggleMute() {
         muted = !muted
         player.volume = if (muted) 0f else 1f
-        muteBtn.text = if (muted) "Mudo" else "Som"
+        muteBtn.kind = if (muted) Icon.MUTED else Icon.SOUND
     }
 
     // Formato do vídeo (em pé/deitado) travado; o sensor ainda deixa virar de cabeça para baixo. O cadeado solta (segue o celular).
@@ -353,7 +416,7 @@ class PlayerOverlay(
 
     private fun toggleLock() {
         lockOn = !lockOn
-        lockBtn.text = if (lockOn) "Fixo" else "Livre"
+        lockBtn.kind = if (lockOn) Icon.LOCK else Icon.UNLOCK
         applyOrientation()
         Toast.makeText(act, if (lockOn) "Girar: fixo no formato do vídeo" else "Girar: livre (segue o celular)", Toast.LENGTH_SHORT).show()
     }
@@ -443,8 +506,7 @@ class PlayerOverlay(
         private const val HOLD_MS = 350L
         private const val HOLD_SPEED = 2f
         private const val STALL_MS = 4000L
-        private const val PLAY = "▶\uFE0E"
-        private const val PAUSE = "❚❚"
+        private const val BTN = 48
         // Mesmos valores do botão de velocidade do script (Core.SPEEDS).
         private val SPEEDS = listOf(0.1f, 0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 2.75f, 3f)
     }

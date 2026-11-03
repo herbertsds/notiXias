@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.31
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.31
+// @version      0.16.32
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.32
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2260,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.31'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.32'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3574,13 +3574,18 @@ async function startApp() {
     if (v) tapState = { video: v, paused: v.paused, muted: v.muted, at: Date.now() };
   }, true));
 
-  function enterVideoFullscreen(video, fallbackPath) {
-    // O elemento em tela cheia tem de incluir os CONTROLES do player (som, barra, botão de sair), que ficam fora do `<video>`:
-    // sobe até o primeiro ancestral que os contém (limitado ao `videoPlayer`/post).
+  // O elemento em tela cheia tem de incluir os CONTROLES do player (som, barra, botão de sair), que ficam fora do `<video>`:
+  // sobe até o primeiro ancestral que os contém (limitado ao `videoPlayer`/post).
+  function fullscreenTarget(video) {
     const ctrl = '[data-testid="mute-button"],[data-testid="scrubber"],[data-testid="playButton"]';
     let el = video;
     while (el.parentElement && !el.querySelector(ctrl) && !el.matches('article')) el = el.parentElement;
     if (el.matches('article') || el === video.ownerDocument.body) el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
+    return el;
+  }
+
+  function enterVideoFullscreen(video0, fallbackPath) {
+    let video = video0;
     const before = tapState && tapState.video === video && Date.now() - tapState.at < 4000 ? tapState : { paused: video.paused, muted: video.muted };
     // Sem cair no visualizador do X (rota que não ocupa a tela): se o navegador recusar, avisa o motivo.
     const fail = (err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err || 'sem suporte'), { tone: 'warn', ms: 5000 }); };
@@ -3592,6 +3597,13 @@ async function startApp() {
     }, ms));
     const go = () => {
       try {
+        // Girar a tela faz o X redesenhar o post: o vídeo/elemento de antes pode ter saído da página. Acha o vídeo visível de novo.
+        if (!video.isConnected) {
+          const vv = Xdom.visibleVideo(document, window);
+          if (!vv) return fail('vídeo não encontrado depois de girar a tela');
+          video = vv.video;
+        }
+        const el = fullscreenTarget(video);
         const req = el.requestFullscreen || el.webkitRequestFullscreen;
         if (!req) return fail('sem suporte');
         const r = req.call(el);
@@ -3605,7 +3617,7 @@ async function startApp() {
     const isPortrait = window.innerHeight > window.innerWidth;
     if (video.videoWidth > 0 && wantPortrait !== isPortrait) {
       let done = false;
-      const once = () => { if (done) return; done = true; window.removeEventListener('resize', onResize); setTimeout(go, 150); };
+      const once = () => { if (done) return; done = true; window.removeEventListener('resize', onResize); setTimeout(go, 400); };
       const onResize = () => once();
       window.addEventListener('resize', onResize);
       gm.set('nx_orient', wantPortrait ? 'portrait' : 'landscape');

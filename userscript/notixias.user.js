@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.45
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.45
+// @version      0.17.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.17.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2304,7 +2304,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.45'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.17.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2340,7 +2340,7 @@ async function startApp() {
   // ---------- armazenamento do gerenciador de scripts (nunca o armazenamento do próprio x.com) ----------
   // No Tampermonkey GM_getValue é síncrono; no app Userscripts (iOS) devolve Promise. Por isso tudo é lido uma vez,
   // antes de iniciar, para um cache em memória, e o resto do código continua lendo de forma síncrona.
-  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_search', 'nx_session_auto_at', 'nx_skeleton', 'nx_view'];
+  const GM_KEYS = ['nx_beat', 'nx_cfg', 'nx_why', 'nx_follow_dirty', 'nx_follow_fail_at', 'nx_follow_ops', 'nx_launch', 'nx_mode', 'nx_notice', 'nx_phase', 'nx_search', 'nx_session_auto_at', 'nx_skeleton', 'nx_view', 'nx_role'];
   const gmCache = new Map();
   // Tampermonkey: GM_getValue/GM_setValue. Userscripts (iOS): GM.getValue/GM.setValue (assíncronos).
   const gmGet = (k) => (typeof GM_getValue === 'function' ? GM_getValue(k) : GM.getValue(k));
@@ -2424,6 +2424,28 @@ async function startApp() {
   let cancelled = false;
   let busy = false;
   let feed = { url: 'https://x.com/home', tab_index: 1 };
+
+  // ---------- telas do app (Android) ----------
+  // O app mantém até três telas do X para a fila: a da frente (papel "active") e duas atrás ("standby") com o post anterior e o
+  // próximo já abertos. Passar de post = o app troca as telas na hora; a que veio para a frente só então mexe na posição/API. Um
+  // link para fora da fila abre numa quarta tela por cima ("detached"); fechá-la volta ao post da fila sem recarregar. No navegador
+  // (Tampermonkey/Userscripts) não há papel: tudo segue como sempre.
+  const roleInfo = gm.get('nx_role', null);
+  let appRole = roleInfo && roleInfo.role ? roleInfo.role : null;
+  const appCall = (k, v) => {
+    try { return Promise.resolve(gmSet(k, JSON.stringify(v))).catch(() => null); } catch (e) { return Promise.resolve(null); }
+  };
+  let selfNavAt = 0; // navegação feita pelo próprio script (não é o dono saindo da fila)
+  let curEntry = null; // entrada da fila mostrada e registrada por esta tela
+  let neighbors = null; // { cur, prev, next } publicados ao app
+  let slotEntry = null; // entrada aberta (ou abrindo) nesta tela
+  let slotView = null; // o "nx_view" desta tela (seq, tweetId, targetId, label, dir)
+  let slotMissing = false; // o post não existe mais
+  let preloadP = null; // pré-carga em andamento (ou já feita)
+  let slotToken = 0;
+  let activating = false;
+  let detachReturnAt = 0; // a tela da fila acabou de voltar ao post (a página nova foi para a tela por cima)
+  let activationP = null; // registro da tela que acabou de vir para a frente
 
   const getPhase = () => {
     const p = gm.get('nx_phase', { name: 'idle' });
@@ -2557,6 +2579,7 @@ async function startApp() {
   // ---------- navegação ----------
   // Preferencial: navegação interna do X (sem recarregar). Se não renderizar em 7 s, abre a página normalmente.
   function go(url) {
+    selfNavAt = Date.now();
     if (cfg.internalNav) {
       try {
         const u = new URL(url, location.href);
@@ -2652,7 +2675,7 @@ async function startApp() {
       { label: 'Mão: ' + CYCLE.layout.label[cfg.layout], onClick: () => cycle('layout') },
       { label: 'Botões: ' + CYCLE.buttons.label[cfg.buttons], onClick: () => cycle('buttons') },
       { label: 'Barra do X: ' + (cfg.hideXBar ? 'escondida' : 'visível'), onClick: () => { cfg.hideXBar = !cfg.hideXBar; saveCfg(); applyXBar(); drawBar(); } },
-      { label: 'Ir para Explorar', onClick: () => go('https://x.com/explore') },
+      { label: 'Ir para Explorar', onClick: () => goOut('https://x.com/explore') },
       { label: 'Trocar feed…', onClick: changeFeed },
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
@@ -2680,9 +2703,9 @@ async function startApp() {
   }
 
   const NAV_ITEMS = () => [
-    { label: '🏠', title: 'Início', onClick: () => go('https://x.com/home') },
-    { label: '🔔', title: 'Notificações', onClick: () => go('https://x.com/notifications') },
-    { label: '✉️', title: 'Mensagens', onClick: () => go('https://x.com/messages') },
+    { label: '🏠', title: 'Início', onClick: () => goOut('https://x.com/home') },
+    { label: '🔔', title: 'Notificações', onClick: () => goOut('https://x.com/notifications') },
+    { label: '✉️', title: 'Mensagens', onClick: () => goOut('https://x.com/messages') },
   ];
 
   // barState: { st, notice, message }  (message => fora da fila; sem botões de passar)
@@ -2749,6 +2772,8 @@ async function startApp() {
   // ---------- leitura ----------
   // `dir`: 'fwd' (padrão) ou 'back' (veio do ◀). Guardada para, se o post não existir mais, seguir na mesma direção.
   async function openEntry(entry, dir) {
+    if (appRole === 'active' && await appSwap(entry, dir === 'back' ? 'back' : 'fwd', null)) return;
+    if (appRole === 'active') { neighbors = null; curEntry = null; }
     const label = Core.openingLabel(entry);
     if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
@@ -2758,6 +2783,7 @@ async function startApp() {
   }
 
   async function resumeReading() {
+    if (appRole === 'detached') return void appCall('nx_nav', { dir: 'fwd' });
     const st = await api.state();
     const act = Core.resumeAction(st);
     if (act.kind === 'current') return openEntry(st.current); // volta ao último aberto, mesmo já lido (não pula para a primeira não lida)
@@ -2776,6 +2802,10 @@ async function startApp() {
   }
 
   const onNext = () => guarded(async () => {
+    if (activationP) await activationP;
+    if (appRole === 'detached') return void appCall('nx_nav', { dir: 'fwd' });
+    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.next &&
+      await appSwap(neighbors.next, 'fwd', curEntry.seq)) return;
     const st = await api.state();
     const cur = st.current;
     if (!cur) return resumeReading();
@@ -2786,6 +2816,10 @@ async function startApp() {
   });
 
   const onPrev = () => guarded(async () => {
+    if (activationP) await activationP;
+    if (appRole === 'detached') return void appCall('nx_nav', { dir: 'back' });
+    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.prev &&
+      await appSwap(neighbors.prev, 'back', null)) return;
     const st = await api.state();
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
@@ -2848,33 +2882,16 @@ async function startApp() {
     await waitSettled(2500, 450);
     if (token !== routeToken) return stale();
 
-    // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
-    // os posts aos poucos, então olha de novo algumas vezes. Cada botão é clicado uma vez só; se um clique levar a
-    // outra página, volta e para.
-    const clickedMore = new WeakSet();
-    for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
-      const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
-      if (!btn) { idle++; await sleep(250); if (token !== routeToken) return stale(); continue; }
-      idle = 0;
-      clickedMore.add(btn);
-      clicks++;
-      const href = location.href;
-      btn.click();
-      await sleep(300);
-      if (token !== routeToken) return stale();
-      if (location.href !== href) { history.back(); await sleep(800); break; }
-    }
+    if (!(await expandMores(() => token === routeToken))) return stale();
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
     if (!view.targetId && !view.noJump) {
-      const pageItems = Xdom.pageItems(document);
-      const focal = pageItems.find((i) => i.id === status.id);
-      const pick = Core.pickThreadTarget(pageItems, status.id, focal ? focal.author : cur.author);
-      if (pick && pick.target.id !== status.id) {
-        view.targetId = pick.target.id;
+      const target = threadTarget(status.id, cur);
+      if (target) {
+        view.targetId = target.id;
         gm.set('nx_view', view);
         pin.stop();
-        go('https://x.com/' + pick.target.author + '/status/' + pick.target.id);
+        go('https://x.com/' + target.author + '/status/' + target.id);
         return 'jump'; // a tela de carregamento continua até a página de destino ficar pronta
       }
     }
@@ -2885,26 +2902,243 @@ async function startApp() {
     ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
     pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
 
-    // Cobertura: só o que está de fato desenhado na conversa da página.
-    //  - pedaços do mesmo autor (thread) e
-    //  - TODOS os posts acima do post aberto (resposta -> original), de qualquer autor: um único registro.
+    if (!(await coverPage(cur, status.id, notice, () => token === routeToken))) return 'stale';
+    entryShown(cur, view);
+    return 'done';
+  }
+
+  // Abre todo "Mostrar mais" do texto dos posts da página (originais acima, o aberto e as respostas). O X desenha
+  // os posts aos poucos, então olha de novo algumas vezes. Cada botão é clicado uma vez só; se um clique levar a
+  // outra página, volta e para. Devolve false se outra navegação assumiu (`alive()` falso).
+  async function expandMores(alive) {
+    const clickedMore = new WeakSet();
+    for (let round = 0, idle = 0, clicks = 0; round < 12 && idle < 2 && clicks < 40; round++) {
+      const btn = Xdom.findTextMoreButtons(document).find((b) => !clickedMore.has(b));
+      if (!btn) { idle++; await sleep(250); if (!alive()) return false; continue; }
+      idle = 0;
+      clickedMore.add(btn);
+      clicks++;
+      const href = location.href;
+      selfNavAt = Date.now();
+      btn.click();
+      await sleep(300);
+      if (!alive()) return false;
+      if (location.href !== href) { selfNavAt = Date.now(); history.back(); await sleep(800); break; }
+    }
+    return true;
+  }
+
+  // Último pedaço da thread do mesmo autor abaixo do post focal ({ id, author }), ou null.
+  function threadTarget(statusId, cur) {
+    const pageItems = Xdom.pageItems(document);
+    const focal = pageItems.find((i) => i.id === statusId);
+    const pick = Core.pickThreadTarget(pageItems, statusId, focal ? focal.author : cur.author);
+    return pick && pick.target.id !== statusId ? pick.target : null;
+  }
+
+  // Cobertura: só o que está de fato desenhado na conversa da página.
+  //  - pedaços do mesmo autor (thread) e
+  //  - TODOS os posts acima do post aberto (resposta -> original), de qualquer autor: um único registro.
+  // Devolve false se outra navegação assumiu.
+  async function coverPage(cur, statusId, notice, alive) {
+    const openId = cur.open_id || cur.tweet_id;
     const items = Xdom.pageItems(document);
-    const split = Core.splitConversation(items, status.id);
+    const split = Core.splitConversation(items, statusId);
     const own = new Set([cur.tweet_id, openId]);
     const ancestorIds = split.before.map((i) => i.id).filter((id) => !own.has(id));
     const sameAuthorIds = items.map((i) => i.id).filter((id) => !own.has(id));
     if (ancestorIds.length || sameAuthorIds.length) {
       const res = await api.cover({ covered_by: cur.seq, tweet_ids: sameAuthorIds, ancestor_ids: ancestorIds });
-      if (token !== routeToken) return stale();
+      if (!alive()) return false;
       // Confirma a cobertura provisória do que esta página mostra; o que não aparece volta à fila.
       const st2 = await api.settle({ covered_by: cur.seq, present_ids: items.map((i) => i.id) });
-      if (token !== routeToken) return stale();
+      if (!alive()) return false;
       if (res.covered > 0 || st2.confirmed > 0 || st2.released > 0) renderEntryBar(await api.state(), notice);
     } else {
       await api.settle({ covered_by: cur.seq, present_ids: [] });
     }
-    return 'done';
+    return true;
   }
+
+  // O post da fila está pronto nesta tela. No app, avisa quais são o anterior e o próximo (o app os abre nas telas de trás);
+  // vem depois da cobertura, porque ela pode tirar da fila posts que viriam a seguir.
+  function entryShown(cur, view) {
+    curEntry = cur;
+    slotEntry = cur;
+    slotView = view;
+    slotMissing = false;
+    preloadP = Promise.resolve();
+    return publishNeighbors(cur);
+  }
+
+  async function publishNeighbors(cur) {
+    if (appRole !== 'active' || !cur) return;
+    try {
+      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 1 }), api.queue({ before: cur.seq, limit: 1 })]);
+      if (appRole !== 'active' || !curEntry || curEntry.seq !== cur.seq) return;
+      neighbors = { cur: cur.seq, next: n.items[0] || null, prev: p.items[0] || null };
+      appCall('nx_neighbors', { cur, next: neighbors.next, prev: neighbors.prev });
+    } catch (e) { /* sem vizinhos: passar de post segue pelo caminho normal */ }
+  }
+
+  // Pede ao app para trazer para a frente a tela que já tem `entry` aberta. false: nenhuma tem (segue o caminho normal).
+  async function appSwap(entry, dir, fromSeq) {
+    const notice = gm.get('nx_notice', null);
+    const r = await appCall('nx_swap', { entry, dir, fromSeq, st: barState && barState.st, notice });
+    if (r !== true) return false;
+    if (notice) gm.set('nx_notice', null);
+    return true;
+  }
+
+  // ---- tela de trás: abre o post sem falar com a API nem mexer na posição, com os vídeos parados ----
+  const heldVideos = new Set();
+  let holdIv = null;
+  function holdVideos(on) {
+    if (on) {
+      if (holdIv) return;
+      const tick = () => document.querySelectorAll('video').forEach((v) => {
+        if (!v.paused) { try { v.pause(); heldVideos.add(v); } catch (e) { /* segue */ } }
+      });
+      tick();
+      holdIv = setInterval(tick, 300);
+      return;
+    }
+    clearInterval(holdIv);
+    holdIv = null;
+    // Volta a tocar (como o X faria) os vídeos que paramos e que estão na tela.
+    heldVideos.forEach((v) => {
+      try {
+        const r = v.getBoundingClientRect();
+        if (v.isConnected && r.bottom > 0 && r.top < window.innerHeight) v.play().catch(() => {});
+      } catch (e) { /* segue */ }
+    });
+    heldVideos.clear();
+  }
+
+  const statusIdOf = (url) => {
+    try { const s = Core.parseStatusPath(new URL(url, location.href).pathname); return s && s.id; } catch (e) { return null; }
+  };
+
+  // Mesmo preparo de quando o post é aberto na frente (esperar, "Mostrar mais", salto para o fim da thread), sem API.
+  function startPreload(entry, dir) {
+    const tok = ++slotToken;
+    const alive = () => tok === slotToken;
+    const id = statusIdOf(entry.url) || entry.open_id || entry.tweet_id;
+    slotEntry = entry;
+    slotMissing = false;
+    slotView = { seq: entry.seq, tweetId: id, targetId: null, label: Core.openingLabel(entry), dir: dir === 'back' ? 'back' : 'fwd' };
+    const view = slotView;
+    const open = async (url, wantId) => {
+      const s = Core.parseStatusPath(location.pathname);
+      if (!s || s.id !== wantId) go(url);
+      await waitFor(() => Xdom.hasStatus(document, wantId) || Xdom.pageMissing(document), 12000, 150);
+      return Xdom.hasStatus(document, wantId);
+    };
+    preloadP = (async () => {
+      if (!(await open(entry.url, id))) { if (alive()) slotMissing = true; return; }
+      if (!alive()) return;
+      await waitSettled(2500, 450);
+      if (!alive() || !(await expandMores(alive))) return;
+      const target = threadTarget(id, entry);
+      if (target) {
+        view.targetId = target.id;
+        if (await open('https://x.com/' + target.author + '/status/' + target.id, target.id)) {
+          if (!alive()) return;
+          await waitSettled(2500, 450);
+          if (!alive() || !(await expandMores(alive))) return;
+        } else {
+          if (!alive()) return; // o fim da thread sumiu: fica no post da fila
+          view.targetId = null;
+          view.noJump = true;
+          if (!(await open(entry.url, id))) { if (alive()) slotMissing = true; return; }
+        }
+      }
+      if (alive()) pinTop(800);
+    })().catch(() => {});
+    return preloadP;
+  }
+
+  // ---- a tela veio para a frente: agora sim registra a leitura ----
+  async function activate(a) {
+    const entry = a.entry;
+    const fwd = a.dir !== 'back';
+    appRole = 'active';
+    activating = true;
+    routeToken++;
+    holdVideos(false);
+    if (!slotEntry || slotEntry.seq !== entry.seq || !preloadP) startPreload(entry, a.dir);
+    // A barra aparece já (posição estimada a partir da tela anterior); a de verdade vem da API logo depois.
+    if (a.st && a.st.current) {
+      const pos = typeof a.st.position === 'number' ? a.st.position + (fwd ? 1 : -1) : a.st.position;
+      const after = typeof a.st.unread_after === 'number' ? Math.max(0, a.st.unread_after + (fwd ? -1 : 1)) : a.st.unread_after;
+      renderEntryBar(Object.assign({}, a.st, { current: entry, position: pos, unread_after: after }), a.notice);
+    }
+    // Ainda carregando (troca rápida demais): cobre com a tela de carregamento até ficar pronto.
+    let shown = false;
+    const t = setTimeout(() => { shown = true; ui.showLoading(slotView && slotView.label); }, 120);
+    try {
+      await preloadP;
+      clearTimeout(t);
+      if (appRole !== 'active') return;
+      lastHref = location.href;
+      prevPath = location.pathname;
+      activating = false;
+      const view = slotView;
+      view.dir = fwd ? 'fwd' : 'back'; // o anterior de agora pode ter sido aberto como "próximo"
+      gm.set('nx_view', view);
+      gm.set('nx_mode', 'read');
+      if (fwd && a.fromSeq) await api.views({ seqs: [a.fromSeq] });
+      if (slotMissing) {
+        await api.putState({ cursor_seq: entry.seq });
+        const r = await skipUnavailable({ id: view.tweetId }, entry, view);
+        if (r !== 'jump') ui.hideLoading();
+        return;
+      }
+      if (shown) ui.hideLoading({ scrollTop: true });
+      await api.putState({ cursor_seq: entry.seq });
+      const st = await api.state();
+      if (appRole !== 'active') return;
+      renderEntryBar(st, a.notice);
+      const cur = st.current || entry;
+      const statusId = (Core.parseStatusPath(location.pathname) || {}).id || view.tweetId;
+      const tok = routeToken;
+      if (!(await coverPage(cur, statusId, a.notice, () => tok === routeToken && appRole === 'active'))) return;
+      await entryShown(cur, view);
+    } catch (e) {
+      handleError(e);
+    } finally {
+      clearTimeout(t);
+      activating = false;
+    }
+  }
+
+  // Ordens do app: papel e entrada desta tela (pode chegar repetida).
+  window.nxSlot = (a) => {
+    try { if (typeof a === 'string') a = JSON.parse(a); } catch (e) { return; }
+    if (!a || !a.role) return;
+    if (a.role === 'standby') {
+      const was = appRole;
+      appRole = 'standby';
+      routeToken++;
+      holdVideos(true);
+      if (was === 'active') { neighbors = null; ui.hideLoading(); }
+      if (a.entry && (!slotEntry || slotEntry.seq !== a.entry.seq)) startPreload(a.entry, a.dir);
+      return;
+    }
+    if (a.role === 'active' && a.entry) {
+      const p = activate(a);
+      activationP = p;
+      p.finally(() => { if (activationP === p) activationP = null; });
+      return;
+    }
+    appRole = a.role;
+  };
+  // Voltar do Android na tela da fila: é navegação nossa (não abre a tela por cima).
+  window.nxBack = () => { selfNavAt = Date.now(); history.back(); };
+
+  // Rotas que ficam na tela da fila: foto/vídeo do próprio post, escrever resposta, telas /i/ (Grok etc.).
+  const keepInView = (p) => /\/status\/\d+\/(?:photo|video|mediaViewer)\b/i.test(p || '') || /^\/(?:compose|i|intent)\//i.test(p || '');
+  const goOut = (url) => (appRole === 'active' ? appCall('nx_detach', { url: new URL(url, location.href).href }) : go(url));
 
   // ---------- busca no SERVIDOR (o celular/navegador nunca rola o feed para buscar) ----------
   const POLL_MS = 3000;
@@ -3533,7 +3767,15 @@ async function startApp() {
   const viewerStatusId = (p) => { const m = /^\/[^/]+\/status\/(\d+)\/(?:mediaViewer|video\/\d+|photo\/\d+)/i.exec(p || ''); return m ? m[1] : null; };
 
   async function onRoute() {
+    if (appRole === 'standby') return; // tela de trás: só a pré-carga mexe nela
     const token = ++routeToken;
+    // De volta ao post depois de mandar a página nova para a tela por cima: o post já estava pronto (nada de reabrir).
+    if (appRole === 'active' && Date.now() - detachReturnAt < 4000 && isEntryPath()) {
+      detachReturnAt = 0;
+      prevPath = location.pathname;
+      ui.hideLoading();
+      return;
+    }
     if (!cfg.bot && /\/status\/\d+\/(?:video|mediaViewer)/i.test(location.pathname)) setTimeout(() => sendPlayerDiag('visualizador de vídeo aberto'), 2500);
     const fromPath = prevPath;
     prevPath = location.pathname;
@@ -3585,6 +3827,7 @@ async function startApp() {
       if (phase.name === 'error') return renderSideBar('Última busca falhou — veja o menu ⋯', st);
 
       if (cfg.bot) return; // robô: sem comando de busca, não faz nada
+      if (appRole === 'detached') return renderSideBar('Fora da fila', st); // tela por cima: ▶ volta à fila
       if (feedHere && cfg.autoResume) return await resumeReading();
 
       const status = Core.parseStatusPath(location.pathname);
@@ -3602,10 +3845,50 @@ async function startApp() {
   // Detecta mudança de rota do SPA por polling (independe de eventos internos do X).
   setInterval(() => {
     if (location.href !== lastHref) {
+      let fromPath = '';
+      try { fromPath = new URL(lastHref).pathname; } catch (e) { /* primeira vez */ }
       lastHref = location.href;
+      if (appRole === 'standby' || activating) { prevPath = location.pathname; return; }
+      if (appRole === 'active' && leaveToDetached(fromPath)) return;
       onRoute();
     }
   }, 300);
+
+  // App: o dono saiu do post da fila por um toque que não é link (ex.: o corpo de uma resposta). A página nova abre na tela por
+  // cima e esta volta ao post (fica pronta, atrás, para quando a de cima fechar).
+  function leaveToDetached(fromPath) {
+    if (Date.now() - selfNavAt < 2500) return false;
+    const v = gm.get('nx_view', null);
+    const from = Core.parseStatusPath(fromPath);
+    if (!from || !v || (from.id !== v.tweetId && from.id !== v.targetId)) return false;
+    if (isEntryPath() || keepInView(location.pathname)) return false;
+    appCall('nx_detach', { url: location.href });
+    selfNavAt = Date.now();
+    detachReturnAt = Date.now();
+    history.back();
+    return true;
+  }
+
+  // App: link (perfil, outro post, hashtag...) tocado no post da fila abre na tela por cima, sem tirar esta do post.
+  window.addEventListener('click', (e) => {
+    if (!e.isTrusted || !appRole) return;
+    const t = e.target;
+    if (!t || !t.closest || t.closest('[id^="notixias"]')) return;
+    if (appRole === 'detached') {
+      // Na tela por cima, a seta "voltar" do X na primeira página levaria ao início: volta à fila.
+      if (t.closest('[data-testid="app-bar-back"]')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); appCall('nx_back', {}); }
+      return;
+    }
+    if (appRole !== 'active') return;
+    if (t.closest('[data-testid="app-bar-back"]')) { selfNavAt = Date.now(); return; }
+    const a = t.closest('a[href]');
+    if (!a || !isEntryPath()) return;
+    let u;
+    try { u = new URL(a.getAttribute('href'), location.href); } catch (err) { return; }
+    if (u.origin !== location.origin || u.pathname === location.pathname || keepInView(u.pathname)) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    appCall('nx_detach', { url: u.href });
+  }, true);
 
   // Tela cheia do vídeo = o botão "Tela cheia" do próprio player do X (ver o tratamento do clique acima). O botão X do controle
   // faz o MESMO caminho: o app dá um toque de verdade num ponto do vídeo visível (aqui indicado, em px do CSS; '' sem vídeo).
@@ -3806,7 +4089,20 @@ async function startApp() {
 
   lastHref = location.href;
   applyXBar();
+  if (appRole === 'standby') {
+    prevPath = location.pathname;
+    holdVideos(true);
+    if (roleInfo.entry) startPreload(roleInfo.entry, roleInfo.dir);
+  }
   onRoute();
+  // O app pode ter mudado o papel desta tela enquanto o script iniciava: pergunta de novo.
+  if (appRole) {
+    try {
+      const raw = await Promise.race([gmGet('nx_role'), sleep(1500)]);
+      const r = raw ? JSON.parse(raw) : null;
+      if (r && r.role && (r.role !== appRole || (r.entry && (!slotEntry || slotEntry.seq !== r.entry.seq)))) window.nxSlot(r);
+    } catch (e) { /* segue com o papel do início */ }
+  }
 }
 
 if (typeof window !== 'undefined' && typeof GM_xmlhttpRequest !== 'undefined') {

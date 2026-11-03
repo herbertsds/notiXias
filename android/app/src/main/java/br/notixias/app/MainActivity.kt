@@ -16,6 +16,7 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -27,26 +28,55 @@ import android.widget.Toast
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
-/** notiXias: o X (x.com) num WebView com o userscript injetado antes de cada página. */
+/**
+ * notiXias: o X (x.com) em WebViews com o userscript injetado antes de cada página.
+ *
+ * Telas (WebViews) da fila: até [MAX_QUEUE_VIEWS], empilhadas. A da frente ("active") mostra o post atual; as de trás
+ * ("standby") já abrem o post anterior e o próximo (o script da frente avisa quais são: `nx_neighbors`). Passar de post
+ * (`nx_swap`) só traz para a frente a tela que já tem o post, e a que saiu da frente fica atrás com o post dela, pronta para
+ * voltar. Um link para fora da fila abre numa tela por cima ("detached", `nx_detach`); fechá-la mostra de novo o post da fila,
+ * que nunca saiu do lugar.
+ */
 class MainActivity : Activity() {
-    private lateinit var web: WebView
+    private class Slot(val web: WebView, var role: String) {
+        var entry: JSONObject? = null   // entrada da fila que esta tela tem aberta (ou está abrindo)
+        var seq = -1L
+        var dir = "fwd"
+        var script: ScriptHandler? = null
+    }
+
     private lateinit var root: FrameLayout
     private lateinit var store: Store
     private lateinit var net: Net
     private lateinit var scripts: ScriptStore
+    private lateinit var bridge: Bridge
+    private lateinit var active: Slot
+    private val slots = mutableListOf<Slot>()   // telas da fila (inclui a da frente)
+    private var detached: Slot? = null           // tela por cima, fora da fila
     private val bridgeName = "_nx" + ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
-    private var startScript: ScriptHandler? = null
+    private var shimText = ""
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
+    private var customOwner: WebView? = null
     private val io = Executors.newSingleThreadExecutor()
     private var scriptAwake = false      // o script avisou: vídeo tocando em tela cheia
+    private var restarting = false
     private val ui = Handler(Looper.getMainLooper())
     private val sweeper = object : Runnable {
         override fun run() { applyAwake(); ui.postDelayed(this, 1000) }
     }
+
+    private val ready get() = ::active.isInitialized
+    /** A tela que o dono está vendo: a de cima, se houver, ou a da frente da fila. */
+    private fun top(): WebView? = detached?.web ?: if (ready) active.web else null
+    private fun allSlots(): List<Slot> = slots + listOfNotNull(detached)
+    private fun slotOf(view: WebView): Slot? = allSlots().firstOrNull { it.web === view }
 
     /** A tela do celular só fica acesa com vídeo tocando em tela cheia; fora disso vale o tempo de tela do sistema. */
     private fun applyAwake() {
@@ -55,7 +85,7 @@ class MainActivity : Activity() {
         else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             // o WebView pede "tela acesa" por conta própria enquanto qualquer vídeo toca (inclusive os mudos do feed): desfaz
-            if (::web.isInitialized) clearKeepOn(web)
+            allSlots().forEach { clearKeepOn(it.web) }
         }
     }
 
@@ -72,8 +102,6 @@ class MainActivity : Activity() {
         net = Net(store)
         scripts = ScriptStore(this)
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        web = WebView(this)
-        root.addView(web, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         setContentView(root)
         applySystemBars()
 
@@ -85,7 +113,34 @@ class MainActivity : Activity() {
             return
         }
 
-        web.settings.apply {
+        CookieManager.getInstance().setAcceptCookie(true)
+        bridge = Bridge(store, net) { view, key, value -> onApp(view, key, value) }
+        buildShim()
+        active = createSlot("active", onTop = true)
+        slots.add(active)
+
+        if (savedInstanceState != null) active.web.restoreState(savedInstanceState) else active.web.loadUrl("https://x.com/home")
+        checkScriptUpdate(force = true)
+    }
+
+    override fun onDestroy() {
+        allSlots().forEach { s -> root.removeView(s.web); s.web.destroy() }
+        slots.clear()
+        detached = null
+        super.onDestroy()
+    }
+
+    private fun buildShim() {
+        shimText = assets.open("shim.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            .replace("__NX_BRIDGE__", bridgeName)
+            .replace("__BUNDLE__", scripts.current())
+    }
+
+    /** Uma tela do X com o script. A da fila nova fica atrás de todas; a da frente e a "por cima" ficam em cima. */
+    private fun createSlot(role: String, onTop: Boolean): Slot {
+        val w = WebView(this)
+        val s = Slot(w, role)
+        w.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
@@ -93,89 +148,220 @@ class MainActivity : Activity() {
             cacheMode = WebSettings.LOAD_DEFAULT
             textZoom = 105   // textos 5% maiores
         }
-        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
-        WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net, { on -> runOnUiThread { scriptAwake = on; applyAwake() } }, { v -> runOnUiThread { setOrientation(v) } }))
-        installScript()
+        CookieManager.getInstance().setAcceptThirdPartyCookies(w, true)
+        WebViewCompat.addWebMessageListener(w, bridgeName, setOf("https://x.com"), bridge)
+        s.script = WebViewCompat.addDocumentStartJavaScript(w, shimText, setOf("https://x.com"))
+        w.webViewClient = webClient
+        w.webChromeClient = chromeFor(w)
+        val lp = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        if (onTop) root.addView(w, lp) else root.addView(w, 0, lp)
+        return s
+    }
 
-        web.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+    private val webClient = object : WebViewClient() {
+        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+            if (view === top()) {
                 scriptAwake = false   // página nova: o script avisa de novo se houver vídeo em tela cheia
                 applyAwake()
             }
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val u = request.url
-                val host = u.host ?: ""
-                if (u.scheme == "https" && (host == "x.com" || host.endsWith(".x.com"))) return false
-                // fora do X (links de notícias etc.): abre no navegador do aparelho
-                try { startActivity(Intent(Intent.ACTION_VIEW, u)) } catch (e: Exception) { /* sem app para abrir */ }
-                return true
-            }
         }
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onJsAlert(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
-                AlertDialog.Builder(this@MainActivity).setMessage(message).setPositiveButton("OK") { _, _ -> result.confirm() }
-                    .setOnCancelListener { result.cancel() }.show()
-                return true
-            }
-            override fun onJsConfirm(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
-                AlertDialog.Builder(this@MainActivity).setMessage(message)
-                    .setPositiveButton("OK") { _, _ -> result.confirm() }.setNegativeButton("Cancelar") { _, _ -> result.cancel() }
-                    .setOnCancelListener { result.cancel() }.show()
-                return true
-            }
-            override fun onJsPrompt(view: WebView, url: String?, message: String?, defaultValue: String?, result: JsPromptResult): Boolean {
-                val input = EditText(this@MainActivity).apply { setText(defaultValue ?: "") }
-                AlertDialog.Builder(this@MainActivity).setMessage(message).setView(input)
-                    .setPositiveButton("OK") { _, _ -> result.confirm(input.text.toString()) }
-                    .setNegativeButton("Cancelar") { _, _ -> result.cancel() }
-                    .setOnCancelListener { result.cancel() }.show()
-                return true
-            }
-            // vídeo em tela cheia
-            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                if (customView != null) { callback.onCustomViewHidden(); return }
-                customView = view
-                customCallback = callback
-                root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                web.visibility = View.GONE
-                immersive(true)
-                // O X tenta travar a tela em deitado ao entrar em tela cheia (vídeo em pé saía de lado): reafirma a do vídeo.
-                if (wantedOrientation != "auto") listOf(250L, 800L, 1600L).forEach { ms -> ui.postDelayed({ if (customView != null) setOrientation(wantedOrientation) }, ms) }
-            }
-            override fun onHideCustomView() {
-                customView?.let { root.removeView(it) }
-                customView = null
-                customCallback?.onCustomViewHidden()
-                customCallback = null
-                web.visibility = View.VISIBLE
-                immersive(false)
-                wantedOrientation = "auto"
-                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                // Evita a tela preta ao voltar: força nova medida/desenho do WebView e avisa a página do novo tamanho.
-                web.requestLayout()
-                web.invalidate()
-                ui.postDelayed({
-                    web.requestLayout()
-                    web.invalidate()
-                    web.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
-                }, 250)
-            }
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            val u = request.url
+            val host = u.host ?: ""
+            if (u.scheme == "https" && (host == "x.com" || host.endsWith(".x.com"))) return false
+            // fora do X (links de notícias etc.): abre no navegador do aparelho
+            try { startActivity(Intent(Intent.ACTION_VIEW, u)) } catch (e: Exception) { /* sem app para abrir */ }
+            return true
         }
-
-        if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl("https://x.com/home")
-        checkScriptUpdate(force = true)
+        // Todas as telas dividem o mesmo processo de página: se ele cair (ex.: falta de memória), recomeça o app em vez de fechar.
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            if (!restarting) {
+                restarting = true
+                startActivity(Intent(this@MainActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                finish()
+            }
+            return true
+        }
     }
 
-    /** (Re)registra o script que roda antes de cada página do X. */
-    private fun installScript() {
-        startScript?.remove()
-        val shim = assets.open("shim.js").bufferedReader(Charsets.UTF_8).use { it.readText() }
-            .replace("__NX_BRIDGE__", bridgeName)
-            .replace("__BUNDLE__", scripts.current())
-        startScript = WebViewCompat.addDocumentStartJavaScript(web, shim, setOf("https://x.com"))
+    private fun chromeFor(w: WebView) = object : WebChromeClient() {
+        override fun onJsAlert(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+            AlertDialog.Builder(this@MainActivity).setMessage(message).setPositiveButton("OK") { _, _ -> result.confirm() }
+                .setOnCancelListener { result.cancel() }.show()
+            return true
+        }
+        override fun onJsConfirm(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+            AlertDialog.Builder(this@MainActivity).setMessage(message)
+                .setPositiveButton("OK") { _, _ -> result.confirm() }.setNegativeButton("Cancelar") { _, _ -> result.cancel() }
+                .setOnCancelListener { result.cancel() }.show()
+            return true
+        }
+        override fun onJsPrompt(view: WebView, url: String?, message: String?, defaultValue: String?, result: JsPromptResult): Boolean {
+            val input = EditText(this@MainActivity).apply { setText(defaultValue ?: "") }
+            AlertDialog.Builder(this@MainActivity).setMessage(message).setView(input)
+                .setPositiveButton("OK") { _, _ -> result.confirm(input.text.toString()) }
+                .setNegativeButton("Cancelar") { _, _ -> result.cancel() }
+                .setOnCancelListener { result.cancel() }.show()
+            return true
+        }
+        // vídeo em tela cheia
+        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+            if (customView != null || w !== top()) { callback.onCustomViewHidden(); return }
+            customView = view
+            customCallback = callback
+            customOwner = w
+            root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            w.visibility = View.GONE
+            immersive(true)
+            // O X tenta travar a tela em deitado ao entrar em tela cheia (vídeo em pé saía de lado): reafirma a do vídeo.
+            if (wantedOrientation != "auto") listOf(250L, 800L, 1600L).forEach { ms -> ui.postDelayed({ if (customView != null) setOrientation(wantedOrientation) }, ms) }
+        }
+        override fun onHideCustomView() { hideCustom() }
     }
 
-    /** Em segundo plano: busca o script mais novo no servidor; se mudou, guarda e recarrega a página com ele. */
+    private fun hideCustom() {
+        val v = customView ?: return
+        root.removeView(v)
+        customView = null
+        customCallback?.onCustomViewHidden()
+        customCallback = null
+        val w = customOwner
+        customOwner = null
+        immersive(false)
+        wantedOrientation = "auto"
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (w == null) return
+        w.visibility = View.VISIBLE
+        // Evita a tela preta ao voltar: força nova medida/desenho do WebView e avisa a página do novo tamanho.
+        w.requestLayout()
+        w.invalidate()
+        ui.postDelayed({
+            w.requestLayout()
+            w.invalidate()
+            w.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
+        }, 250)
+    }
+
+    private fun exitFullscreenNow() {
+        customOwner?.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
+        hideCustom()
+    }
+
+    // ---------- ordens do script (Bridge, fora da linha principal) ----------
+    private fun <T> onUi(f: () -> T): T? {
+        val task = FutureTask(f)
+        runOnUiThread(task)
+        return try { task.get(3, TimeUnit.SECONDS) } catch (e: Exception) { null }
+    }
+
+    private fun onApp(view: WebView, key: String, value: String): Any? = when (key) {
+        // o script avisa se há vídeo tocando em tela cheia (só então a tela do celular fica acesa)
+        "nx_awake" -> { runOnUiThread { if (view === top()) { scriptAwake = value == "true"; applyAwake() } }; true }
+        // o script pede a orientação ("portrait", "landscape" ou "auto") antes de entrar em tela cheia
+        "nx_orient" -> { runOnUiThread { if (view === top()) setOrientation(value) }; true }
+        "nx_role" -> onUi { roleOf(view) }
+        "nx_swap" -> onUi { swap(view, JSONObject(value)) } ?: false
+        "nx_neighbors" -> { runOnUiThread { assignNeighbors(view, JSONObject(value)) }; true }
+        "nx_detach" -> { runOnUiThread { if (ready && view === active.web) detach(JSONObject(value).optString("url")) }; true }
+        "nx_back" -> { runOnUiThread { if (view === detached?.web) detachedBack() }; true }
+        "nx_nav" -> {
+            runOnUiThread {
+                if (view === detached?.web) {
+                    closeDetached()
+                    if (JSONObject(value).optString("dir") == "fwd") sendNav("ArrowRight")
+                }
+            }
+            true
+        }
+        else -> null
+    }
+
+    private fun roleOf(view: WebView): String {
+        val s = slotOf(view) ?: return JSONObject().put("role", "active").toString()
+        val o = JSONObject().put("role", s.role)
+        if (s.role == "standby" && s.entry != null) o.put("entry", s.entry).put("dir", s.dir)
+        return o.toString()
+    }
+
+    private fun push(s: Slot, o: JSONObject) {
+        s.web.evaluateJavascript("window.nxSlot&&window.nxSlot(" + JSONObject.quote(o.toString()) + ")", null)
+    }
+
+    private fun isXUrl(url: String): Boolean {
+        val u = Uri.parse(url)
+        val host = u.host ?: ""
+        return u.scheme == "https" && (host == "x.com" || host.endsWith(".x.com"))
+    }
+
+    /** Passar de post: traz para a frente a tela de trás que já tem o post. false: nenhuma tem (o script abre do jeito normal). */
+    private fun swap(view: WebView, o: JSONObject): Boolean {
+        if (!ready || view !== active.web) return false
+        val e = o.optJSONObject("entry") ?: return false
+        val seq = e.optLong("seq", -1)
+        val s = slots.firstOrNull { it !== active && it.seq == seq } ?: return false
+        if (customView != null) exitFullscreenNow()
+        val old = active
+        old.role = "standby"
+        s.role = "active"
+        s.entry = e
+        active = s
+        s.web.bringToFront()
+        detached?.web?.bringToFront()
+        push(s, o.put("role", "active"))
+        push(old, JSONObject().put("role", "standby"))
+        return true
+    }
+
+    /** A tela da frente avisou o post atual e os vizinhos: cada vizinho fica numa tela de trás (reaproveita a que já o tem). */
+    private fun assignNeighbors(view: WebView, o: JSONObject) {
+        if (!ready || view !== active.web) return
+        o.optJSONObject("cur")?.let { active.entry = it; active.seq = it.optLong("seq", -1) }
+        val want = listOfNotNull(o.optJSONObject("next")?.let { it to "fwd" }, o.optJSONObject("prev")?.let { it to "back" })
+            .filter { isXUrl(it.first.optString("url")) }
+        val wantSeqs = want.map { it.first.optLong("seq", -1) }.toSet()
+        for ((e, d) in want) {
+            val sq = e.optLong("seq", -1)
+            if (sq == active.seq) continue
+            val have = slots.firstOrNull { it !== active && it.seq == sq }
+            if (have != null) { have.dir = d; continue }
+            val free = slots.firstOrNull { it !== active && it.seq !in wantSeqs }
+                ?: (if (slots.size < MAX_QUEUE_VIEWS) createSlot("standby", onTop = false).also { slots.add(it) } else null)
+                ?: continue
+            free.role = "standby"
+            free.entry = e
+            free.seq = sq
+            free.dir = d
+            if (free.web.url.isNullOrEmpty()) free.web.loadUrl(e.optString("url"))
+            else push(free, JSONObject().put("role", "standby").put("entry", e).put("dir", d))
+        }
+    }
+
+    /** Link para fora da fila: abre na tela por cima (a da fila fica parada no post). */
+    private fun detach(url: String) {
+        if (!isXUrl(url)) return
+        if (customView != null) exitFullscreenNow()
+        val d = detached ?: createSlot("detached", onTop = true).also { detached = it }
+        d.web.bringToFront()
+        d.web.loadUrl(url)
+    }
+
+    private fun closeDetached() {
+        val d = detached ?: return
+        if (customOwner === d.web) exitFullscreenNow()
+        detached = null
+        root.removeView(d.web)
+        d.script?.remove()
+        d.web.destroy()
+        scriptAwake = false
+        applyAwake()
+    }
+
+    private fun detachedBack() {
+        val d = detached ?: return
+        if (d.web.canGoBack()) d.web.goBack() else closeDetached()
+    }
+
+    /** Em segundo plano: busca o script mais novo no servidor; se mudou, guarda e recarrega as telas com ele. */
     private fun checkScriptUpdate(force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - store.lastCheckAt < 30 * 60 * 1000) return
@@ -184,8 +370,12 @@ class MainActivity : Activity() {
             val novo = net.fetchScript() ?: return@execute
             scripts.save(novo)
             runOnUiThread {
-                installScript()
-                web.reload()
+                buildShim()
+                allSlots().forEach { s ->
+                    s.script?.remove()
+                    s.script = WebViewCompat.addDocumentStartJavaScript(s.web, shimText, setOf("https://x.com"))
+                    if (!s.web.url.isNullOrEmpty()) s.web.reload()
+                }
                 Toast.makeText(this, "notiXias: script atualizado", Toast.LENGTH_SHORT).show()
             }
         }
@@ -193,19 +383,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::web.isInitialized) { web.onResume(); checkScriptUpdate(); ui.post(sweeper) }
+        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); ui.post(sweeper) }
     }
 
     override fun onPause() {
         ui.removeCallbacks(sweeper)
-        if (::web.isInitialized) { web.onPause(); CookieManager.getInstance().flush() }
+        if (ready) { allSlots().forEach { it.web.onPause() }; CookieManager.getInstance().flush() }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        if (::web.isInitialized) web.saveState(outState)
+        if (ready) active.web.saveState(outState)
     }
 
     // Rolagem pelo controle (cruzeta e analógico): um toque rola um passo (40% da altura da tela); só segurando repete
@@ -213,9 +403,8 @@ class MainActivity : Activity() {
     // eixo (HAT_Y), e o analógico como AXIS_Y (esquerdo) ou AXIS_RZ (direito): cada fonte guarda a sua direção (-1, 0, 1) e vale
     // a primeira diferente de 0. Os eventos do analógico são consumidos, para o WebView não rolar sozinho sem parar.
     private fun scrollPage(down: Boolean) {
-        if (!::web.isInitialized) return
         val sign = if (down) "" else "-"
-        web.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
+        top()?.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
     }
 
     private var keyDir = 0
@@ -255,9 +444,15 @@ class MainActivity : Activity() {
         lTrig = l
     }
 
+    // Avançar/voltar vai para a tela da fila. Com a tela por cima aberta: voltar só a fecha (volta ao post); avançar a fecha e
+    // passa para o próximo.
     private fun sendNav(dir: String) {
-        if (!::web.isInitialized) return
-        web.evaluateJavascript(
+        if (!ready) return
+        if (detached != null) {
+            closeDetached()
+            if (dir != "ArrowRight") return
+        }
+        active.web.evaluateJavascript(
             "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$dir',altKey:true,bubbles:true,cancelable:true}))", null
         )
     }
@@ -314,10 +509,12 @@ class MainActivity : Activity() {
             android.content.res.Configuration.UI_MODE_NIGHT_YES
 
     // Barras de status e de navegação (inclusive a de gestos) seguem o modo claro/escuro do celular.
+    @Suppress("DEPRECATION")
     private fun barFlags(): Int =
         if (isNight()) View.SYSTEM_UI_FLAG_VISIBLE
         else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
 
+    @Suppress("DEPRECATION")
     private fun applySystemBars() {
         val bg = if (isNight()) Color.BLACK else Color.WHITE
         window.statusBarColor = bg
@@ -335,32 +532,32 @@ class MainActivity : Activity() {
     // TOQUE de verdade: é o mesmo caminho do toque do dedo (o script aperta o botão "Tela cheia" do player, girando a tela antes
     // para a posição do vídeo). Sem vídeo na tela, manda Alt+seta para cima (o script abre a foto).
     private fun toggleVideoFullscreen() {
-        if (!::web.isInitialized) return
         if (customView != null) {
-            web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
+            customOwner?.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
             return
         }
-        web.evaluateJavascript("(window.nxVideoCenter?window.nxVideoCenter():'')") { raw ->
+        val w = top() ?: return
+        w.evaluateJavascript("(window.nxVideoCenter?window.nxVideoCenter():'')") { raw ->
             val json = raw?.trim('"')?.replace("\\\"", "\"") ?: ""
             if (json.isEmpty() || json == "null") {
-                web.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true,cancelable:true}))", null)
+                w.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true,cancelable:true}))", null)
                 return@evaluateJavascript
             }
-            val o = org.json.JSONObject(json)
+            val o = JSONObject(json)
             val d = resources.displayMetrics.density
-            tap(o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
+            tap(w, o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
         }
     }
 
-    private fun tap(x: Float, y: Float) {
+    private fun tap(w: WebView, x: Float, y: Float) {
         val t = android.os.SystemClock.uptimeMillis()
         val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
-        web.dispatchTouchEvent(down)
+        w.dispatchTouchEvent(down)
         down.recycle()
         ui.postDelayed({
             val t2 = android.os.SystemClock.uptimeMillis()
             val up = MotionEvent.obtain(t, t2, MotionEvent.ACTION_UP, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
-            web.dispatchTouchEvent(up)
+            w.dispatchTouchEvent(up)
             up.recycle()
         }, 60)
     }
@@ -396,8 +593,10 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            customView != null -> { web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null); web.webChromeClient?.onHideCustomView() }
-            ::web.isInitialized && web.canGoBack() -> web.goBack()
+            customView != null -> exitFullscreenNow()
+            detached != null -> detachedBack()
+            // na tela da fila, voltar é navegação do script (não abre a tela por cima)
+            ready && active.web.canGoBack() -> active.web.evaluateJavascript("window.nxBack?window.nxBack():history.back()", null)
             else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
     }
@@ -405,5 +604,6 @@ class MainActivity : Activity() {
     companion object {
         private const val HOLD_FIRST_MS = 450L
         private const val HOLD_EVERY_MS = 250L
+        private const val MAX_QUEUE_VIEWS = 3
     }
 }

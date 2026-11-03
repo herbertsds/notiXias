@@ -10,8 +10,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
-/** Ponte entre a página (https://x.com) e o app: armazenamento, rede e cookies do script. */
-class Bridge(private val store: Store, private val net: Net, private val onAwake: (Boolean) -> Unit, private val onOrient: (String) -> Unit) : WebViewCompat.WebMessageListener {
+/**
+ * Ponte entre a página (https://x.com) e o app: armazenamento, rede e cookies do script. As chaves de [APP_KEYS] não vão para o
+ * armazenamento: são ordens para o app (tela acesa, orientação, troca de telas da fila...), atendidas por [app] com a tela
+ * (WebView) que mandou; o que [app] devolve volta para o script.
+ */
+class Bridge(private val store: Store, private val net: Net, private val app: (WebView, String, String) -> Any?) : WebViewCompat.WebMessageListener {
     private val pool = Executors.newFixedThreadPool(4)
 
     override fun onPostMessage(view: WebView, message: WebMessageCompat, sourceOrigin: Uri, isMainFrame: Boolean, replyProxy: JavaScriptReplyProxy) {
@@ -21,7 +25,7 @@ class Bridge(private val store: Store, private val net: Net, private val onAwake
             val result: Any? = try {
                 val m = JSONObject(text)
                 id = m.optInt("id")
-                handle(m)
+                handle(view, m)
             } catch (e: Exception) {
                 JSONObject().put("error", (e.message ?: "erro").take(200))
             }
@@ -29,19 +33,24 @@ class Bridge(private val store: Store, private val net: Net, private val onAwake
         }
     }
 
-    private fun handle(m: JSONObject): Any? = when (m.optString("op")) {
-        "get" -> store.get(m.optString("key"))
+    private fun handle(view: WebView, m: JSONObject): Any? = when (m.optString("op")) {
+        // "nx_role": o papel desta tela (frente, trás ou por cima) e o post que ela deve abrir
+        "get" -> if (m.optString("key") == "nx_role") app(view, "nx_role", "") else store.get(m.optString("key"))
         "set" -> {
-            // "nx_awake": o script avisa se há vídeo tocando em tela cheia (só então a tela do celular fica acesa)
-            if (m.optString("key") == "nx_awake") onAwake(m.optString("value") == "true")
-            // "nx_orient": o script pede a orientação ("portrait", "landscape" ou "auto") antes de entrar em tela cheia
-            else if (m.optString("key") == "nx_orient") onOrient(m.optString("value"))
-            else store.set(m.optString("key"), m.optString("value"))
-            true
+            val k = m.optString("key")
+            if (k in APP_KEYS) app(view, k, m.optString("value")) ?: true
+            else { store.set(k, m.optString("value")); true }
         }
         "http" -> net.http(m.getJSONObject("req"))
         "cookies" -> cookies()
         else -> JSONObject().put("error", "operação desconhecida")
+    }
+
+    companion object {
+        // nx_awake: vídeo tocando em tela cheia (tela acesa); nx_orient: orientação antes da tela cheia; nx_swap: trazer para a
+        // frente a tela que já tem o post; nx_neighbors: anterior/próximo a abrir atrás; nx_detach: abrir link por cima;
+        // nx_back / nx_nav: fechar a tela por cima (e passar de post).
+        val APP_KEYS = setOf("nx_awake", "nx_orient", "nx_swap", "nx_neighbors", "nx_detach", "nx_back", "nx_nav")
     }
 
     /** Cookies de x.com no formato que o script espera (name/value/domain). Inclui os HttpOnly. */

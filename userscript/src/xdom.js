@@ -267,14 +267,28 @@ const Xdom = (function () {
     '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:start}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
 
-  // Nenhuma mídia passa da altura da tela: se passar, a largura encolhe na mesma proporção (as caixas de mídia do X
-  // mantêm a proporção pela largura). `fit` marca o que foi encolhido, para desfazer ao sair do modo.
+  // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): se passar, a largura é calculada UMA vez pela
+  // proporção medida. Se mesmo assim a altura não acompanhar (a caixa não mantém proporção pela largura), desfaz e tenta de
+  // novo no máximo 3 vezes, depois desiste: nunca encolhe a cada ciclo (isso reduzia a mídia a um quadradinho).
+  // O estado fica em `el.__nxFit`; `data-nx-fit` marca o que tem largura aplicada, para desfazer ao sair do modo.
   const FIT_ATTR = 'data-nx-fit';
+  function unfit(el) {
+    el.style.removeProperty('width');
+    el.style.removeProperty('max-width');
+    el.removeAttribute(FIT_ATTR);
+  }
   function fitMediaHeight(root, win, el) {
     const bar = (el.ownerDocument || root).getElementById('notixias-bar');
     const barH = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect().height : 0;
     const max = win.innerHeight - (barH || 0);
+    const st = el.__nxFit || (el.__nxFit = { tries: 0, done: false });
+    if (st.done) return;
     const r = el.getBoundingClientRect();
+    if (el.hasAttribute(FIT_ATTR)) {
+      if (r.height > max + 4) { unfit(el); if (++st.tries >= 3) st.done = true; } // não acompanhou: desfaz
+      else st.done = true;
+      return;
+    }
     if (!(r.height > max + 2) || !(r.width > 0)) return;
     el.style.setProperty('width', Math.floor((r.width * max) / r.height) + 'px', 'important');
     el.style.setProperty('max-width', '100%', 'important');
@@ -284,7 +298,8 @@ const Xdom = (function () {
   function clearLandscape(root) {
     const doc = root.ownerDocument || root;
     doc.documentElement.removeAttribute(LAND_ATTR);
-    root.querySelectorAll('[' + FIT_ATTR + ']').forEach((n) => { n.style.removeProperty('width'); n.style.removeProperty('max-width'); n.removeAttribute(FIT_ATTR); });
+    root.querySelectorAll('[' + FIT_ATTR + ']').forEach(unfit);
+    root.querySelectorAll(MEDIA_SEL + ',[' + MEDIA_ATTR + ']').forEach((n) => { delete n.__nxFit; });
     for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR, FLAT_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 

@@ -442,3 +442,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.8: tela deitada — (1) se a estrutura não permitir a grade com o cabeçalho, volta ao menor ancestral comum de texto e mídia (0.16.7 podia deixar de montar a grade); (2) **nenhuma mídia da página passa da altura da tela**: se passar, a largura encolhe na mesma proporção (`fitMediaHeight`, marca `data-nx-fit`, desfeito ao sair do modo).
 
 0.16.9: tela deitada — a grade fica no menor ancestral que contém cabeçalho (`User-Name`), texto e mídia; invólucros entre a grade e a mídia que contêm o texto viram `display: contents` (`data-nx-flat`), assim a mídia começa no topo do post (ao lado de nome/Grok/"...") e o resto vai para a coluna da esquerda. Altura máxima da mídia = altura da tela menos a altura da barra do notiXias.
+
+0.16.10: corrige o encolhimento da mídia na tela deitada (0.16.9 reaplicava o cálculo a cada ciclo e, se a altura não acompanhasse a largura, reduzia a mídia a um quadradinho): agora a largura é aplicada uma vez; se a altura não acompanhar, desfaz e desiste após 3 tentativas.

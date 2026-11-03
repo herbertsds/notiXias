@@ -11,6 +11,7 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
+    landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
@@ -137,6 +138,11 @@ async function startApp() {
     try { Xdom.setBottomBarsHidden(document, window, cfg.hideXBar); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyXBar, 1500);
+  function applyLandscape() {
+    if (cfg.bot) return;
+    try { Xdom.setLandscapeLayout(document, window, cfg.landscapeLayout); } catch (e) { /* melhor esforço */ }
+  }
+  setInterval(applyLandscape, 700);
 
   // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
   function applyAges() {
@@ -348,6 +354,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
       { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },

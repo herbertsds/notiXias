@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.5
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.5
+// @version      0.16.6
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.6
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -630,7 +630,7 @@ const Xdom = (function () {
     if (doc.getElementById('nx-style')) return;
     const st = doc.createElement('style');
     st.id = 'nx-style';
-    st.textContent = HIDE_CSS;
+    st.textContent = HIDE_CSS + LAND_CSS;
     (doc.head || doc.documentElement).append(st);
   }
 
@@ -644,6 +644,67 @@ const Xdom = (function () {
     const bars = findBottomBars(root, win).concat(findAppBanners(root, win));
     bars.forEach((b) => b.setAttribute(HIDE_ATTR, '1'));
     return bars.length;
+  }
+
+  // ---- tela deitada: texto à esquerda, mídia do post à direita ----
+  // Só na página do post (rota /usuario/status/ID), fora de tela cheia. A coluna do X (600px) é alargada (ancestrais da
+  // coluna principal marcados), a lateral some, e no post principal o menor ancestral comum do texto e da mídia vira uma
+  // grade de 2 colunas: o bloco da mídia vai para a direita, ocupando todas as linhas. Mídia de post citado fica de fora.
+  const LAND_ATTR = 'data-nx-land';
+  const WIDE_ATTR = 'data-nx-wide';
+  const GRID_ATTR = 'data-nx-grid';
+  const MEDIA_ATTR = 'data-nx-media';
+  const LAND_CSS =
+    'html[' + LAND_ATTR + '] header[role="banner"],html[' + LAND_ATTR + '] [data-testid="sidebarColumn"]{display:none!important}' +
+    '[' + WIDE_ATTR + ']{max-width:none!important;width:100%!important;min-width:0!important;flex:1 1 auto!important}' +
+    '[' + GRID_ATTR + ']{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;align-items:start}' +
+    '[' + GRID_ATTR + ']>*{grid-column:1}' +
+    '[' + GRID_ATTR + ']>[' + MEDIA_ATTR + ']{grid-column:2;grid-row:1 / span 20}';
+  const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
+
+  function clearLandscape(root) {
+    const doc = root.ownerDocument || root;
+    doc.documentElement.removeAttribute(LAND_ATTR);
+    for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
+  }
+
+  function mainArticle(root, win) {
+    const m = /\/status\/(\d+)/.exec(win.location.pathname);
+    if (!m) return null;
+    for (const art of articles(root)) {
+      const p = primaryStatus(art);
+      if (p && p.id === m[1]) return art;
+    }
+    return null;
+  }
+
+  // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
+  // Devolve true quando a grade de duas colunas está montada.
+  function setLandscapeLayout(root, win, enabled) {
+    const doc = root.ownerDocument || root;
+    const landscape = win.innerWidth > win.innerHeight && win.innerWidth >= 600;
+    if (!enabled || !landscape || !/\/status\/\d+/.test(win.location.pathname) || videoFullscreenActive(root, win)) {
+      if (doc.documentElement.hasAttribute(LAND_ATTR)) clearLandscape(root);
+      return false;
+    }
+    ensureStyle(doc);
+    doc.documentElement.setAttribute(LAND_ATTR, '1');
+    const col = root.querySelector('[data-testid="primaryColumn"]');
+    if (col) for (let n = col; n && n !== doc.body; n = n.parentElement) if (!n.hasAttribute(WIDE_ATTR)) n.setAttribute(WIDE_ATTR, '1');
+    const art = mainArticle(root, win);
+    if (!art) return false;
+    const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
+    const text = art.querySelector('[data-testid="tweetText"]');
+    if (!media || !text || media.contains(text)) return false;
+    let common = media.parentElement;
+    while (common && !common.contains(text)) common = common.parentElement;
+    if (!common || common === art || common.contains(art)) return false;
+    let mediaBlock = media;
+    while (mediaBlock.parentElement !== common) mediaBlock = mediaBlock.parentElement;
+    if (mediaBlock.contains(text)) return false;
+    if (!common.hasAttribute(GRID_ATTR)) common.setAttribute(GRID_ATTR, '1');
+    if (!mediaBlock.hasAttribute(MEDIA_ATTR)) mediaBlock.setAttribute(MEDIA_ATTR, '1');
+    return true;
   }
 
   // ---- barra do topo ("← Post") ----
@@ -1094,7 +1155,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2080,7 +2141,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.5'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.6'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2090,6 +2151,7 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
+    landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
     resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
@@ -2216,6 +2278,11 @@ async function startApp() {
     try { Xdom.setBottomBarsHidden(document, window, cfg.hideXBar); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyXBar, 1500);
+  function applyLandscape() {
+    if (cfg.bot) return;
+    try { Xdom.setLandscapeLayout(document, window, cfg.landscapeLayout); } catch (e) { /* melhor esforço */ }
+  }
+  setInterval(applyLandscape, 700);
 
   // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
   function applyAges() {
@@ -2427,6 +2494,7 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
+      { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
       { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },

@@ -88,6 +88,7 @@ class MainActivity : Activity() {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
             cacheMode = WebSettings.LOAD_DEFAULT
+            textZoom = 110   // textos 10% maiores
         }
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
         WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net) { on -> runOnUiThread { scriptAwake = on; applyAwake() } })

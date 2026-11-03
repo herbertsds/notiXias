@@ -25,3 +25,7 @@ docker compose --profile build run --rm android-build      # gera android/app/bu
 
 ## Tela do celular (0.1.3)
 O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os mudos do feed). O app desfaz isso (varredura a cada 1 s em `MainActivity.applyAwake`) e só mantém a tela acesa quando o script avisa (`nx_awake`, via ponte) que há vídeo **tocando em tela cheia**, ou quando o WebView está em tela cheia nativa. Fora disso vale o tempo de tela do sistema.
+
+## Zoom do texto (0.1.4)
+
+`WebSettings.textZoom = 110`: textos 10% maiores em todo o X (inclui a barra do notiXias). Mudar o valor em `MainActivity.kt`.

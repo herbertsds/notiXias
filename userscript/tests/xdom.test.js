@@ -849,7 +849,7 @@ test('setLandscapeLayout: texto à esquerda e mídia do post (não a do citado) 
   assert.equal(d.documentElement.hasAttribute('data-nx-land'), false);
 });
 
-test('setLandscapeLayout: mídia mais alta que a tela encolhe a largura na mesma proporção e desfaz em pé', () => {
+test('setLandscapeLayout: mídia mais alta que a tela encolhe (zoom) na mesma proporção e desfaz em pé', () => {
   const html = '<body><main><div data-testid="primaryColumn"><article data-testid="tweet"><div><div data-testid="tweetText">oi</div>' +
     '<div id="m"><div data-testid="tweetPhoto"></div></div></div><a href="/u/status/7"><time></time></a></article></div></main></body>';
   const w = new JSDOM(html, { url: 'https://x.com/u/status/7' }).window;
@@ -857,10 +857,10 @@ test('setLandscapeLayout: mídia mais alta que a tela encolhe a largura na mesma
   const m = w.document.getElementById('m');
   m.getBoundingClientRect = () => ({ width: 400, height: 800 });
   Xdom.setLandscapeLayout(w.document, w, true);
-  assert.equal(m.style.width, '200px');
+  assert.equal(m.hasAttribute('data-nx-fit'), true);
   w.innerWidth = 400; w.innerHeight = 900;
   Xdom.setLandscapeLayout(w.document, w, true);
-  assert.equal(m.style.width, '');
+  assert.equal(m.hasAttribute('data-nx-fit'), false);
 });
 
 test('setLandscapeLayout: cabeçalho fora do invólucro do texto e da mídia -> invólucro vira display:contents e a mídia sobe ao topo', () => {
@@ -905,4 +905,13 @@ test('setLandscapeLayout: post só com fotos (sem texto, carrossel) também ganh
 test('layoutDebug: descreve o post sem lançar erro', () => {
   const w = new JSDOM('<body><article data-testid="tweet"><div data-testid="User-Name"></div><div data-testid="tweetPhoto"></div></article></body>', { url: 'https://x.com/u/status/1' }).window;
   assert.match(Xdom.layoutDebug(w.document, w), /post 0: mídias=1/);
+});
+
+test('setLandscapeLayout: foto/card dentro de âncora [role=link] conta como mídia do post; post citado (com texto próprio) não', () => {
+  const html = '<body><main><div data-testid="primaryColumn"><article data-testid="tweet"><div id="g"><div data-testid="User-Name"></div><div data-testid="tweetText">t</div>' +
+    '<div id="cards"><a role="link" href="/u/status/5/photo/1"><div data-testid="tweetPhoto"></div></a></div></div><a href="/u/status/5"><time></time></a></article></div></main></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/u/status/5' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  assert.equal(Xdom.setLandscapeLayout(w.document, w, true), true);
+  assert.equal(w.document.getElementById('cards').hasAttribute('data-nx-media'), true);
 });

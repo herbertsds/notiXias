@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.15
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.15
+// @version      0.16.16
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.16
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -664,31 +664,26 @@ const Xdom = (function () {
     '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:stretch;min-width:0}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"],a[href*="/photo/"],img[src*="pbs.twimg.com/media"]';
 
-  // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): se passar, a largura é calculada UMA vez pela
-  // proporção medida. Se mesmo assim a altura não acompanhar (a caixa não mantém proporção pela largura), desfaz e tenta de
-  // novo no máximo 3 vezes, depois desiste: nunca encolhe a cada ciclo (isso reduzia a mídia a um quadradinho).
-  // O estado fica em `el.__nxFit`; `data-nx-fit` marca o que tem largura aplicada, para desfazer ao sair do modo.
+  // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): o bloco é reduzido com `zoom` (encolhe largura E
+  // altura na mesma proporção, qualquer que seja a forma como o X dimensiona a caixa). Ajusta pela medida real, no máximo
+  // 3 vezes por bloco, e depois desiste (nunca encolhe a cada ciclo). Estado em `el.__nxFit`; `data-nx-fit` marca o que
+  // tem zoom aplicado, para desfazer ao sair do modo.
   const FIT_ATTR = 'data-nx-fit';
   function unfit(el) {
-    el.style.removeProperty('width');
-    el.style.removeProperty('max-width');
+    el.style.removeProperty('zoom');
     el.removeAttribute(FIT_ATTR);
   }
   function fitMediaHeight(root, win, el) {
     const bar = (el.ownerDocument || root).getElementById('notixias-bar');
     const barH = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect().height : 0;
     const max = win.innerHeight - (barH || 0);
-    const st = el.__nxFit || (el.__nxFit = { tries: 0, done: false });
-    if (st.done) return;
+    const st = el.__nxFit || (el.__nxFit = { tries: 0, z: 1 });
+    if (st.tries >= 3) return;
     const r = el.getBoundingClientRect();
-    if (el.hasAttribute(FIT_ATTR)) {
-      if (r.height > max + 4) { unfit(el); if (++st.tries >= 3) st.done = true; } // não acompanhou: desfaz
-      else st.done = true;
-      return;
-    }
-    if (!(r.height > max + 2) || !(r.width > 0)) return;
-    el.style.setProperty('width', Math.floor((r.width * max) / r.height) + 'px', 'important');
-    el.style.setProperty('max-width', '100%', 'important');
+    if (!(r.height > max + 4) || !(r.width > 0)) { if (el.hasAttribute(FIT_ATTR)) st.tries = 3; return; }
+    st.tries++;
+    st.z = Math.max(0.2, st.z * (max / r.height));
+    el.style.setProperty('zoom', String(st.z), 'important');
     el.setAttribute(FIT_ATTR, '1');
   }
 
@@ -751,7 +746,15 @@ const Xdom = (function () {
   // entre a grade e a mídia que também contêm o texto viram `display: contents`, para que tudo seja item da mesma grade.
   // No article, mídia/texto/cabeçalho de posts citados (dentro de `[role=link]`) não contam; no citado, só os dele.
   function layoutScope(root, win, scope, art, quoted) {
-    const own = (n) => quoted || !n.closest('[role="link"]');
+    // "Do próprio post": fora de qualquer `[role=link]` que contenha texto/nome de OUTRO post (o citado). Foto e card de
+    // link também ficam dentro de `[role=link]` (âncoras), mas sem texto/nome próprios: esses contam.
+    const own = (n) => {
+      if (quoted) return true;
+      for (let l = n.closest('[role="link"]'); l && scope.contains(l) && l !== scope; l = l.parentElement && l.parentElement.closest('[role="link"]')) {
+        if (l.querySelector('[data-testid="tweetText"],[data-testid="User-Name"]')) return false;
+      }
+      return true;
+    };
     const media = Array.from(scope.querySelectorAll(MEDIA_SEL)).find(own);
     const text0 = Array.from(scope.querySelectorAll('[data-testid="tweetText"]')).find(own);
     const head0 = Array.from(scope.querySelectorAll('[data-testid="User-Name"]')).find(own);
@@ -2205,7 +2208,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.15'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.16'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

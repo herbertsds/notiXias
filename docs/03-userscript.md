@@ -454,3 +454,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.14: menu "Enviar diagnóstico do layout": manda para a API (`/health/skeleton`, sem texto de posts) o esqueleto dos 3 primeiros posts da página, já com as marcas `data-nx-*` do layout deitado. Serve para ver na estrutura real do X por que uma foto/vídeo não foi para a coluna da direita.
 
 0.16.15: o diagnóstico do layout passa a incluir, antes do esqueleto, `Xdom.layoutDebug`: por post, mídia própria encontrada, cadeia de ancestrais, se a grade/bloco foram marcados e as medidas reais (display, colunas, retângulos).
+
+0.16.16: (1) mídia dentro de `[role=link]` (foto, card, carrossel de cards são âncoras) agora conta como do post: só é de "outro post" o `[role=link]` que contém texto/nome próprios (o citado); (2) a altura máxima passa a usar `zoom` no bloco (encolhe largura e altura juntas), com no máximo 3 ajustes pela medida real: no diagnóstico, mudar a largura não mudava a altura do bloco de fotos.

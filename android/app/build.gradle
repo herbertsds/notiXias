@@ -15,8 +15,8 @@ android {
         applicationId 'br.notixias.app'
         minSdk 26
         targetSdk 34
-        versionCode 22
-        versionName '0.2.0'
+        versionCode 23
+        versionName '0.3.0'
         buildConfigField 'String', 'DEFAULT_API_URL', '"https://notixias.163.176.176.10.nip.io"'
         buildConfigField 'String', 'DEFAULT_API_KEY', '"' + defaultKey + '"'
     }

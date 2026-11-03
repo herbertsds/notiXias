@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.17.0
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.17.0
+// @version      0.18.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.18.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2257,7 +2257,8 @@ const Ui = (function () {
       if (win && win.scrollTo) win.scrollTo(0, toTop ? 0 : s.y);
     }
 
-    function showLoading(label) {
+    // `maxMs`: prazo próprio (a espera por várias telas do app é mais longa que os 3 s de uma página só)
+    function showLoading(label, maxMs) {
       attach(ld);
       lockScroll();
       clearTimeout(ldRemoveTimer);
@@ -2269,9 +2270,9 @@ const Ui = (function () {
       ldNode.classList.remove('out');
       const tx = ldNode.querySelector('.tx');
       if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
-      if (fresh || !ldFailTimer) {
+      if (fresh || !ldFailTimer || maxMs) {
         clearTimeout(ldFailTimer);
-        ldFailTimer = setTimeout(hideLoading, loadingMaxMs);
+        ldFailTimer = setTimeout(hideLoading, maxMs || loadingMaxMs);
       }
     }
 
@@ -2304,7 +2305,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.17.0'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.18.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2446,6 +2447,7 @@ async function startApp() {
   let activating = false;
   let detachReturnAt = 0; // a tela da fila acabou de voltar ao post (a página nova foi para a tela por cima)
   let activationP = null; // registro da tela que acabou de vir para a frente
+  const GATE_MAX_MS = 20000; // espera máxima da tela de carregamento enquanto as telas da frente/de trás carregam
 
   const getPhase = () => {
     const p = gm.get('nx_phase', { name: 'idle' });
@@ -2775,7 +2777,7 @@ async function startApp() {
     if (appRole === 'active' && await appSwap(entry, dir === 'back' ? 'back' : 'fwd', null)) return;
     if (appRole === 'active') { neighbors = null; curEntry = null; }
     const label = Core.openingLabel(entry);
-    if (!cfg.bot) ui.showLoading(label); // cobre a página já na saída; some em fade quando o post estiver pronto
+    if (!cfg.bot) ui.showLoading(label, appRole === 'active' ? GATE_MAX_MS : undefined); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
     gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label, dir: dir === 'back' ? 'back' : 'fwd' });
     gm.set('nx_mode', 'read');
@@ -2804,8 +2806,8 @@ async function startApp() {
   const onNext = () => guarded(async () => {
     if (activationP) await activationP;
     if (appRole === 'detached') return void appCall('nx_nav', { dir: 'fwd' });
-    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.next &&
-      await appSwap(neighbors.next, 'fwd', curEntry.seq)) return;
+    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.next.length &&
+      await appSwap(neighbors.next[0], 'fwd', curEntry.seq)) return;
     const st = await api.state();
     const cur = st.current;
     if (!cur) return resumeReading();
@@ -2818,8 +2820,8 @@ async function startApp() {
   const onPrev = () => guarded(async () => {
     if (activationP) await activationP;
     if (appRole === 'detached') return void appCall('nx_nav', { dir: 'back' });
-    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.prev &&
-      await appSwap(neighbors.prev, 'back', null)) return;
+    if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.prev.length &&
+      await appSwap(neighbors.prev[0], 'back', null)) return;
     const st = await api.state();
     if (!st.current) return;
     const q = await api.queue({ before: st.current.seq, limit: 1 });
@@ -2899,11 +2901,22 @@ async function startApp() {
     // Tudo o que mexe no que se vê terminou: fixa no topo e revela o post pronto (a conferência da conversa, abaixo,
     // só fala com a API e não muda a tela).
     pin.stop();
-    ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
-    pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
+    // No app, o post aberto "do zero" (sem tela pronta) só é revelado quando ele e os 3 seguintes (na direção da leitura) carregaram.
+    const gateOpen = appRole === 'active' && !cfg.bot;
+    if (gateOpen) ui.showLoading(view.label, GATE_MAX_MS);
+    else {
+      ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
+      pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
+    }
 
     if (!(await coverPage(cur, status.id, notice, () => token === routeToken))) return 'stale';
-    entryShown(cur, view);
+    await entryShown(cur, view);
+    if (gateOpen) {
+      await waitWindow(view.dir === 'back' ? 'back' : 'fwd', () => token === routeToken && appRole === 'active');
+      if (token !== routeToken) return 'stale';
+      ui.hideLoading({ scrollTop: true });
+      pinTop(600);
+    }
     return 'done';
   }
 
@@ -2968,16 +2981,18 @@ async function startApp() {
     slotView = view;
     slotMissing = false;
     preloadP = Promise.resolve();
+    if (appRole === 'active') appCall('nx_ready', { seq: cur.seq });
     return publishNeighbors(cur);
   }
 
   async function publishNeighbors(cur) {
     if (appRole !== 'active' || !cur) return;
     try {
-      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 1 }), api.queue({ before: cur.seq, limit: 1 })]);
+      // Até 4 de cada lado (o app abre 3 de cada lado; o 4º só entra na conta de "o que já carregou" ao trocar de tela).
+      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 4 }), api.queue({ before: cur.seq, limit: 4 })]);
       if (appRole !== 'active' || !curEntry || curEntry.seq !== cur.seq) return;
-      neighbors = { cur: cur.seq, next: n.items[0] || null, prev: p.items[0] || null };
-      appCall('nx_neighbors', { cur, next: neighbors.next, prev: neighbors.prev });
+      neighbors = { cur: cur.seq, next: n.items, prev: p.items };
+      await appCall('nx_neighbors', { cur, next: n.items, prev: p.items });
     } catch (e) { /* sem vizinhos: passar de post segue pelo caminho normal */ }
   }
 
@@ -2985,9 +3000,19 @@ async function startApp() {
   async function appSwap(entry, dir, fromSeq) {
     const notice = gm.get('nx_notice', null);
     const r = await appCall('nx_swap', { entry, dir, fromSeq, st: barState && barState.st, notice });
-    if (r !== true) return false;
+    if (r !== 1 && r !== 2) return false; // 0: sem tela pronta; 1: troca direta; 2: troca com tela de carregamento
     if (notice) gm.set('nx_notice', null);
     return true;
+  }
+
+  // Espera (até GATE_MAX_MS) o post da frente e os 3 seguintes na direção `dir` terminarem de carregar (o app sabe quais já foram).
+  async function waitWindow(dir, alive) {
+    const t0 = Date.now();
+    while (alive() && Date.now() - t0 < GATE_MAX_MS - 1500) {
+      const left = await appCall('nx_window', { dir });
+      if (typeof left !== 'number' || left <= 0) return;
+      await sleep(250);
+    }
   }
 
   // ---- tela de trás: abre o post sem falar com a API nem mexer na posição, com os vídeos parados ----
@@ -3054,7 +3079,7 @@ async function startApp() {
         }
       }
       if (alive()) pinTop(800);
-    })().catch(() => {});
+    })().catch(() => {}).then(() => { if (alive() && appRole) appCall('nx_ready', { seq: entry.seq }); });
     return preloadP;
   }
 
@@ -3073,12 +3098,14 @@ async function startApp() {
       const after = typeof a.st.unread_after === 'number' ? Math.max(0, a.st.unread_after + (fwd ? -1 : 1)) : a.st.unread_after;
       renderEntryBar(Object.assign({}, a.st, { current: entry, position: pos, unread_after: after }), a.notice);
     }
-    // Ainda carregando (troca rápida demais): cobre com a tela de carregamento até ficar pronto.
-    let shown = false;
-    const t = setTimeout(() => { shown = true; ui.showLoading(slotView && slotView.label); }, 120);
+    // O app manda `gate` quando 3 das 4 telas da janela (esta e as 3 seguintes na direção) ainda não carregaram: só então aparece a
+    // tela de carregamento, e ela fica até as 4 estarem prontas. Sem `gate`, a troca é direta (uma tela de carregamento antiga some).
+    const gate = !!a.gate;
+    if (gate) ui.showLoading(slotView && slotView.label, GATE_MAX_MS);
+    else ui.hideLoading({ scrollTop: true });
+    const tok0 = routeToken;
     try {
       await preloadP;
-      clearTimeout(t);
       if (appRole !== 'active') return;
       lastHref = location.href;
       prevPath = location.pathname;
@@ -3094,7 +3121,6 @@ async function startApp() {
         if (r !== 'jump') ui.hideLoading();
         return;
       }
-      if (shown) ui.hideLoading({ scrollTop: true });
       await api.putState({ cursor_seq: entry.seq });
       const st = await api.state();
       if (appRole !== 'active') return;
@@ -3104,10 +3130,15 @@ async function startApp() {
       const tok = routeToken;
       if (!(await coverPage(cur, statusId, a.notice, () => tok === routeToken && appRole === 'active'))) return;
       await entryShown(cur, view);
+      if (gate && tok0 === routeToken) {
+        // Fora do registro da ativação: dá para apertar ▶/◀ de novo enquanto espera (a próxima troca assume e a espera termina).
+        waitWindow(a.dir === 'back' ? 'back' : 'fwd', () => tok0 === routeToken && appRole === 'active').then(() => {
+          if (tok0 === routeToken && appRole === 'active') { ui.hideLoading({ scrollTop: true }); pinTop(600); }
+        });
+      }
     } catch (e) {
       handleError(e);
     } finally {
-      clearTimeout(t);
       activating = false;
     }
   }

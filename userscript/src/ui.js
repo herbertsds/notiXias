@@ -398,7 +398,8 @@ const Ui = (function () {
       if (win && win.scrollTo) win.scrollTo(0, toTop ? 0 : s.y);
     }
 
-    function showLoading(label) {
+    // `maxMs`: prazo próprio (a espera por várias telas do app é mais longa que os 3 s de uma página só)
+    function showLoading(label, maxMs) {
       attach(ld);
       lockScroll();
       clearTimeout(ldRemoveTimer);
@@ -410,9 +411,9 @@ const Ui = (function () {
       ldNode.classList.remove('out');
       const tx = ldNode.querySelector('.tx');
       if (tx && label && tx.textContent !== label) tx.textContent = label; // ao abrir outro post, o texto acompanha
-      if (fresh || !ldFailTimer) {
+      if (fresh || !ldFailTimer || maxMs) {
         clearTimeout(ldFailTimer);
-        ldFailTimer = setTimeout(hideLoading, loadingMaxMs);
+        ldFailTimer = setTimeout(hideLoading, maxMs || loadingMaxMs);
       }
     }
 

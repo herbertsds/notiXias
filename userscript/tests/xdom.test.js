@@ -862,3 +862,16 @@ test('setLandscapeLayout: mídia mais alta que a tela encolhe a largura na mesma
   Xdom.setLandscapeLayout(w.document, w, true);
   assert.equal(m.style.width, '');
 });
+
+test('setLandscapeLayout: cabeçalho fora do invólucro do texto e da mídia -> invólucro vira display:contents e a mídia sobe ao topo', () => {
+  const html = '<body><main><div data-testid="primaryColumn"><article data-testid="tweet"><div id="g"><div id="h"><div data-testid="User-Name"></div></div>' +
+    '<div id="w"><div id="t"><div data-testid="tweetText">oi</div></div><div id="m"><div data-testid="videoPlayer"></div></div></div></div>' +
+    '<a href="/u/status/9"><time></time></a></article></div></main></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/u/status/9' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const d = w.document;
+  assert.equal(Xdom.setLandscapeLayout(d, w, true), true);
+  assert.equal(d.getElementById('g').hasAttribute('data-nx-grid'), true);
+  assert.equal(d.getElementById('w').hasAttribute('data-nx-flat'), true);
+  assert.equal(d.getElementById('m').hasAttribute('data-nx-media'), true);
+});

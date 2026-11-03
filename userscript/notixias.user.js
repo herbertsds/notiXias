@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.8
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.8
+// @version      0.16.9
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.9
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -654,19 +654,23 @@ const Xdom = (function () {
   const WIDE_ATTR = 'data-nx-wide';
   const GRID_ATTR = 'data-nx-grid';
   const MEDIA_ATTR = 'data-nx-media';
+  const FLAT_ATTR = 'data-nx-flat';
   const LAND_CSS =
     'html[' + LAND_ATTR + '] header[role="banner"],html[' + LAND_ATTR + '] [data-testid="sidebarColumn"]{display:none!important}' +
     '[' + WIDE_ATTR + ']{max-width:none!important;width:100%!important;min-width:0!important;flex:1 1 auto!important}' +
     '[' + GRID_ATTR + ']{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;align-items:start}' +
-    '[' + GRID_ATTR + ']>*{grid-column:1}' +
-    '[' + GRID_ATTR + ']>[' + MEDIA_ATTR + ']{grid-column:2;grid-row:1 / span 20}';
+    '[' + FLAT_ATTR + ']{display:contents!important}' +
+    '[' + GRID_ATTR + ']>*,[' + FLAT_ATTR + ']>*{grid-column:1}' +
+    '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:start}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
 
   // Nenhuma mídia passa da altura da tela: se passar, a largura encolhe na mesma proporção (as caixas de mídia do X
   // mantêm a proporção pela largura). `fit` marca o que foi encolhido, para desfazer ao sair do modo.
   const FIT_ATTR = 'data-nx-fit';
   function fitMediaHeight(root, win, el) {
-    const max = win.innerHeight;
+    const bar = (el.ownerDocument || root).getElementById('notixias-bar');
+    const barH = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect().height : 0;
+    const max = win.innerHeight - (barH || 0);
     const r = el.getBoundingClientRect();
     if (!(r.height > max + 2) || !(r.width > 0)) return;
     el.style.setProperty('width', Math.floor((r.width * max) / r.height) + 'px', 'important');
@@ -678,7 +682,7 @@ const Xdom = (function () {
     const doc = root.ownerDocument || root;
     doc.documentElement.removeAttribute(LAND_ATTR);
     root.querySelectorAll('[' + FIT_ATTR + ']').forEach((n) => { n.style.removeProperty('width'); n.style.removeProperty('max-width'); n.removeAttribute(FIT_ATTR); });
-    for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
+    for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR, FLAT_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 
   function mainArticle(root, win) {
@@ -710,21 +714,19 @@ const Xdom = (function () {
     const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
     const text = art.querySelector('[data-testid="tweetText"]');
     if (!media || !text || media.contains(text)) return false;
-    // Prefere o ancestral que contém também o cabeçalho (a mídia começa no topo do post); se a estrutura não permitir
-    // (cabeçalho em outra coluna), volta ao menor ancestral comum do texto e da mídia.
-    const head = art.querySelector('[data-testid="User-Name"]');
-    const pick = (needHead) => {
-      let c = media.parentElement;
-      while (c && !(c.contains(text) && (!needHead || c.contains(head)))) c = c.parentElement;
-      if (!c || c === art || c.contains(art)) return null;
-      let b = media;
-      while (b.parentElement !== c) b = b.parentElement;
-      return b.contains(text) ? null : { common: c, block: b };
-    };
-    const got = (head && pick(true)) || pick(false);
-    if (!got) return false;
-    if (!got.common.hasAttribute(GRID_ATTR)) got.common.setAttribute(GRID_ATTR, '1');
-    if (!got.block.hasAttribute(MEDIA_ATTR)) got.block.setAttribute(MEDIA_ATTR, '1');
+    // A grade fica no menor ancestral que contém cabeçalho (nome, foto, Grok, "..."), texto e mídia: a mídia começa no topo
+    // do post, ao lado do cabeçalho, que vai para a esquerda. Os invólucros entre a grade e a mídia que também contêm o texto
+    // viram `display: contents`, para que o texto, o cabeçalho e o resto sejam itens da mesma grade.
+    const head = art.querySelector('[data-testid="User-Name"]') || text;
+    let common = media.parentElement;
+    while (common && !(common.contains(text) && common.contains(head))) common = common.parentElement;
+    if (!common || common.contains(art)) return false;
+    let block = media;
+    while (block.parentElement !== common && !block.parentElement.contains(text) && !block.parentElement.contains(head)) block = block.parentElement;
+    for (let n = block.parentElement; n && n !== common; n = n.parentElement) if (!n.hasAttribute(FLAT_ATTR)) n.setAttribute(FLAT_ATTR, '1');
+    if (!common.hasAttribute(GRID_ATTR)) common.setAttribute(GRID_ATTR, '1');
+    if (!block.hasAttribute(MEDIA_ATTR)) block.setAttribute(MEDIA_ATTR, '1');
+    const got = { block };
     fitMediaHeight(root, win, got.block);
     return true;
   }
@@ -2163,7 +2165,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.8'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.9'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.14
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.14
+// @version      0.16.15
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.15
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -700,6 +700,28 @@ const Xdom = (function () {
     for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR, FLAT_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 
+  // Diagnóstico (sem texto de post): por que a grade foi (ou não) montada em cada post, com as medidas reais.
+  function layoutDebug(root, win) {
+    const tag = (n) => (n ? n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '') : '-');
+    const rect = (n) => { if (!n) return '-'; const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
+    const lines = [];
+    articles(root).slice(0, 4).forEach((art, i) => {
+      const medias = Array.from(art.querySelectorAll(MEDIA_SEL));
+      const own = medias.find((n) => !n.closest('[role="link"]'));
+      const grid = art.querySelector('[' + GRID_ATTR + ']');
+      const block = art.querySelector('[' + MEDIA_ATTR + ']');
+      const chain = [];
+      for (let n = own; n && n !== art; n = n.parentElement) chain.push(tag(n));
+      lines.push('post ' + i + ': mídias=' + medias.length + ' própria=' + tag(own) + ' texto=' + !!art.querySelector('[data-testid="tweetText"]') +
+        ' nome=' + !!art.querySelector('[data-testid="User-Name"]') + ' grade=' + !!grid + ' bloco=' + !!block);
+      lines.push('  cadeia da mídia (de baixo p/ cima): ' + chain.join(' < '));
+      if (grid) lines.push('  grade ' + tag(grid) + ' display=' + win.getComputedStyle(grid).display + ' cols=' + win.getComputedStyle(grid).gridTemplateColumns + ' rect=' + rect(grid));
+      if (block) lines.push('  bloco rect=' + rect(block) + ' col=' + win.getComputedStyle(block).gridColumnStart + ' estilo-largura=' + block.style.width);
+      lines.push('  artigo rect=' + rect(art));
+    });
+    return lines.join('\n');
+  }
+
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -1197,7 +1219,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2183,7 +2205,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.14'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.15'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2540,7 +2562,7 @@ async function startApp() {
           const arts = Xdom.articles ? Xdom.articles(document) : [];
           const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);
           const meta = 'inner=' + window.innerWidth + 'x' + window.innerHeight + ' land=' + document.documentElement.hasAttribute('data-nx-land') + ' cfg=' + cfg.landscapeLayout;
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: sk.slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },

@@ -901,3 +901,8 @@ test('setLandscapeLayout: post só com fotos (sem texto, carrossel) também ganh
   assert.equal(d.getElementById('ph').hasAttribute('data-nx-media'), true);
   assert.equal(d.getElementById('g').hasAttribute('data-nx-grid'), true);
 });
+
+test('layoutDebug: descreve o post sem lançar erro', () => {
+  const w = new JSDOM('<body><article data-testid="tweet"><div data-testid="User-Name"></div><div data-testid="tweetPhoto"></div></article></body>', { url: 'https://x.com/u/status/1' }).window;
+  assert.match(Xdom.layoutDebug(w.document, w), /post 0: mídias=1/);
+});

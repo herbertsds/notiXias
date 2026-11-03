@@ -358,7 +358,7 @@ async function startApp() {
           const arts = Xdom.articles ? Xdom.articles(document) : [];
           const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);
           const meta = 'inner=' + window.innerWidth + 'x' + window.innerHeight + ' land=' + document.documentElement.hasAttribute('data-nx-land') + ' cfg=' + cfg.landscapeLayout;
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: sk.slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },

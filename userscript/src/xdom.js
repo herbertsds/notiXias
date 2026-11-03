@@ -303,6 +303,28 @@ const Xdom = (function () {
     for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR, FLAT_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 
+  // Diagnóstico (sem texto de post): por que a grade foi (ou não) montada em cada post, com as medidas reais.
+  function layoutDebug(root, win) {
+    const tag = (n) => (n ? n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '') : '-');
+    const rect = (n) => { if (!n) return '-'; const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
+    const lines = [];
+    articles(root).slice(0, 4).forEach((art, i) => {
+      const medias = Array.from(art.querySelectorAll(MEDIA_SEL));
+      const own = medias.find((n) => !n.closest('[role="link"]'));
+      const grid = art.querySelector('[' + GRID_ATTR + ']');
+      const block = art.querySelector('[' + MEDIA_ATTR + ']');
+      const chain = [];
+      for (let n = own; n && n !== art; n = n.parentElement) chain.push(tag(n));
+      lines.push('post ' + i + ': mídias=' + medias.length + ' própria=' + tag(own) + ' texto=' + !!art.querySelector('[data-testid="tweetText"]') +
+        ' nome=' + !!art.querySelector('[data-testid="User-Name"]') + ' grade=' + !!grid + ' bloco=' + !!block);
+      lines.push('  cadeia da mídia (de baixo p/ cima): ' + chain.join(' < '));
+      if (grid) lines.push('  grade ' + tag(grid) + ' display=' + win.getComputedStyle(grid).display + ' cols=' + win.getComputedStyle(grid).gridTemplateColumns + ' rect=' + rect(grid));
+      if (block) lines.push('  bloco rect=' + rect(block) + ' col=' + win.getComputedStyle(block).gridColumnStart + ' estilo-largura=' + block.style.width);
+      lines.push('  artigo rect=' + rect(art));
+    });
+    return lines.join('\n');
+  }
+
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -800,7 +822,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

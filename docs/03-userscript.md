@@ -452,3 +452,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.13: tela deitada — post **só com foto/vídeo (sem texto)** e **carrossel/várias fotos** também entram: o texto passa a ser opcional (o cabeçalho é a âncora) e a mídia também é reconhecida por `a[href*="/photo/"]` e `img` de `pbs.twimg.com/media`; várias fotos ficam juntas no bloco da direita.
 
 0.16.14: menu "Enviar diagnóstico do layout": manda para a API (`/health/skeleton`, sem texto de posts) o esqueleto dos 3 primeiros posts da página, já com as marcas `data-nx-*` do layout deitado. Serve para ver na estrutura real do X por que uma foto/vídeo não foi para a coluna da direita.
+
+0.16.15: o diagnóstico do layout passa a incluir, antes do esqueleto, `Xdom.layoutDebug`: por post, mídia própria encontrada, cadeia de ancestrais, se a grade/bloco foram marcados e as medidas reais (display, colunas, retângulos).

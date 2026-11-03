@@ -33,3 +33,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 ## Controle (gamepad, 0.1.5)
 
 `MainActivity.dispatchKeyEvent`: **A** e **R1** avançam, **B** e **L1** voltam um post. O app injeta `Alt + seta direita/esquerda` na página (o atalho que o script já tem, `onNext`/`onPrev`) e consome o botão, para o Android não usá-lo (ex.: B como "voltar"). Se o controle estiver em outro modo (ex.: layout Nintendo, que troca A e B), os códigos mudam.
+
+**Cruzeta (0.1.6):** cima/baixo rolam a página 40% da altura da tela (suave; segurar repete). Atende tanto `KEYCODE_DPAD_UP/DOWN` quanto o eixo `AXIS_HAT_Y` (`dispatchGenericMotionEvent`), conforme o modo do controle. Esquerda/direita não fazem nada.

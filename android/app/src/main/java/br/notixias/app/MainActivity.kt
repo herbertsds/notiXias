@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
@@ -192,9 +193,35 @@ class MainActivity : Activity() {
         if (::web.isInitialized) web.saveState(outState)
     }
 
+    // Cruzeta (D-pad) do controle: cada toque rola a página um pouco (40% da altura da tela); segurar repete. Há controles que
+    // mandam a cruzeta como teclas (DPAD_UP/DOWN) e outros como eixo (HAT_Y): os dois são atendidos.
+    private fun scrollPage(down: Boolean) {
+        if (!::web.isInitialized) return
+        val sign = if (down) "" else "-"
+        web.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
+    }
+
+    private var hatY = 0f
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_MOVE && (event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0) {
+            val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            if (y != hatY) {
+                hatY = y
+                if (y != 0f) scrollPage(y > 0f)
+                return true
+            }
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
     // Controle (gamepad): A e R1 avançam, B e L1 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN) scrollPage(event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN)
+            return true
+        }
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R1 -> "ArrowRight"
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L1 -> "ArrowLeft"

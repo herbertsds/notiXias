@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.10
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.10
+// @version      0.16.11
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.11
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -661,7 +661,7 @@ const Xdom = (function () {
     '[' + GRID_ATTR + ']{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;align-items:start}' +
     '[' + FLAT_ATTR + ']{display:contents!important}' +
     '[' + GRID_ATTR + ']>*,[' + FLAT_ATTR + ']>*{grid-column:1}' +
-    '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:start}';
+    '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:stretch;min-width:0}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
 
   // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): se passar, a largura é calculada UMA vez pela
@@ -2180,7 +2180,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.10'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.11'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',

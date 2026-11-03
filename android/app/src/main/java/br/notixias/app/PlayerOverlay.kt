@@ -44,6 +44,7 @@ class PlayerOverlay(
     info: JSONObject,
     private val onClosed: () -> Unit,
     private val reimmerse: () -> Unit,
+    private val dataFactory: androidx.media3.datasource.DataSource.Factory,
 ) {
     private class Variant(val url: String, val label: String)
 
@@ -69,6 +70,7 @@ class PlayerOverlay(
     private val root = FrameLayout(act).apply { setBackgroundColor(Color.BLACK) }
     // Começa a tocar com pouco buffer (0,5 s), em vez dos 2,5 s padrão.
     private val player: ExoPlayer = ExoPlayer.Builder(act)
+        .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataFactory))
         .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 500, 1_500).build())
         .build()
     private val surface = PlayerView(act)

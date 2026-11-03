@@ -85,6 +85,25 @@
     const l = (tweetId && mediaByTweet.get(String(tweetId)) || []).filter((m) => m.type === 'video');
     return l[index || 0] || l[0] || null;
   };
+  // Vídeos do(s) primeiro(s) post(s) da página (o post aberto e, se houver, o citado/repostado), para o app guardar em disco.
+  const mediaDump = () => {
+    const out = [];
+    const seen = new Set();
+    const arts = Array.from(document.querySelectorAll('article')).slice(0, 2);
+    for (const art of arts) {
+      const a = art.querySelector('a[href*="/status/"]');
+      const m0 = a && /\/status\/(\d+)/.exec(a.getAttribute('href') || '');
+      const vids = Array.from(art.querySelectorAll('video'));
+      vids.forEach((v, i) => {
+        const m = mediaFor(v.getAttribute('poster') || '', m0 && m0[1], i);
+        if (!m || m.type !== 'video' || seen.has(m.id)) return;
+        seen.add(m.id);
+        out.push({ id: m.id, duration: m.duration, variants: m.variants.filter((x) => !x.hls) });
+      });
+    }
+    return JSON.stringify(out);
+  };
+  try { Object.defineProperty(window, '__nxMediaDump', { value: mediaDump, enumerable: false }); } catch (e) { /* segue */ }
   try { Object.defineProperty(window, '__nxMediaFor', { value: mediaFor, enumerable: false }); } catch (e) { /* segue */ }
 
   let started = false;

@@ -76,6 +76,36 @@ class MainActivity : Activity() {
         override fun run() { applyAwake(); ui.postDelayed(this, 1000) }
     }
 
+    private val vcache by lazy { VideoCache.get(this) }
+    private val mediaDumps = HashMap<Long, Int>()   // seq -> quantas vezes já se procurou vídeo nessa tela
+
+    // A cada 3 s pergunta às telas da janela (frente + vizinhas) quais vídeos o post delas tem e manda baixar (até 5 min cada).
+    private val videoScan = object : Runnable {
+        override fun run() {
+            if (ready) for (s in slots.toList()) {
+                val sq = s.seq
+                if (!s.ready || sq < 0 || (mediaDumps[sq] ?: 0) >= MAX_MEDIA_SCANS) continue
+                mediaDumps[sq] = (mediaDumps[sq] ?: 0) + 1
+                s.web.evaluateJavascript("(window.__nxMediaDump?window.__nxMediaDump():'[]')") { raw -> queueVideos(sq, raw) }
+            }
+            ui.postDelayed(this, 3000)
+        }
+    }
+
+    private fun queueVideos(seq: Long, raw: String?) {
+        if (raw == null || raw == "null") return
+        try {
+            val list = org.json.JSONArray(JSONObject("{\"v\":$raw}").getString("v"))
+            if (slots.none { it.seq == seq }) return
+            for (i in 0 until list.length()) {
+                val m = list.getJSONObject(i)
+                val best = m.optJSONArray("variants")?.optJSONObject(0) ?: continue
+                val url = best.optString("url")
+                if (url.startsWith("https://")) vcache.fetch(url, seq, best.optLong("bitrate"), m.optLong("duration"))
+            }
+        } catch (e: Exception) { /* resposta inesperada: tenta de novo na próxima volta */ }
+    }
+
     private val ready get() = ::active.isInitialized
     /** A tela que o dono está vendo: a de cima, se houver, ou a da frente da fila. */
     private fun top(): WebView? = detached?.web ?: if (ready) active.web else null
@@ -352,6 +382,9 @@ class MainActivity : Activity() {
         // os da frente primeiro: são os que o leitor vai ver antes
         val want = nextList.take(PRELOAD_EACH_WAY).map { it to "fwd" } + prevList.take(PRELOAD_EACH_WAY).map { it to "back" }
         val wantSeqs = want.map { it.first.optLong("seq", -1) }.toSet()
+        // vídeos de posts que saíram da janela: apagados do armazenamento
+        vcache.retain(wantSeqs + active.seq)
+        mediaDumps.keys.retainAll(wantSeqs + active.seq)
         for ((e, d) in want) {
             val sq = e.optLong("seq", -1)
             if (sq == active.seq) continue
@@ -374,7 +407,7 @@ class MainActivity : Activity() {
     private fun openPlayer(info: JSONObject) {
         player?.close()
         if (customView != null) exitFullscreenNow()
-        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake(); top()?.evaluateJavascript("window.nxPlayerClosed&&window.nxPlayerClosed()", null) }, { immersive(true) })
+        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake(); top()?.evaluateJavascript("window.nxPlayerClosed&&window.nxPlayerClosed()", null) }, { immersive(true) }, vcache.factory)
         player = p
         if (!p.start()) { player = null; Toast.makeText(this, "Esse vídeo não tem arquivo para tocar", Toast.LENGTH_SHORT).show(); return }
         immersive(true)
@@ -428,11 +461,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); ui.post(sweeper) }
+        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); ui.post(sweeper); ui.post(videoScan) }
     }
 
     override fun onPause() {
         ui.removeCallbacks(sweeper)
+        ui.removeCallbacks(videoScan)
         player?.pause()
         if (ready) { allSlots().forEach { it.web.onPause() }; CookieManager.getInstance().flush() }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -639,6 +673,7 @@ class MainActivity : Activity() {
         private const val HOLD_FIRST_MS = 450L
         private const val HOLD_EVERY_MS = 250L
         private const val PRELOAD_EACH_WAY = 3
+        private const val MAX_MEDIA_SCANS = 10
         private const val MAX_QUEUE_VIEWS = 1 + 2 * PRELOAD_EACH_WAY
     }
 }

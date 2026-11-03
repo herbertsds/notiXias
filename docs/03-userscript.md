@@ -438,3 +438,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.6: **tela deitada em duas colunas** (`Xdom.setLandscapeLayout`, menu "Tela deitada em duas colunas"): na página de um post, com a tela mais larga que alta (≥ 600px) e fora de tela cheia, esconde a navegação lateral, alarga a coluna do X (ancestrais da `primaryColumn` marcados com `data-nx-wide`) e, no post principal, o menor ancestral comum do texto e da mídia vira grade de 2 colunas (texto à esquerda, mídia à direita; mídia de post citado fica de fora). Desfaz tudo ao voltar para em pé. Estrutura do X não verificada na página real: ajustar conforme o uso.
 
 0.16.7: na tela deitada a grade passa a abranger também o cabeçalho do post (`User-Name`): a mídia começa no topo do post, ao lado do nome, e não no topo do texto.
+
+0.16.8: tela deitada — (1) se a estrutura não permitir a grade com o cabeçalho, volta ao menor ancestral comum de texto e mídia (0.16.7 podia deixar de montar a grade); (2) **nenhuma mídia da página passa da altura da tela**: se passar, a largura encolhe na mesma proporção (`fitMediaHeight`, marca `data-nx-fit`, desfeito ao sair do modo).

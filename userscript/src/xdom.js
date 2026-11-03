@@ -265,9 +265,22 @@ const Xdom = (function () {
     '[' + GRID_ATTR + ']>[' + MEDIA_ATTR + ']{grid-column:2;grid-row:1 / span 20}';
   const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
 
+  // Nenhuma mídia passa da altura da tela: se passar, a largura encolhe na mesma proporção (as caixas de mídia do X
+  // mantêm a proporção pela largura). `fit` marca o que foi encolhido, para desfazer ao sair do modo.
+  const FIT_ATTR = 'data-nx-fit';
+  function fitMediaHeight(root, win, el) {
+    const max = win.innerHeight;
+    const r = el.getBoundingClientRect();
+    if (!(r.height > max + 2) || !(r.width > 0)) return;
+    el.style.setProperty('width', Math.floor((r.width * max) / r.height) + 'px', 'important');
+    el.style.setProperty('max-width', '100%', 'important');
+    el.setAttribute(FIT_ATTR, '1');
+  }
+
   function clearLandscape(root) {
     const doc = root.ownerDocument || root;
     doc.documentElement.removeAttribute(LAND_ATTR);
+    root.querySelectorAll('[' + FIT_ATTR + ']').forEach((n) => { n.style.removeProperty('width'); n.style.removeProperty('max-width'); n.removeAttribute(FIT_ATTR); });
     for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 
@@ -295,20 +308,27 @@ const Xdom = (function () {
     const col = root.querySelector('[data-testid="primaryColumn"]');
     if (col) for (let n = col; n && n !== doc.body; n = n.parentElement) if (!n.hasAttribute(WIDE_ATTR)) n.setAttribute(WIDE_ATTR, '1');
     const art = mainArticle(root, win);
+    for (const m of root.querySelectorAll(MEDIA_SEL)) if (!art || !art.contains(m)) fitMediaHeight(root, win, m);
     if (!art) return false;
     const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
     const text = art.querySelector('[data-testid="tweetText"]');
     if (!media || !text || media.contains(text)) return false;
-    // Sobe até conter também o cabeçalho (nome/foto): a mídia começa no topo do post, não no topo do texto.
+    // Prefere o ancestral que contém também o cabeçalho (a mídia começa no topo do post); se a estrutura não permitir
+    // (cabeçalho em outra coluna), volta ao menor ancestral comum do texto e da mídia.
     const head = art.querySelector('[data-testid="User-Name"]');
-    let common = media.parentElement;
-    while (common && !(common.contains(text) && (!head || common.contains(head)))) common = common.parentElement;
-    if (!common || common === art || common.contains(art)) return false;
-    let mediaBlock = media;
-    while (mediaBlock.parentElement !== common) mediaBlock = mediaBlock.parentElement;
-    if (mediaBlock.contains(text)) return false;
-    if (!common.hasAttribute(GRID_ATTR)) common.setAttribute(GRID_ATTR, '1');
-    if (!mediaBlock.hasAttribute(MEDIA_ATTR)) mediaBlock.setAttribute(MEDIA_ATTR, '1');
+    const pick = (needHead) => {
+      let c = media.parentElement;
+      while (c && !(c.contains(text) && (!needHead || c.contains(head)))) c = c.parentElement;
+      if (!c || c === art || c.contains(art)) return null;
+      let b = media;
+      while (b.parentElement !== c) b = b.parentElement;
+      return b.contains(text) ? null : { common: c, block: b };
+    };
+    const got = (head && pick(true)) || pick(false);
+    if (!got) return false;
+    if (!got.common.hasAttribute(GRID_ATTR)) got.common.setAttribute(GRID_ATTR, '1');
+    if (!got.block.hasAttribute(MEDIA_ATTR)) got.block.setAttribute(MEDIA_ATTR, '1');
+    fitMediaHeight(root, win, got.block);
     return true;
   }
 

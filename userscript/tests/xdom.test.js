@@ -848,3 +848,17 @@ test('setLandscapeLayout: texto à esquerda e mídia do post (não a do citado) 
   assert.equal(d.querySelectorAll('[data-nx-grid],[data-nx-media],[data-nx-wide]').length, 0);
   assert.equal(d.documentElement.hasAttribute('data-nx-land'), false);
 });
+
+test('setLandscapeLayout: mídia mais alta que a tela encolhe a largura na mesma proporção e desfaz em pé', () => {
+  const html = '<body><main><div data-testid="primaryColumn"><article data-testid="tweet"><div><div data-testid="tweetText">oi</div>' +
+    '<div id="m"><div data-testid="tweetPhoto"></div></div></div><a href="/u/status/7"><time></time></a></article></div></main></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/u/status/7' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const m = w.document.getElementById('m');
+  m.getBoundingClientRect = () => ({ width: 400, height: 800 });
+  Xdom.setLandscapeLayout(w.document, w, true);
+  assert.equal(m.style.width, '200px');
+  w.innerWidth = 400; w.innerHeight = 900;
+  Xdom.setLandscapeLayout(w.document, w, true);
+  assert.equal(m.style.width, '');
+});

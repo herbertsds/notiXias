@@ -341,6 +341,22 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
+  // Diagnóstico do visualizador de vídeo (sem texto de post): medidas da janela e do vídeo com seus ancestrais.
+  function viewerDebug(root, win) {
+    const doc = root.ownerDocument || root;
+    const vs = Array.from(root.querySelectorAll('video'));
+    const v = vs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    const fmt = (n) => { const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
+    const out = ['path=' + win.location.pathname + ' inner=' + win.innerWidth + 'x' + win.innerHeight + ' vv=' + (win.visualViewport ? Math.round(win.visualViewport.width) + 'x' + Math.round(win.visualViewport.height) + '@' + win.visualViewport.scale : '-') +
+      ' dpr=' + win.devicePixelRatio + ' html.zoom=' + win.getComputedStyle(doc.documentElement).zoom + ' land=' + doc.documentElement.hasAttribute(LAND_ATTR) + ' videos=' + vs.length];
+    for (let n = v, i = 0; n && n !== doc.documentElement && i < 14; n = n.parentElement, i++) {
+      const cs = win.getComputedStyle(n);
+      out.push('  ' + n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + ' rect=' + fmt(n) + ' pos=' + cs.position + ' w=' + cs.width + ' h=' + cs.height +
+        ' zoom=' + cs.zoom + ' tf=' + cs.transform + ' fit=' + cs.objectFit + ' ov=' + cs.overflow + (['data-nx-wide', 'data-nx-grid', 'data-nx-flat', 'data-nx-media', 'data-nx-fit'].filter((a) => n.hasAttribute(a)).join(' ')));
+    }
+    return out.join('\n');
+  }
+
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -877,7 +893,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, viewerDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

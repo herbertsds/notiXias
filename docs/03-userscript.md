@@ -468,3 +468,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.21: (1) o botão X do controle (Alt+seta para cima) não procura mais o botão de tela cheia do player: navega (internamente, `go`) para o visualizador do X, `/usuario/status/ID/video/1` (vídeo visível) ou o link `/photo/N` (foto mais visível); (2) **tocar no vídeo** (fora de botões/controles) abre o visualizador em vez de dar play/pause (menu "Tocar no vídeo abre em tela cheia"); o mudo/som segue a preferência do X. Já em tela cheia o toque é do player.
 
 0.16.22: ao abrir o visualizador (toque no vídeo ou botão X), o vídeo do visualizador volta ao mudo/som que o do feed tinha (`openViewer`: até ~4,5 s, aperta o botão de som do X se o estado difere; sem o botão, usa `muted`).
+
+0.16.23: ao abrir o visualizador de vídeo (rota `/status/ID/video/N` etc.), envia sozinho para `/health/skeleton` (no máximo a cada 2 min, sem texto de post) `Xdom.viewerDebug`: janela, visualViewport, zoom e as medidas do vídeo e dos ancestrais — para achar por que o vídeo passa do tamanho da tela.

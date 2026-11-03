@@ -119,6 +119,7 @@ async function startApp() {
   let routeToken = 0;
   let lastHref = '';
   let prevPath = '';
+  let lastViewerDiagAt = 0; // diagnóstico automático (sem texto de post) ao abrir o visualizador de vídeo, no máximo a cada 2 min
   let cancelled = false;
   let busy = false;
   let feed = { url: 'https://x.com/home', tab_index: 1 };
@@ -1229,6 +1230,14 @@ async function startApp() {
 
   async function onRoute() {
     const token = ++routeToken;
+    if (!cfg.bot && viewerStatusId(location.pathname) && Date.now() - lastViewerDiagAt > 120000) {
+      lastViewerDiagAt = Date.now();
+      setTimeout(() => {
+        try {
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.viewerDebug(document, window).slice(0, 8000), note: 'diagnóstico do visualizador de vídeo' }).catch(() => {});
+        } catch (e) { /* melhor esforço */ }
+      }, 2500);
+    }
     const fromPath = prevPath;
     prevPath = location.pathname;
     setLabels(null);

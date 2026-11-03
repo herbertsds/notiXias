@@ -11,6 +11,8 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
+    fitViewer: true, // vídeo do visualizador encaixado na altura da tela
+    keepMuteInViewer: true, // visualizador abre com o mesmo mudo/som do vídeo do feed
     tapVideoViewer: true, // tocar no vídeo abre o visualizador em tela cheia (em vez de dar play/pause)
     landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
@@ -363,6 +365,8 @@ async function startApp() {
           api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
+      { label: 'Vídeo da tela cheia encaixado na tela: ' + (cfg.fitViewer ? 'sim' : 'não'), onClick: () => { cfg.fitViewer = !cfg.fitViewer; saveCfg(); drawBar(); } },
+      { label: 'Tela cheia mantém mudo/som do feed: ' + (cfg.keepMuteInViewer ? 'sim' : 'não'), onClick: () => { cfg.keepMuteInViewer = !cfg.keepMuteInViewer; saveCfg(); drawBar(); } },
       { label: 'Tocar no vídeo abre em tela cheia: ' + (cfg.tapVideoViewer ? 'sim' : 'não'), onClick: () => { cfg.tapVideoViewer = !cfg.tapVideoViewer; saveCfg(); drawBar(); } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
@@ -1310,27 +1314,29 @@ async function startApp() {
     }
   }, 300);
 
-  if (!cfg.bot) setInterval(() => { try { Xdom.fitViewerVideo(document, window); } catch (e) { /* melhor esforço */ } }, 400);
+  // fitViewer desligado: a chamada com caminho '/' só desfaz o ajuste que já estiver aplicado.
+  if (!cfg.bot) setInterval(() => { try { if (cfg.fitViewer) Xdom.fitViewerVideo(document, window); else Xdom.fitViewerVideo(document, { location: { pathname: '/' } }); } catch (e) { /* melhor esforço */ } }, 400);
 
   // Abre o visualizador de vídeo mantendo o estado do som: o player do visualizador começa com som, então, ao aparecer, volta ao
   // mudo/som que o vídeo do feed tinha (aperta o botão de som do X, para a tela dele ficar certa; se não houver, usa `muted`).
   function openViewer(path, fromVideo) {
     const wantMuted = fromVideo ? !!fromVideo.muted : null;
     go(path);
-    if (wantMuted === null) return;
+    if (wantMuted === null || !cfg.keepMuteInViewer) return;
+    let clicks = 0;
     let ok = 0;
     let n = 0;
     const iv = setInterval(() => {
       n++;
       try {
         const v = Array.from(document.querySelectorAll('video')).filter((x) => x !== fromVideo && x.getBoundingClientRect().width > 150).pop();
-        if (v && !v.paused) {
+        if (v && !v.paused && v.readyState >= 2) {
           if (v.muted === wantMuted) ok++;
           else {
             ok = 0;
             const comp = v.closest('[data-testid="videoComponent"],[data-testid="videoPlayer"]') || document;
             const btn = comp.querySelector('[data-testid="mute-button"]');
-            if (btn) btn.click(); else v.muted = wantMuted;
+            if (btn && clicks < 2) { clicks++; btn.click(); } else if (!btn) v.muted = wantMuted;
           }
         }
       } catch (err) { /* melhor esforço */ }

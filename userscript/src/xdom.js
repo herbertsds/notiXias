@@ -349,7 +349,7 @@ const Xdom = (function () {
     const doc = root.ownerDocument || root;
     const inViewer = !!(win.location && VIEWER_RE.test(win.location.pathname));
     if (!inViewer) {
-      root.querySelectorAll('[' + VFIT_ATTR + ']').forEach((n) => { n.style.removeProperty('zoom'); n.style.removeProperty('margin-left'); n.style.removeProperty('margin-right'); n.removeAttribute(VFIT_ATTR); delete n.__nxV; });
+      root.querySelectorAll('[' + VFIT_ATTR + ']').forEach((n) => { n.style.removeProperty('transform'); n.style.removeProperty('transform-origin'); n.removeAttribute(VFIT_ATTR); delete n.__nxV; });
       return false;
     }
     const v = Array.from(root.querySelectorAll('video')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
@@ -365,13 +365,13 @@ const Xdom = (function () {
     }
     const st = a.__nxV || (a.__nxV = { tries: 0, z: 1 });
     const ph = a.parentElement.getBoundingClientRect().height;
-    const h = a.getBoundingClientRect().height;
+    const h = a.getBoundingClientRect().height; // já inclui o scale anterior: o ajuste é multiplicativo
     if (st.tries >= 3 || !(h > ph + 4) || !(ph > 0)) return a.hasAttribute(VFIT_ATTR);
     st.tries++;
     st.z = Math.max(0.2, st.z * (ph / h));
-    a.style.setProperty('zoom', String(st.z), 'important');
-    a.style.setProperty('margin-left', 'auto', 'important');
-    a.style.setProperty('margin-right', 'auto', 'important');
+    // `transform` (não `zoom`): não mexe no layout do X nem recompõe o player; o bloco já é centrado no contêiner.
+    a.style.setProperty('transform', 'scale(' + st.z + ')', 'important');
+    a.style.setProperty('transform-origin', 'center center', 'important');
     a.setAttribute(VFIT_ATTR, '1');
     return true;
   }

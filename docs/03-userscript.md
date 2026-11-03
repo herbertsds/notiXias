@@ -474,3 +474,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.24: o vídeo do visualizador (dimensionado pela largura, 442px numa tela de 320px) passa a caber na altura do contêiner: `Xdom.fitViewerVideo` reduz com `zoom` o primeiro ancestral do vídeo mais alto que o seu contêiner e o centra (diagnóstico real: contêiner 784x272, player 784x442).
 
 0.16.25: `fitViewerVideo` escolhia o próprio `<video>` (transform de 1,005 o deixa 2px maior que o pai) e aplicava o zoom nele, sem efeito no player. Agora só conta ancestral pelo menos 20px mais alto que o contêiner (no diagnóstico real: o bloco 784x442 dentro de 784x272).
+
+0.16.26: o ajuste do visualizador usa `transform: scale()` (origem no centro) em vez de `zoom` — o `zoom` no bloco do player parecia impedir o vídeo de carregar/renderizar (relato: tela preta com áudio). O ajuste do mudo/som só age com o vídeo já tocando (`readyState >= 2`) e aperta o botão de som no máximo 2 vezes. Dois itens no menu desligam cada um: "Vídeo da tela cheia encaixado na tela" e "Tela cheia mantém mudo/som do feed".

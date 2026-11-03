@@ -11,7 +11,6 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
-    tapVideoViewer: true, // tocar no vídeo o põe em tela cheia de verdade (em vez de dar play/pause)
     landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
@@ -356,7 +355,7 @@ async function startApp() {
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
       { label: 'Enviar diagnóstico do player', onClick: () => {
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: ('diagnóstico do player de vídeo; tapVideoViewer=' + cfg.tapVideoViewer + ' v' + NX_VERSION).slice(0, 500) })
+          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: ('diagnóstico do player de vídeo; v' + NX_VERSION).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {
@@ -366,7 +365,6 @@ async function startApp() {
           api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
-      { label: 'Tocar no vídeo abre em tela cheia: ' + (cfg.tapVideoViewer ? 'sim' : 'não'), onClick: () => { cfg.tapVideoViewer = !cfg.tapVideoViewer; saveCfg(); drawBar(); } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
@@ -1376,16 +1374,18 @@ async function startApp() {
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) gm.set('nx_orient', 'auto'); });
   const openMedia = (path, video) => (video ? enterVideoFullscreen(video, path) : go(path));
 
-  // Tocar no vídeo (fora dos controles) abre o visualizador em tela cheia, em vez de dar play/pause. O mudo/som segue o
-  // estado atual do X (o visualizador usa a mesma preferência). Já em tela cheia, o toque é do player.
+  // O toque do DONO no vídeo nunca é interceptado (play/pause normal do X). Só o toque dado pelo app do Android ao apertar o botão
+  // X do controle: `nxVideoCenter()` arma este tratamento por 1,5 s, e então o primeiro clique no vídeo entra em tela cheia.
+  let armedAt = 0;
   window.addEventListener('click', (e) => {
-    if (cfg.bot || !cfg.tapVideoViewer) return;
+    if (cfg.bot || !armedAt || Date.now() - armedAt > 1500) return;
     const t = e.target;
     if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
     const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
     if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
     const path = Xdom.videoViewerPath(vp);
     if (!path) return;
+    armedAt = 0;
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -1393,10 +1393,11 @@ async function startApp() {
   }, true);
 
   // Centro (em px do CSS) de um ponto do vídeo visível, fora dos botões do meio: o app do Android toca ali com um toque de
-  // verdade (botão X do controle), e o toque no vídeo põe em tela cheia. Devolve JSON '{"x":..,"y":..}' ou ''.
+  // verdade (botão X do controle); armado, o clique resultante entra em tela cheia. Devolve JSON '{"x":..,"y":..}' ou ''.
   window.nxVideoCenter = () => {
     const vv = Xdom.visibleVideo(document, window);
     if (!vv) return '';
+    armedAt = Date.now();
     const r = vv.rect;
     return JSON.stringify({ x: Math.round((r.left + r.right) / 2), y: Math.round(r.top + (r.bottom - r.top) * 0.3) });
   };

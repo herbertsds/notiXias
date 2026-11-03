@@ -492,3 +492,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.33: menu "Enviar diagnóstico do player" (`Xdom.playerDebug`): botões/controles do vídeo visível com `aria-label`, para achar o botão de tela cheia nativo do X.
 
 0.16.34: o diagnóstico do player inclui a versão do script e o valor de `tapVideoViewer`.
+
+0.16.35: **removido** o toque do dono no vídeo que abria a tela cheia (a opção do menu não desligava). O clique interceptado agora só existe armado por `nxVideoCenter()` (o toque que o app do Android dá ao apertar o botão X do controle), por 1,5 s; o toque normal do dono é sempre o padrão do X (play/pause).

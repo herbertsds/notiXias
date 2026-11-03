@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.43
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.43
+// @version      0.16.44
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.44
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2303,7 +2303,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.43'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.44'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3645,6 +3645,40 @@ async function startApp() {
   let fsExitAt = 0;
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) fsExitAt = Date.now(); });
 
+  // Tela cheia pedida POR NÓS (retrato: o player reduzido do X não tem botão de tela cheia). Nela o X mostra o botão de sair, mas
+  // o X não sabe que está em tela cheia (não foi ele que pediu): o botão dele, tocado com o dedo, brigava com a saída (tela
+  // preta), enquanto o `exitFullscreen` do botão X do controle funciona. Então, nesse caso, o toque no botão de tela cheia/sair do
+  // X é desviado para o MESMO `document.exitFullscreen()` do controle, e o X não recebe o toque.
+  let ownFs = false;
+  const fsLog = [];
+  const fsNote = (m) => { fsLog.push(Math.round(performance.now()) + ' ' + m); if (fsLog.length > 40) fsLog.shift(); };
+  document.addEventListener('fullscreenchange', () => {
+    const el = document.fullscreenElement;
+    fsNote('fullscreenchange ' + (el ? el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : '') : 'saiu') + ' own=' + ownFs);
+    if (!el && ownFs) {
+      ownFs = false;
+      const lines = fsLog.splice(0).join('\n');
+      setTimeout(() => {
+        try { api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: lines.slice(0, 8000), note: ('tela cheia nossa: saída v' + NX_VERSION).slice(0, 500) }).catch(() => {}); } catch (e) { /* melhor esforço */ }
+      }, 1500);
+    }
+  });
+  const FS_LABEL_RE = /(tela cheia|full ?screen)/i;
+  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click'].forEach((type) => window.addEventListener(type, (e) => {
+    if (!ownFs || !document.fullscreenElement) return;
+    const t = e.target;
+    const b = t && t.closest && t.closest('button,[role="button"]');
+    if (type === 'click') fsNote('click em ' + (b ? 'botão "' + (b.getAttribute('aria-label') || '') + '"' : (t && t.tagName ? t.tagName.toLowerCase() : '?')));
+    if (!b || !FS_LABEL_RE.test(b.getAttribute('aria-label') || '')) return;
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    if (type === 'click') {
+      e.preventDefault();
+      fsNote('desviado para exitFullscreen');
+      if (document.exitFullscreen) document.exitFullscreen().catch((err) => fsNote('exitFullscreen falhou: ' + (err && err.message)));
+    }
+  }, true));
+
   let pointerState = null;
   ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
     const t = e.target;
@@ -3680,7 +3714,9 @@ async function startApp() {
         const el = fullscreenTarget(g.video);
         const req = el.requestFullscreen || el.webkitRequestFullscreen;
         try {
+          fsNote('pedindo tela cheia (nossa) em ' + el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : ''));
           const r = req && req.call(el);
+          if (r && r.then) r.then(() => { ownFs = true; fsNote('entrou (nossa)'); }, () => {});
           if (r && r.catch) r.catch((err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); });
         } catch (err) { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); }
       }

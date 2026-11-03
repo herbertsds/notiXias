@@ -76,4 +76,4 @@ docker compose --profile build run --rm android-build
 ./scripts/publish_apk.sh
 ```
 
-Primeira vez no servidor (a API monta o diretório novo): `git pull` e `docker compose -f docker-compose.prod.yml up -d --build api`. O APK precisa ser assinado com a mesma chave (a de debug fica no volume `android_debug_key`), senão o Android recusa a atualização.
+Primeira vez no servidor (a API monta o diretório novo; crie-o antes com `mkdir -p ~/projetos/notixias/android-dist`, senão o Docker o cria como root): `git pull` e `docker compose -f docker-compose.prod.yml up -d --build api`. O APK precisa ser assinado com a mesma chave (a de debug fica no volume `android_debug_key`), senão o Android recusa a atualização.

@@ -1327,6 +1327,16 @@ async function startApp() {
   // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
   // girando a tela (pelo app) para a posição do vídeo. O toque do dono é um gesto real, e o gesto vale por alguns segundos, então
   // dá para esperar a tela girar. Em tela cheia, o toque é do X.
+  // O elemento em tela cheia tem de incluir os controles do player (pausar, som), que ficam fora do `<video>`: sobe até o primeiro
+  // ancestral que os contém (no máximo o `videoPlayer`/post).
+  function fullscreenTarget(video) {
+    const ctrl = '[data-testid="mute-button"],[data-testid="scrubber"],[data-testid^="video-player-mini-ui"]';
+    let el = video;
+    while (el.parentElement && !el.querySelector(ctrl) && !el.matches('article')) el = el.parentElement;
+    if (el.matches('article') || el === video.ownerDocument.body) el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
+    return el;
+  }
+
   let pointerState = null;
   ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
     const t = e.target;
@@ -1345,13 +1355,25 @@ async function startApp() {
     if (!f0) return;
     // Com o botão já na página, o toque não faz mais nada além da tela cheia; sem ele (o X só o desenha com os controles), o
     // toque segue o padrão (mostra os controles) e a tela cheia sai assim que o botão aparecer, tudo no mesmo gesto.
-    if (!f0.button) sendPlayerDiag('toque no vídeo sem botão "Tela cheia"');
-    if (f0.button) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
+    // Em retrato o X desenha só a "mini UI" (pausar e som), sem botão de tela cheia, e o toque abre o visualizador do X (que não é
+    // tela cheia de verdade): aí pedimos a tela cheia ao próprio player (`requestFullscreen`), no mesmo gesto.
+    const mini = !f0.button && !!vp.querySelector('[data-testid^="video-player-mini-ui"]');
+    if (!f0.button && !mini) sendPlayerDiag('toque no vídeo sem botão "Tela cheia"');
+    if (f0.button || mini) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
     const before = pointerState && pointerState.video === f0.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f0.video.paused, muted: f0.video.muted };
     const press = () => {
       const g = Xdom.fullscreenButton(document, window); // o X redesenha o post ao girar: acha de novo
-      if (!g || !g.button) { gm.set('nx_orient', 'auto'); ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
-      g.button.click();
+      if (!g || (!g.button && !mini)) { gm.set('nx_orient', 'auto'); ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
+      if (g.button) g.button.click();
+      else {
+        // Sem botão (retrato): tela cheia pedida ao elemento que inclui os controles do player (pausar/som), não só ao <video>.
+        const el = fullscreenTarget(g.video);
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        try {
+          const r = req && req.call(el);
+          if (r && r.catch) r.catch((err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); });
+        } catch (err) { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); }
+      }
       // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
       [150, 500, 1200].forEach((ms) => setTimeout(() => {
         try {
@@ -1374,7 +1396,7 @@ async function startApp() {
       window.addEventListener('resize', once);
       setTimeout(once, 1500);
     };
-    if (f0.button) return start();
+    if (f0.button || mini) return start();
     let tries = 0;
     const iv = setInterval(() => {
       const g = Xdom.fullscreenButton(document, window);

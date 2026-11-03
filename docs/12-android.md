@@ -59,3 +59,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.17:** sem mudança nativa; recompilado para levar de fábrica o script 0.16.38 (toque no vídeo = mesmo caminho do botão X).
 
 **0.1.18:** botão X = toque no vídeo (mesmo caminho do dedo; a orientação agora é tratada pelo script, via `nx_orient`). O app reafirma a orientação pedida por 1,6 s depois de entrar em tela cheia (o X tenta travar em deitado). Script de fábrica 0.16.39.
+
+**0.1.19:** sem mudança nativa; script de fábrica 0.16.41 (tela cheia em retrato).

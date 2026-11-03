@@ -524,3 +524,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.19.1: ao fechar o player do app, o script (`nxPlayerClosed`) recentra a página no vídeo (alguns ajustes em 1,5 s, porque a tela gira de volta e o X reflui).
 
 0.19.2: tela de trás (standby) volta ao topo a cada 0,7 s se o X a rolar sozinho até o post; ao vir para a frente, rola ao topo na hora e segura o topo por 2 s.
+
+0.19.3: ao fechar o player do app, o POST que tem o vídeo (não o vídeo) vai para o topo da tela; se o X recriar o post na rotação, o script o acha de novo pelo id. Para de reposicionar se o dono tocar/rolar.

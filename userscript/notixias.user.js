@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.19.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.19.2
+// @version      0.19.3
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.19.3
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2305,7 +2305,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.19.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.19.3'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -4121,17 +4121,26 @@ async function startApp() {
     appCall('nx_player', { variants: info.variants, w: info.w, h: info.h, muted: !!v.muted, time: v.currentTime || 0 });
     return true;
   }
-  // Ao fechar o player a tela gira de volta e o X reflui: recentra a página no vídeo (algumas vezes, até assentar).
+  // Ao fechar o player a tela gira de volta e o X reflui (e pode recriar o post): recoloca o POST que tem o vídeo no topo da tela
+  // (não o vídeo), algumas vezes até assentar. Acha o post de novo pelo id se o elemento antigo saiu da página.
   window.nxPlayerClosed = () => {
     const v = playerVideo;
     playerVideo = null;
     if (!v) return;
-    const center = () => {
-      if (!v.isConnected) return;
-      const box = v.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]') || v;
-      try { box.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (err) { /* segue */ }
+    const art0 = v.closest('article');
+    const post = art0 && Xdom.parseArticle(art0);
+    const id = post && post.id;
+    let stop = false;
+    const off = () => { stop = true; };
+    ['wheel', 'touchstart', 'keydown'].forEach((ev) => window.addEventListener(ev, off, { once: true, passive: true }));
+    const top = () => {
+      if (stop) return;
+      let art = art0 && art0.isConnected ? art0 : null;
+      if (!art && id) art = Array.from(document.querySelectorAll('article')).find((a) => a.querySelector('a[href*="/status/' + id + '"]')) || null;
+      if (!art) return;
+      try { window.scrollTo(0, Math.max(0, art.getBoundingClientRect().top + window.scrollY)); } catch (err) { /* segue */ }
     };
-    for (const ms of [0, 150, 400, 800, 1500]) setTimeout(center, ms);
+    for (const ms of [0, 150, 400, 800, 1500, 2500]) setTimeout(top, ms);
   };
   window.nxPlayVisible = () => {
     const vv = Xdom.visibleVideo(document, window);

@@ -24,6 +24,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -62,9 +63,14 @@ class PlayerOverlay(
     private var longHeld = false
     private var startMs = 0L
     private var resumeAfterHold = false
+    private var speed = 1f
+    private var stallToken = 0
 
     private val root = FrameLayout(act).apply { setBackgroundColor(Color.BLACK) }
-    private val player: ExoPlayer = ExoPlayer.Builder(act).build()
+    // Começa a tocar com pouco buffer (0,5 s), em vez dos 2,5 s padrão.
+    private val player: ExoPlayer = ExoPlayer.Builder(act)
+        .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 500, 1_500).build())
+        .build()
     private val surface = PlayerView(act)
     private val touchLayer = View(act)
     private val controls = FrameLayout(act)
@@ -74,6 +80,7 @@ class PlayerOverlay(
     private val muteBtn: TextView
     private val lockBtn: TextView
     private val qualityBtn: TextView
+    private val speedBtn: TextView
     private val seek = SeekBar(act)
     private val posText: TextView
     private val durText: TextView
@@ -117,17 +124,19 @@ class PlayerOverlay(
         top.addView(View(act), LinearLayout.LayoutParams(0, 1, 1f))
         qualityBtn = button(variants.firstOrNull()?.label ?: "", 56, wide = true) { pickQuality() }
         top.addView(qualityBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
-        muteBtn = button(if (muted) "🔇" else "🔊", 56) { toggleMute() }
-        top.addView(muteBtn, LinearLayout.LayoutParams(dp(56), dp(56)).apply { rightMargin = dp(12) })
-        lockBtn = button("🔒", 56) { toggleLock() }
-        top.addView(lockBtn, LinearLayout.LayoutParams(dp(56), dp(56)))
+        speedBtn = button("1x", 56, wide = true) { pickSpeed() }
+        top.addView(speedBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
+        muteBtn = button(if (muted) "Mudo" else "Som", 56, wide = true) { toggleMute() }
+        top.addView(muteBtn, LinearLayout.LayoutParams(-2, dp(56)).apply { rightMargin = dp(12) })
+        lockBtn = button("Fixo", 56, wide = true) { toggleLock() }
+        top.addView(lockBtn, LinearLayout.LayoutParams(-2, dp(56)))
         controls.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
 
         val mid = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        mid.addView(button("⏪", 64) { seekBy(-10_000) }, LinearLayout.LayoutParams(dp(64), dp(64)).apply { rightMargin = dp(36) })
-        playBtn = button("⏸", 88) { togglePlay() }
+        mid.addView(button("⟲ 10", 64, wide = true) { seekBy(-10_000) }, LinearLayout.LayoutParams(-2, dp(64)).apply { rightMargin = dp(28) })
+        playBtn = button(PAUSE, 88) { togglePlay() }
         mid.addView(playBtn, LinearLayout.LayoutParams(dp(88), dp(88)))
-        mid.addView(button("⏩", 64) { seekBy(10_000) }, LinearLayout.LayoutParams(dp(64), dp(64)).apply { leftMargin = dp(36) })
+        mid.addView(button("10 ⟳", 64, wide = true) { seekBy(10_000) }, LinearLayout.LayoutParams(-2, dp(64)).apply { leftMargin = dp(28) })
         controls.addView(mid, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
 
         posText = label("0:00", 14f)
@@ -177,7 +186,7 @@ class PlayerOverlay(
                 }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                playBtn.text = if (isPlaying) "⏸" else "▶"
+                playBtn.text = if (isPlaying) PAUSE else PLAY
                 if (isPlaying) scheduleHide() else { ui.removeCallbacks(hide); if (firstReady && !longHeld) showControls() }
             }
             override fun onVideoSizeChanged(size: VideoSize) {
@@ -210,22 +219,26 @@ class PlayerOverlay(
         player.setMediaItem(MediaItem.fromUri(variants[0].url), startMs)
         player.prepare()
         player.playWhenReady = true
+        watchStall()
         ui.post(ticker)
         return true
     }
 
     // ---------- interface ----------
-    private fun pill() = GradientDrawable().apply { setColor(0x99000000.toInt()); cornerRadius = dp(28).toFloat() }
+    // Discreto: quase transparente, com um fio branco fino.
+    private fun pill() = GradientDrawable().apply {
+        setColor(0x1FFFFFFF); setStroke(dp(1), 0x66FFFFFF); cornerRadius = dp(28).toFloat()
+    }
 
     private fun label(text: String, size: Float) = TextView(act).apply {
         this.text = text
-        setTextColor(Color.WHITE)
+        setTextColor(0xF2FFFFFF.toInt())
         textSize = size
         gravity = Gravity.CENTER
         setPadding(dp(6), 0, dp(6), 0)
     }
 
-    private fun button(text: String, size: Int, wide: Boolean = false, onClick: () -> Unit) = label(text, if (size >= 80) 34f else 22f).apply {
+    private fun button(text: String, size: Int, wide: Boolean = false, onClick: () -> Unit) = label(text, if (size >= 80) 30f else 16f).apply {
         background = pill()
         if (wide) setPadding(dp(16), 0, dp(16), 0)
         minimumWidth = dp(size)
@@ -263,7 +276,7 @@ class PlayerOverlay(
     private val longPress = Runnable {
         longHeld = true
         resumeAfterHold = !player.isPlaying
-        player.setPlaybackSpeed(2f)
+        player.setPlaybackSpeed(HOLD_SPEED)
         if (resumeAfterHold) player.play()
         badge.visibility = View.VISIBLE
     }
@@ -281,7 +294,7 @@ class PlayerOverlay(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 ui.removeCallbacks(longPress)
                 if (longHeld) {
-                    player.setPlaybackSpeed(1f)
+                    player.setPlaybackSpeed(speed)
                     if (resumeAfterHold) player.pause()
                     badge.visibility = View.GONE
                     longHeld = false
@@ -324,7 +337,7 @@ class PlayerOverlay(
     private fun toggleMute() {
         muted = !muted
         player.volume = if (muted) 0f else 1f
-        muteBtn.text = if (muted) "🔇" else "🔊"
+        muteBtn.text = if (muted) "Mudo" else "Som"
     }
 
     // Formato do vídeo (em pé/deitado) travado; o sensor ainda deixa virar de cabeça para baixo. O cadeado solta (segue o celular).
@@ -338,7 +351,7 @@ class PlayerOverlay(
 
     private fun toggleLock() {
         lockOn = !lockOn
-        lockBtn.text = if (lockOn) "🔒" else "🔓"
+        lockBtn.text = if (lockOn) "Fixo" else "Livre"
         applyOrientation()
         Toast.makeText(act, if (lockOn) "Girar: fixo no formato do vídeo" else "Girar: livre (segue o celular)", Toast.LENGTH_SHORT).show()
     }
@@ -352,6 +365,35 @@ class PlayerOverlay(
         player.setMediaItem(MediaItem.fromUri(variants[i].url), pos)
         player.prepare()
         player.playWhenReady = playing
+        if (!firstReady) watchStall()
+    }
+
+    private fun pickSpeed() {
+        ui.removeCallbacks(hide)
+        val idx = SPEEDS.indexOf(speed).coerceAtLeast(0)
+        AlertDialog.Builder(act).setTitle("Velocidade")
+            .setSingleChoiceItems(SPEEDS.map { fmtSpeed(it) }.toTypedArray(), idx) { d, i ->
+                d.dismiss()
+                speed = SPEEDS[i]
+                player.setPlaybackSpeed(speed)
+                speedBtn.text = fmtSpeed(speed)
+            }
+            .setOnDismissListener { reimmerse(); scheduleHide() }
+            .show()
+    }
+
+    private fun fmtSpeed(r: Float) = r.toString().removeSuffix(".0").replace('.', ',') + "x"
+
+    // Vídeo que não começa em 4 s na qualidade escolhida: cai para a próxima (o X costuma ter uma menor já em cache).
+    private fun watchStall() {
+        val token = ++stallToken
+        ui.postDelayed({
+            if (closed || token != stallToken || firstReady) return@postDelayed
+            if (player.playbackState == Player.STATE_BUFFERING && quality + 1 < variants.size) {
+                Toast.makeText(act, "Carregando devagar: tentando " + variants[quality + 1].label, Toast.LENGTH_SHORT).show()
+                setQuality(quality + 1)
+            }
+        }, STALL_MS)
     }
 
     private fun pickQuality() {
@@ -397,5 +439,11 @@ class PlayerOverlay(
     companion object {
         private const val HIDE_AFTER_MS = 3000L
         private const val HOLD_MS = 350L
+        private const val HOLD_SPEED = 2f
+        private const val STALL_MS = 4000L
+        private const val PLAY = "▶\uFE0E"
+        private const val PAUSE = "❚❚"
+        // Mesmos valores do botão de velocidade do script (Core.SPEEDS).
+        private val SPEEDS = listOf(0.1f, 0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 2.75f, 3f)
     }
 }

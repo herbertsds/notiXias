@@ -374,7 +374,7 @@ class MainActivity : Activity() {
     private fun openPlayer(info: JSONObject) {
         player?.close()
         if (customView != null) exitFullscreenNow()
-        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake() }, { immersive(true) })
+        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake(); top()?.evaluateJavascript("window.nxPlayerClosed&&window.nxPlayerClosed()", null) }, { immersive(true) })
         player = p
         if (!p.start()) { player = null; Toast.makeText(this, "Esse vídeo não tem arquivo para tocar", Toast.LENGTH_SHORT).show(); return }
         immersive(true)

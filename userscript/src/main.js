@@ -1799,6 +1799,7 @@ async function startApp() {
   // Tocar no vídeo (ou o botão X do controle) abre o player do app com o arquivo do vídeo: o app lê o formato, gira a tela, abre
   // mudo ou com som como o vídeo da página estava e começa de onde ele estava. Os links vêm do captador do shim (respostas da API
   // do X). Sem link (vídeo que o X não entrega em arquivo, GIF), o toque segue o comportamento do X.
+  let playerVideo = null;
   function openPlayerFor(v) {
     if (!inApp || cfg.bot || !v || typeof window.__nxMediaFor !== 'function') return false;
     const art = v.closest('article');
@@ -1808,9 +1809,22 @@ async function startApp() {
     try { info = window.__nxMediaFor(v.getAttribute('poster') || '', post && post.id, Math.max(0, vids.indexOf(v))); } catch (err) { /* sem link */ }
     if (!info || info.type !== 'video' || !info.variants || !info.variants.length) return false;
     try { v.pause(); } catch (err) { /* segue */ }
+    playerVideo = v;
     appCall('nx_player', { variants: info.variants, w: info.w, h: info.h, muted: !!v.muted, time: v.currentTime || 0 });
     return true;
   }
+  // Ao fechar o player a tela gira de volta e o X reflui: recentra a página no vídeo (algumas vezes, até assentar).
+  window.nxPlayerClosed = () => {
+    const v = playerVideo;
+    playerVideo = null;
+    if (!v) return;
+    const center = () => {
+      if (!v.isConnected) return;
+      const box = v.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]') || v;
+      try { box.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch (err) { /* segue */ }
+    };
+    for (const ms of [0, 150, 400, 800, 1500]) setTimeout(center, ms);
+  };
   window.nxPlayVisible = () => {
     const vv = Xdom.visibleVideo(document, window);
     return !!(vv && openPlayerFor(vv.video));

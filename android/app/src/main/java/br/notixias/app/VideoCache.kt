@@ -14,12 +14,13 @@ import java.util.concurrent.Executors
 
 /**
  * Vídeos das telas da fila, baixados para o armazenamento do app enquanto o leitor ainda não chegou neles: até [MAX_SECONDS]
- * de cada vídeo (na melhor qualidade em mp4). O player do app lê pelo mesmo cache, então abre na hora. Cada vídeo é apagado
+ * de cada vídeo (só [MOBILE_SECONDS] em dados móveis) (na melhor qualidade em mp4). O player do app lê pelo mesmo cache, então abre na hora. Cada vídeo é apagado
  * quando o post dele sai da janela de telas abertas, e o cache inteiro é apagado quando o app abre.
  */
 class VideoCache(ctx: Context) {
-    private class Job(val url: String, val owner: Long) { @Volatile var writer: CacheWriter? = null; @Volatile var cancelled = false }
+    private class Job(val url: String, val owner: Long, val secs: Long) { @Volatile var writer: CacheWriter? = null; @Volatile var cancelled = false }
 
+    private val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
     private val dir = File(ctx.cacheDir, "videos")
     private val cache: SimpleCache
     val factory: DataSource.Factory
@@ -38,10 +39,14 @@ class VideoCache(ctx: Context) {
 
     /** Começa a baixar [url] (dono: o `seq` do post) até [seconds] segundos, se não houver já. */
     fun fetch(url: String, owner: Long, bitrate: Long, durationMs: Long) {
-        if (jobs.containsKey(url)) return
-        val job = Job(url, owner)
+        // Dados móveis (rede com franquia): só 10 s de cada vídeo; no Wi-Fi, até 5 min. Se voltar ao Wi-Fi, completa o que faltar.
+        val cap = if (metered()) MOBILE_SECONDS else MAX_SECONDS
+        val secs = if (durationMs > 0) minOf(durationMs / 1000 + 1, cap) else cap
+        val old = jobs[url]
+        if (old != null && old.secs >= secs) return
+        old?.let { it.cancelled = true; try { it.writer?.cancel() } catch (e: Exception) { /* já terminou */ } }
+        val job = Job(url, owner, secs)
         jobs[url] = job
-        val secs = if (durationMs > 0) minOf(durationMs / 1000 + 1, MAX_SECONDS) else MAX_SECONDS
         val rate = if (bitrate > 0) bitrate / 8 else DEFAULT_BYTES_PER_SEC
         val limit = rate * secs
         pool.execute {
@@ -53,6 +58,8 @@ class VideoCache(ctx: Context) {
             } catch (e: Exception) { /* cancelado ou sem rede: o player baixa sozinho quando abrir */ }
         }
     }
+
+    private fun metered(): Boolean = try { cm.isActiveNetworkMetered } catch (e: Exception) { true }
 
     /** Apaga os vídeos de todo post cujo `seq` não está em [keep]. */
     fun retain(keep: Set<Long>) {
@@ -67,6 +74,7 @@ class VideoCache(ctx: Context) {
 
     companion object {
         private const val MAX_SECONDS = 300L
+        private const val MOBILE_SECONDS = 10L
         private const val DEFAULT_BYTES_PER_SEC = 400_000L   // ~3 Mbps, quando o X não diz o bitrate
         @Volatile private var instance: VideoCache? = null
         fun get(ctx: Context): VideoCache = instance ?: synchronized(this) { instance ?: VideoCache(ctx.applicationContext).also { instance = it } }

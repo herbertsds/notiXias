@@ -39,3 +39,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.7:** R1/L1 trocados por **R2/L2** (tecla `BUTTON_R2/L2` ou eixo analógico `RTRIGGER/GAS`, `LTRIGGER/BRAKE` a partir de 50%).
 
 **0.1.8:** botão **X** do controle manda Alt+seta para cima; o script (0.16.20) abre em tela cheia o vídeo visível (botão de tela cheia do player) ou, sem vídeo, a foto mais visível.
+
+**0.1.9:** o botão **X** manda ao WebView a tecla **F9 de verdade** (`web.dispatchKeyEvent`), que dá gesto do usuário à página; o script (0.16.27) responde com `requestFullscreen` no player do vídeo visível (tela cheia real, com `onShowCustomView`). Sem vídeo, abre a foto mais visível.

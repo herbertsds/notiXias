@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.26
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.26
+// @version      0.16.27
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.27
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -738,57 +738,6 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
-  // Visualizador de vídeo do X: o player é dimensionado pela LARGURA (16:9 em 784px = 442px) e passa da altura da tela
-  // deitada (320px). Acha o primeiro ancestral do vídeo mais alto que o seu contêiner e o reduz com `zoom` até caber na
-  // altura do contêiner (a largura diminui junto e o conteúdo é centrado). No máximo 3 ajustes; desfaz ao sair do visualizador.
-  const VFIT_ATTR = 'data-nx-vfit';
-  function fitViewerVideo(root, win) {
-    const doc = root.ownerDocument || root;
-    const inViewer = !!(win.location && VIEWER_RE.test(win.location.pathname));
-    if (!inViewer) {
-      root.querySelectorAll('[' + VFIT_ATTR + ']').forEach((n) => { n.style.removeProperty('transform'); n.style.removeProperty('transform-origin'); n.removeAttribute(VFIT_ATTR); delete n.__nxV; });
-      return false;
-    }
-    const v = Array.from(root.querySelectorAll('video')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
-    if (!v) return false;
-    let a = root.querySelector('[' + VFIT_ATTR + ']');
-    if (!a) {
-      for (let n = v; n && n.parentElement && n !== doc.body; n = n.parentElement) {
-        const h = n.getBoundingClientRect().height;
-        const ph = n.parentElement.getBoundingClientRect().height;
-        if (ph > 0 && h > ph + 20) { a = n; break; } // folga: o vídeo em si tem transform de 1,005 e passa 2px do pai
-      }
-      if (!a) return false;
-    }
-    const st = a.__nxV || (a.__nxV = { tries: 0, z: 1 });
-    const ph = a.parentElement.getBoundingClientRect().height;
-    const h = a.getBoundingClientRect().height; // já inclui o scale anterior: o ajuste é multiplicativo
-    if (st.tries >= 3 || !(h > ph + 4) || !(ph > 0)) return a.hasAttribute(VFIT_ATTR);
-    st.tries++;
-    st.z = Math.max(0.2, st.z * (ph / h));
-    // `transform` (não `zoom`): não mexe no layout do X nem recompõe o player; o bloco já é centrado no contêiner.
-    a.style.setProperty('transform', 'scale(' + st.z + ')', 'important');
-    a.style.setProperty('transform-origin', 'center center', 'important');
-    a.setAttribute(VFIT_ATTR, '1');
-    return true;
-  }
-
-  // Diagnóstico do visualizador de vídeo (sem texto de post): medidas da janela e do vídeo com seus ancestrais.
-  function viewerDebug(root, win) {
-    const doc = root.ownerDocument || root;
-    const vs = Array.from(root.querySelectorAll('video'));
-    const v = vs.sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
-    const fmt = (n) => { const r = n.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join(','); };
-    const out = ['path=' + win.location.pathname + ' inner=' + win.innerWidth + 'x' + win.innerHeight + ' vv=' + (win.visualViewport ? Math.round(win.visualViewport.width) + 'x' + Math.round(win.visualViewport.height) + '@' + win.visualViewport.scale : '-') +
-      ' dpr=' + win.devicePixelRatio + ' html.zoom=' + win.getComputedStyle(doc.documentElement).zoom + ' land=' + doc.documentElement.hasAttribute(LAND_ATTR) + ' videos=' + vs.length];
-    for (let n = v, i = 0; n && n !== doc.documentElement && i < 14; n = n.parentElement, i++) {
-      const cs = win.getComputedStyle(n);
-      out.push('  ' + n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + ' rect=' + fmt(n) + ' pos=' + cs.position + ' w=' + cs.width + ' h=' + cs.height +
-        ' zoom=' + cs.zoom + ' tf=' + cs.transform + ' fit=' + cs.objectFit + ' ov=' + cs.overflow + (['data-nx-wide', 'data-nx-grid', 'data-nx-flat', 'data-nx-media', 'data-nx-fit'].filter((a) => n.hasAttribute(a)).join(' ')));
-    }
-    return out.join('\n');
-  }
-
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -1325,7 +1274,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, viewerDebug, fitViewerVideo, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2311,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.26'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.27'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2321,9 +2270,7 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
-    fitViewer: true, // vídeo do visualizador encaixado na altura da tela
-    keepMuteInViewer: true, // visualizador abre com o mesmo mudo/som do vídeo do feed
-    tapVideoViewer: true, // tocar no vídeo abre o visualizador em tela cheia (em vez de dar play/pause)
+    tapVideoViewer: true, // tocar no vídeo o põe em tela cheia de verdade (em vez de dar play/pause)
     landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
@@ -2431,7 +2378,6 @@ async function startApp() {
   let routeToken = 0;
   let lastHref = '';
   let prevPath = '';
-  let lastViewerDiagAt = 0; // diagnóstico automático (sem texto de post) ao abrir o visualizador de vídeo, no máximo a cada 2 min
   let cancelled = false;
   let busy = false;
   let feed = { url: 'https://x.com/home', tab_index: 1 };
@@ -2675,8 +2621,6 @@ async function startApp() {
           api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
-      { label: 'Vídeo da tela cheia encaixado na tela: ' + (cfg.fitViewer ? 'sim' : 'não'), onClick: () => { cfg.fitViewer = !cfg.fitViewer; saveCfg(); drawBar(); } },
-      { label: 'Tela cheia mantém mudo/som do feed: ' + (cfg.keepMuteInViewer ? 'sim' : 'não'), onClick: () => { cfg.keepMuteInViewer = !cfg.keepMuteInViewer; saveCfg(); drawBar(); } },
       { label: 'Tocar no vídeo abre em tela cheia: ' + (cfg.tapVideoViewer ? 'sim' : 'não'), onClick: () => { cfg.tapVideoViewer = !cfg.tapVideoViewer; saveCfg(); drawBar(); } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
@@ -3544,14 +3488,6 @@ async function startApp() {
 
   async function onRoute() {
     const token = ++routeToken;
-    if (!cfg.bot && viewerStatusId(location.pathname) && Date.now() - lastViewerDiagAt > 120000) {
-      lastViewerDiagAt = Date.now();
-      setTimeout(() => {
-        try {
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.viewerDebug(document, window).slice(0, 8000), note: 'diagnóstico do visualizador de vídeo' }).catch(() => {});
-        } catch (e) { /* melhor esforço */ }
-      }, 2500);
-    }
     const fromPath = prevPath;
     prevPath = location.pathname;
     setLabels(null);
@@ -3624,35 +3560,21 @@ async function startApp() {
     }
   }, 300);
 
-  // fitViewer desligado: a chamada com caminho '/' só desfaz o ajuste que já estiver aplicado.
-  if (!cfg.bot) setInterval(() => { try { if (cfg.fitViewer) Xdom.fitViewerVideo(document, window); else Xdom.fitViewerVideo(document, { location: { pathname: '/' } }); } catch (e) { /* melhor esforço */ } }, 400);
-
-  // Abre o visualizador de vídeo mantendo o estado do som: o player do visualizador começa com som, então, ao aparecer, volta ao
-  // mudo/som que o vídeo do feed tinha (aperta o botão de som do X, para a tela dele ficar certa; se não houver, usa `muted`).
-  function openViewer(path, fromVideo) {
-    const wantMuted = fromVideo ? !!fromVideo.muted : null;
-    go(path);
-    if (wantMuted === null || !cfg.keepMuteInViewer) return;
-    let clicks = 0;
-    let ok = 0;
-    let n = 0;
-    const iv = setInterval(() => {
-      n++;
-      try {
-        const v = Array.from(document.querySelectorAll('video')).filter((x) => x !== fromVideo && x.getBoundingClientRect().width > 150).pop();
-        if (v && !v.paused && v.readyState >= 2) {
-          if (v.muted === wantMuted) ok++;
-          else {
-            ok = 0;
-            const comp = v.closest('[data-testid="videoComponent"],[data-testid="videoPlayer"]') || document;
-            const btn = comp.querySelector('[data-testid="mute-button"]');
-            if (btn && clicks < 2) { clicks++; btn.click(); } else if (!btn) v.muted = wantMuted;
-          }
-        }
-      } catch (err) { /* melhor esforço */ }
-      if (ok >= 3 || n > 30) clearInterval(iv);
-    }, 150);
+  // Tela cheia DE VERDADE (a do navegador/app, não a rota do visualizador do X, que não ocupa a tela): requestFullscreen no
+  // player do vídeo, o mesmo que o botão do X faz. Exige gesto do usuário: vale no toque no vídeo e na tecla F9 que o app do
+  // Android manda de verdade (não sintética) quando o botão X do controle é apertado. O MESMO vídeo continua tocando, então
+  // mudo/som e posição não mudam. Se o navegador recusar, cai no visualizador do X.
+  function enterVideoFullscreen(video, fallbackPath) {
+    const el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
+    const fallback = () => { if (fallbackPath) go(fallbackPath); };
+    try {
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) return fallback();
+      const r = req.call(el);
+      if (r && r.catch) r.catch(fallback);
+    } catch (e) { fallback(); }
   }
+  const openMedia = (path, video) => (video ? enterVideoFullscreen(video, path) : go(path));
 
   // Tocar no vídeo (fora dos controles) abre o visualizador em tela cheia, em vez de dar play/pause. O mudo/som segue o
   // estado atual do X (o visualizador usa a mesma preferência). Já em tela cheia, o toque é do player.
@@ -3667,14 +3589,22 @@ async function startApp() {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
-    openViewer(path, vp.querySelector('video'));
+    enterVideoFullscreen(vp.querySelector('video') || vp, path);
+  }, true);
+
+  // F9 = botão X do controle (o app manda a tecla de verdade, com gesto do usuário, para poder entrar em tela cheia).
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'F9' || cfg.bot) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { Xdom.openMediaFullscreen(document, window, openMedia); } catch (err) { /* melhor esforço */ }
   }, true);
 
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, openViewer); } catch (err) { /* melhor esforço */ } } // botão X do controle
+    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, openMedia); } catch (err) { /* melhor esforço */ } } // botão X do controle
   });
 
   // Comando pela URL (atalho do iPhone: https://x.com/home?nx=update): guarda e limpa o parâmetro.

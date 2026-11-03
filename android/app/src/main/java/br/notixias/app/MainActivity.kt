@@ -246,7 +246,14 @@ class MainActivity : Activity() {
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R2 -> "ArrowRight"
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L2 -> "ArrowLeft"
-            KeyEvent.KEYCODE_BUTTON_X -> "ArrowUp"   // abre a mídia da tela em tela cheia (o script trata Alt+seta para cima)
+            KeyEvent.KEYCODE_BUTTON_X -> {
+                // Tela cheia de verdade exige gesto do usuário: manda ao WebView uma tecla de verdade (F9), não uma sintética.
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && ::web.isInitialized) {
+                    web.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F9))
+                    web.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F9))
+                }
+                return true
+            }
             else -> return super.dispatchKeyEvent(event)
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) sendNav(dir)

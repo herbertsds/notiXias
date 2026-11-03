@@ -261,6 +261,39 @@ class MainActivity : Activity() {
         return super.dispatchGenericMotionEvent(event)
     }
 
+    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pede ao script um ponto do vídeo visível e dá um TOQUE de
+    // verdade ali (o toque no vídeo põe em tela cheia; o navegador só aceita tela cheia depois de um gesto do usuário real).
+    private fun toggleVideoFullscreen() {
+        if (!::web.isInitialized) return
+        if (customView != null) {
+            web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
+            return
+        }
+        web.evaluateJavascript("(window.nxVideoCenter?window.nxVideoCenter():'')") { raw ->
+            val json = raw?.trim('"')?.replace("\\\"", "\"") ?: ""
+            if (json.isEmpty() || json == "null") {
+                web.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true,cancelable:true}))", null)
+                return@evaluateJavascript
+            }
+            val o = org.json.JSONObject(json)
+            val d = resources.displayMetrics.density
+            tap(o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
+        }
+    }
+
+    private fun tap(x: Float, y: Float) {
+        val t = android.os.SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
+        web.dispatchTouchEvent(down)
+        down.recycle()
+        ui.postDelayed({
+            val t2 = android.os.SystemClock.uptimeMillis()
+            val up = MotionEvent.obtain(t, t2, MotionEvent.ACTION_UP, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
+            web.dispatchTouchEvent(up)
+            up.recycle()
+        }, 60)
+    }
+
     // Controle (gamepad): A e R2 avançam, B e L2 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -275,14 +308,15 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R2 -> "ArrowRight"
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L2 -> "ArrowLeft"
             KeyEvent.KEYCODE_BUTTON_X -> {
-                // Tela cheia de verdade exige gesto do usuário: manda ao WebView uma tecla de verdade (F9), não uma sintética.
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && ::web.isInitialized) {
-                    web.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F9))
-                    web.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F9))
-                }
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleVideoFullscreen()
                 return true
             }
-            else -> return super.dispatchKeyEvent(event)
+            else -> {
+                // Diagnóstico: mostra o código dos botões do controle que o app não usa (para achar o que o "X" manda de fato).
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && KeyEvent.isGamepadButton(event.keyCode))
+                    Toast.makeText(this, "Botão: " + KeyEvent.keyCodeToString(event.keyCode), Toast.LENGTH_SHORT).show()
+                return super.dispatchKeyEvent(event)
+            }
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) sendNav(dir)
         return true

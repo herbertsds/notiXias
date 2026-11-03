@@ -480,3 +480,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.27: **tela cheia de verdade** para vídeo (botão X do controle = tecla F9 enviada pelo app; toque no vídeo): `requestFullscreen` no player (`videoPlayer`), como o botão do X, em vez de navegar para o visualizador `/video/1` (que é só uma rota do X e não ocupa a tela, causando os problemas de tamanho/carregamento/som). O mesmo vídeo segue tocando: mudo/som e posição não mudam. Recusando o navegador, cai no visualizador. Removidos: ajuste de tamanho do visualizador, regra de mudo/som, diagnóstico automático e as chaves de menu correspondentes.
 
 0.16.28: o botão X do controle (F9) também **sai** da tela cheia quando o vídeo já está em tela cheia (`Xdom.leaveFullscreen`, ou `document.exitFullscreen`).
+
+0.16.29: se o navegador recusar a tela cheia, mostra o motivo num aviso (não cai mais no visualizador do X); `window.nxVideoCenter()` devolve um ponto do vídeo visível para o app do Android tocar (botão X do controle).

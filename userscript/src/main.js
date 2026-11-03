@@ -1307,13 +1307,14 @@ async function startApp() {
   // mudo/som e posição não mudam. Se o navegador recusar, cai no visualizador do X.
   function enterVideoFullscreen(video, fallbackPath) {
     const el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
-    const fallback = () => { if (fallbackPath) go(fallbackPath); };
+    // Sem cair no visualizador do X (rota que não ocupa a tela): se o navegador recusar, avisa o motivo.
+    const fail = (err) => ui.toast('Tela cheia recusada: ' + ((err && err.message) || err || 'sem suporte'), { tone: 'warn', ms: 5000 });
     try {
       const req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (!req) return fallback();
+      if (!req) return fail('sem suporte');
       const r = req.call(el);
-      if (r && r.catch) r.catch(fallback);
-    } catch (e) { fallback(); }
+      if (r && r.catch) r.catch(fail);
+    } catch (e) { fail(e); }
   }
   const openMedia = (path, video) => (video ? enterVideoFullscreen(video, path) : go(path));
 
@@ -1332,6 +1333,15 @@ async function startApp() {
     e.stopImmediatePropagation();
     enterVideoFullscreen(vp.querySelector('video') || vp, path);
   }, true);
+
+  // Centro (em px do CSS) de um ponto do vídeo visível, fora dos botões do meio: o app do Android toca ali com um toque de
+  // verdade (botão X do controle), e o toque no vídeo põe em tela cheia. Devolve JSON '{"x":..,"y":..}' ou ''.
+  window.nxVideoCenter = () => {
+    const vv = Xdom.visibleVideo(document, window);
+    if (!vv) return '';
+    const r = vv.rect;
+    return JSON.stringify({ x: Math.round((r.left + r.right) / 2), y: Math.round(r.top + (r.bottom - r.top) * 0.3) });
+  };
 
   // F9 = botão X do controle (o app manda a tecla de verdade, com gesto do usuário, para poder entrar em tela cheia).
   window.addEventListener('keydown', (e) => {

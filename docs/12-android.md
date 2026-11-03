@@ -49,3 +49,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.12:** tela cheia de vídeo em modo imersivo (`immersive()`: esconde barra de status/navegação e usa o recorte da câmera; volta ao sair). Voltar com a tela cheia aberta também pede `exitFullscreen` à página.
 
 **0.1.13:** ao entrar em tela cheia, o app lê `videoWidth x videoHeight` do vídeo (`lockOrientationToVideo`): mais alto que largo → `SCREEN_ORIENTATION_SENSOR_PORTRAIT`; senão `SENSOR_LANDSCAPE`. Se o vídeo ainda não carregou (0x0), tenta até 8 vezes a cada 300 ms. Ao sair, `UNSPECIFIED` (volta a seguir o celular).
+
+**0.1.14:** a orientação do vídeo agora é pedida **antes** de entrar em tela cheia (girar depois fazia a página sair dela): o script envia `nx_orient` (`portrait`/`landscape`/`auto`) pela ponte e espera a tela girar (até 1,5 s; o gesto do toque dura alguns segundos). Ao sair da tela cheia o app repinta/remede o WebView (tela preta) e volta a orientação para `auto`.

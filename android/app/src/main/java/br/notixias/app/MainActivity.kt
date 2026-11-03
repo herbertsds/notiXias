@@ -93,7 +93,7 @@ class MainActivity : Activity() {
             textZoom = 105   // textos 5% maiores
         }
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
-        WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net) { on -> runOnUiThread { scriptAwake = on; applyAwake() } })
+        WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net, { on -> runOnUiThread { scriptAwake = on; applyAwake() } }, { v -> runOnUiThread { setOrientation(v) } }))
         installScript()
 
         web.webViewClient = object : WebViewClient() {
@@ -138,7 +138,6 @@ class MainActivity : Activity() {
                 root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 web.visibility = View.GONE
                 immersive(true)
-                lockOrientationToVideo(0)
             }
             override fun onHideCustomView() {
                 customView?.let { root.removeView(it) }
@@ -148,6 +147,14 @@ class MainActivity : Activity() {
                 web.visibility = View.VISIBLE
                 immersive(false)
                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                // Evita a tela preta ao voltar: força nova medida/desenho do WebView e avisa a página do novo tamanho.
+                web.requestLayout()
+                web.invalidate()
+                ui.postDelayed({
+                    web.requestLayout()
+                    web.invalidate()
+                    web.evaluateJavascript("window.dispatchEvent(new Event('resize'))", null)
+                }, 250)
             }
         }
 
@@ -266,26 +273,15 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Vídeo em tela cheia abre na posição certa, qualquer que seja a do celular: retrato (mais alto que largo) trava em pé,
-     * paisagem trava deitado (o sensor ainda vira de cabeça para baixo). Lê o tamanho do vídeo na página; se ele ainda não
-     * carregou (0x0), tenta de novo algumas vezes. Ao sair da tela cheia a orientação volta a seguir o celular.
+     * O script lê o formato do vídeo e pede a orientação ANTES de entrar em tela cheia (girar depois fazia a página sair da tela
+     * cheia na hora): "portrait" trava em pé, "landscape" trava deitado (o sensor ainda vira de cabeça para baixo), "auto" volta
+     * a seguir o celular.
      */
-    private fun lockOrientationToVideo(attempt: Int) {
-        if (!::web.isInitialized || customView == null) return
-        web.evaluateJavascript(
-            "(function(){var f=document.fullscreenElement;var v=(f&&(f.tagName==='VIDEO'?f:f.querySelector('video')))||document.querySelector('video');" +
-                "return v?v.videoWidth+'x'+v.videoHeight:'0x0'})()"
-        ) { raw ->
-            val m = Regex("(\\d+)x(\\d+)").find(raw ?: "")
-            val w = m?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val h = m?.groupValues?.get(2)?.toIntOrNull() ?: 0
-            if (customView == null) return@evaluateJavascript
-            if (w > 0 && h > 0) {
-                requestedOrientation = if (h > w) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            } else if (attempt < 8) {
-                ui.postDelayed({ lockOrientationToVideo(attempt + 1) }, 300)
-            }
+    private fun setOrientation(v: String) {
+        requestedOrientation = when {
+            v.contains("portrait") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            v.contains("landscape") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 

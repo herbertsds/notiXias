@@ -11,7 +11,7 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /** Ponte entre a página (https://x.com) e o app: armazenamento, rede e cookies do script. */
-class Bridge(private val store: Store, private val net: Net, private val onAwake: (Boolean) -> Unit) : WebViewCompat.WebMessageListener {
+class Bridge(private val store: Store, private val net: Net, private val onAwake: (Boolean) -> Unit, private val onOrient: (String) -> Unit) : WebViewCompat.WebMessageListener {
     private val pool = Executors.newFixedThreadPool(4)
 
     override fun onPostMessage(view: WebView, message: WebMessageCompat, sourceOrigin: Uri, isMainFrame: Boolean, replyProxy: JavaScriptReplyProxy) {
@@ -34,6 +34,8 @@ class Bridge(private val store: Store, private val net: Net, private val onAwake
         "set" -> {
             // "nx_awake": o script avisa se há vídeo tocando em tela cheia (só então a tela do celular fica acesa)
             if (m.optString("key") == "nx_awake") onAwake(m.optString("value") == "true")
+            // "nx_orient": o script pede a orientação ("portrait", "landscape" ou "auto") antes de entrar em tela cheia
+            else if (m.optString("key") == "nx_orient") onOrient(m.optString("value"))
             else store.set(m.optString("key"), m.optString("value"))
             true
         }

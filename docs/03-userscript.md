@@ -484,3 +484,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.29: se o navegador recusar a tela cheia, mostra o motivo num aviso (não cai mais no visualizador do X); `window.nxVideoCenter()` devolve um ponto do vídeo visível para o app do Android tocar (botão X do controle).
 
 0.16.30: a tela cheia do vídeo é pedida no primeiro ancestral que contém os controles do player (`mute-button`/`scrubber`), não só no `videoPlayer`: sem eles não havia botão para sair (o toque em tela cheia segue o comportamento padrão do X).
+
+0.16.31: tela cheia do vídeo — (1) estado de pausa/som anotado no início do toque e devolvido depois de entrar (o X pausava/ligava o som no toque); (2) orientação pedida ao app (`nx_orient`) antes de pedir a tela cheia, esperando a tela girar; `auto` ao sair.

@@ -1305,6 +1305,16 @@ async function startApp() {
   // player do vídeo, o mesmo que o botão do X faz. Exige gesto do usuário: vale no toque no vídeo e na tecla F9 que o app do
   // Android manda de verdade (não sintética) quando o botão X do controle é apertado. O MESMO vídeo continua tocando, então
   // mudo/som e posição não mudam. Se o navegador recusar, cai no visualizador do X.
+  // O toque do dono (ou o do botão X) também faz o X pausar/religar o som antes do clique: guarda o estado no início do toque e
+  // o devolve depois de entrar em tela cheia.
+  let tapState = null;
+  ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
+    const t = e.target;
+    const vp = t && t.closest && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    const v = vp && vp.querySelector('video');
+    if (v) tapState = { video: v, paused: v.paused, muted: v.muted, at: Date.now() };
+  }, true));
+
   function enterVideoFullscreen(video, fallbackPath) {
     // O elemento em tela cheia tem de incluir os CONTROLES do player (som, barra, botão de sair), que ficam fora do `<video>`:
     // sobe até o primeiro ancestral que os contém (limitado ao `videoPlayer`/post).
@@ -1312,15 +1322,42 @@ async function startApp() {
     let el = video;
     while (el.parentElement && !el.querySelector(ctrl) && !el.matches('article')) el = el.parentElement;
     if (el.matches('article') || el === video.ownerDocument.body) el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
+    const before = tapState && tapState.video === video && Date.now() - tapState.at < 4000 ? tapState : { paused: video.paused, muted: video.muted };
     // Sem cair no visualizador do X (rota que não ocupa a tela): se o navegador recusar, avisa o motivo.
-    const fail = (err) => ui.toast('Tela cheia recusada: ' + ((err && err.message) || err || 'sem suporte'), { tone: 'warn', ms: 5000 });
-    try {
-      const req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (!req) return fail('sem suporte');
-      const r = req.call(el);
-      if (r && r.catch) r.catch(fail);
-    } catch (e) { fail(e); }
+    const fail = (err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err || 'sem suporte'), { tone: 'warn', ms: 5000 }); };
+    const restore = () => [150, 500, 1200].forEach((ms) => setTimeout(() => {
+      try {
+        if (!before.paused && video.paused) video.play().catch(() => {});
+        if (video.muted !== before.muted) video.muted = before.muted;
+      } catch (e) { /* melhor esforço */ }
+    }, ms));
+    const go = () => {
+      try {
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (!req) return fail('sem suporte');
+        const r = req.call(el);
+        restore();
+        if (r && r.catch) r.catch(fail);
+      } catch (e) { fail(e); }
+    };
+    // Formato do vídeo (retrato/paisagem) x posição atual do celular: se diferem, o app gira ANTES (girar depois fazia a página
+    // sair da tela cheia). O gesto do toque vale por alguns segundos, então dá para esperar a tela girar.
+    const wantPortrait = video.videoHeight > video.videoWidth;
+    const isPortrait = window.innerHeight > window.innerWidth;
+    if (video.videoWidth > 0 && wantPortrait !== isPortrait) {
+      let done = false;
+      const once = () => { if (done) return; done = true; window.removeEventListener('resize', onResize); setTimeout(go, 150); };
+      const onResize = () => once();
+      window.addEventListener('resize', onResize);
+      gm.set('nx_orient', wantPortrait ? 'portrait' : 'landscape');
+      setTimeout(once, 1500);
+    } else {
+      gm.set('nx_orient', wantPortrait ? 'portrait' : 'landscape');
+      go();
+    }
   }
+  // Ao sair da tela cheia, a orientação volta a seguir o celular.
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) gm.set('nx_orient', 'auto'); });
   const openMedia = (path, video) => (video ? enterVideoFullscreen(video, path) : go(path));
 
   // Tocar no vídeo (fora dos controles) abre o visualizador em tela cheia, em vez de dar play/pause. O mudo/som segue o

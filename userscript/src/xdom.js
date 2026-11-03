@@ -341,6 +341,41 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
+  // Visualizador de vídeo do X: o player é dimensionado pela LARGURA (16:9 em 784px = 442px) e passa da altura da tela
+  // deitada (320px). Acha o primeiro ancestral do vídeo mais alto que o seu contêiner e o reduz com `zoom` até caber na
+  // altura do contêiner (a largura diminui junto e o conteúdo é centrado). No máximo 3 ajustes; desfaz ao sair do visualizador.
+  const VFIT_ATTR = 'data-nx-vfit';
+  function fitViewerVideo(root, win) {
+    const doc = root.ownerDocument || root;
+    const inViewer = !!(win.location && VIEWER_RE.test(win.location.pathname));
+    if (!inViewer) {
+      root.querySelectorAll('[' + VFIT_ATTR + ']').forEach((n) => { n.style.removeProperty('zoom'); n.style.removeProperty('margin-left'); n.style.removeProperty('margin-right'); n.removeAttribute(VFIT_ATTR); delete n.__nxV; });
+      return false;
+    }
+    const v = Array.from(root.querySelectorAll('video')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+    if (!v) return false;
+    let a = root.querySelector('[' + VFIT_ATTR + ']');
+    if (!a) {
+      for (let n = v; n && n.parentElement && n !== doc.body; n = n.parentElement) {
+        const h = n.getBoundingClientRect().height;
+        const ph = n.parentElement.getBoundingClientRect().height;
+        if (ph > 0 && h > ph + 2) { a = n; break; }
+      }
+      if (!a) return false;
+    }
+    const st = a.__nxV || (a.__nxV = { tries: 0, z: 1 });
+    const ph = a.parentElement.getBoundingClientRect().height;
+    const h = a.getBoundingClientRect().height;
+    if (st.tries >= 3 || !(h > ph + 2) || !(ph > 0)) return a.hasAttribute(VFIT_ATTR);
+    st.tries++;
+    st.z = Math.max(0.2, st.z * (ph / h));
+    a.style.setProperty('zoom', String(st.z), 'important');
+    a.style.setProperty('margin-left', 'auto', 'important');
+    a.style.setProperty('margin-right', 'auto', 'important');
+    a.setAttribute(VFIT_ATTR, '1');
+    return true;
+  }
+
   // Diagnóstico do visualizador de vídeo (sem texto de post): medidas da janela e do vídeo com seus ancestrais.
   function viewerDebug(root, win) {
     const doc = root.ownerDocument || root;
@@ -893,7 +928,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, viewerDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, viewerDebug, fitViewerVideo, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

@@ -470,3 +470,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.22: ao abrir o visualizador (toque no vídeo ou botão X), o vídeo do visualizador volta ao mudo/som que o do feed tinha (`openViewer`: até ~4,5 s, aperta o botão de som do X se o estado difere; sem o botão, usa `muted`).
 
 0.16.23: ao abrir o visualizador de vídeo (rota `/status/ID/video/N` etc.), envia sozinho para `/health/skeleton` (no máximo a cada 2 min, sem texto de post) `Xdom.viewerDebug`: janela, visualViewport, zoom e as medidas do vídeo e dos ancestrais — para achar por que o vídeo passa do tamanho da tela.
+
+0.16.24: o vídeo do visualizador (dimensionado pela largura, 442px numa tela de 320px) passa a caber na altura do contêiner: `Xdom.fitViewerVideo` reduz com `zoom` o primeiro ancestral do vídeo mais alto que o seu contêiner e o centra (diagnóstico real: contêiner 784x272, player 784x442).

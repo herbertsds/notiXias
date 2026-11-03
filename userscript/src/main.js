@@ -1310,6 +1310,8 @@ async function startApp() {
     }
   }, 300);
 
+  if (!cfg.bot) setInterval(() => { try { Xdom.fitViewerVideo(document, window); } catch (e) { /* melhor esforço */ } }, 400);
+
   // Abre o visualizador de vídeo mantendo o estado do som: o player do visualizador começa com som, então, ao aparecer, volta ao
   // mudo/som que o vídeo do feed tinha (aperta o botão de som do X, para a tela dele ficar certa; se não houver, usa `muted`).
   function openViewer(path, fromVideo) {

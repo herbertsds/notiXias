@@ -932,3 +932,14 @@ test('openMediaFullscreen: vídeo visível -> caminho do visualizador de vídeo;
   assert.equal(seen[1], '/u/status/1/photo/1');
   assert.equal(Xdom.openMediaFullscreen(new JSDOM('<body></body>').window.document, p, () => {}), null);
 });
+
+test('fitViewerVideo: só no visualizador; reduz o ancestral mais alto que o contêiner e desfaz ao sair', () => {
+  const w = new JSDOM('<body><div id="p"><div id="a"><video id="v"></video></div></div></body>', { url: 'https://x.com/u/status/1/video/1' }).window;
+  const d = w.document;
+  const box = (el, width, height) => { el.getBoundingClientRect = () => ({ left: 0, top: 0, right: width, bottom: height, width, height }); };
+  box(d.getElementById('p'), 784, 272); box(d.getElementById('a'), 784, 442); box(d.getElementById('v'), 784, 442);
+  assert.equal(Xdom.fitViewerVideo(d, w), true);
+  assert.equal(d.getElementById('a').hasAttribute('data-nx-vfit'), true);
+  const feed = new JSDOM('<body><div id="p"><div id="a"><video></video></div></div></body>', { url: 'https://x.com/home' }).window;
+  assert.equal(Xdom.fitViewerVideo(feed.document, feed), false);
+});

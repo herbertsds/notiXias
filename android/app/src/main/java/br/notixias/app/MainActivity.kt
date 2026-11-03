@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
@@ -88,7 +89,7 @@ class MainActivity : Activity() {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
             cacheMode = WebSettings.LOAD_DEFAULT
-            textZoom = 110   // textos 10% maiores
+            textZoom = 105   // textos 5% maiores
         }
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
         WebViewCompat.addWebMessageListener(web, bridgeName, setOf("https://x.com"), Bridge(store, net) { on -> runOnUiThread { scriptAwake = on; applyAwake() } })
@@ -189,6 +190,22 @@ class MainActivity : Activity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         if (::web.isInitialized) web.saveState(outState)
+    }
+
+    // Controle (gamepad): A e R1 avançam, B e L1 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
+    // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val dir = when (event.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R1 -> "ArrowRight"
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L1 -> "ArrowLeft"
+            else -> return super.dispatchKeyEvent(event)
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && ::web.isInitialized) {
+            web.evaluateJavascript(
+                "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$dir',altKey:true,bubbles:true,cancelable:true}))", null
+            )
+        }
+        return true
     }
 
     @Deprecated("Deprecated in Java")

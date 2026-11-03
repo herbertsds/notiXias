@@ -28,4 +28,8 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 
 ## Zoom do texto (0.1.4)
 
-`WebSettings.textZoom = 110`: textos 10% maiores em todo o X (inclui a barra do notiXias). Mudar o valor em `MainActivity.kt`.
+`WebSettings.textZoom = 105` (era 110 até a 0.1.4): textos 5% maiores em todo o X (inclui a barra do notiXias). Mudar o valor em `MainActivity.kt`.
+
+## Controle (gamepad, 0.1.5)
+
+`MainActivity.dispatchKeyEvent`: **A** e **R1** avançam, **B** e **L1** voltam um post. O app injeta `Alt + seta direita/esquerda` na página (o atalho que o script já tem, `onNext`/`onPrev`) e consome o botão, para o Android não usá-lo (ex.: B como "voltar"). Se o controle estiver em outro modo (ex.: layout Nintendo, que troca A e B), os códigos mudam.

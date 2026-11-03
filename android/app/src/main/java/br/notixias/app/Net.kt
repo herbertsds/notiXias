@@ -56,6 +56,46 @@ class Net(private val store: Store) {
         }
     }
 
+    /** Versão do APK publicado no servidor ({versionCode, versionName, size, sha256}); null se não há ou não deu. */
+    fun appInfo(): JSONObject? {
+        val base = store.apiBase()
+        if (base.isEmpty() || store.apiKey().isEmpty()) return null
+        return try {
+            val rq = Request.Builder().url("$base/api/v1/app/version").header("Authorization", "Bearer " + store.apiKey()).build()
+            client.newCall(rq).execute().use { r -> if (r.code != 200) null else JSONObject(r.body?.string() ?: return null) }
+        } catch (e: Exception) { null }
+    }
+
+    /** Baixa o APK do servidor para [dest]. Devolve o sha256 do que baixou, ou null se falhou. [progress] recebe os bytes já baixados. */
+    fun downloadApk(dest: java.io.File, progress: (Long) -> Unit): String? {
+        val base = store.apiBase()
+        if (base.isEmpty() || store.apiKey().isEmpty()) return null
+        return try {
+            val rq = Request.Builder().url("$base/api/v1/app/apk").header("Authorization", "Bearer " + store.apiKey()).build()
+            client.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).readTimeout(60, TimeUnit.SECONDS).build().newCall(rq).execute().use { r ->
+                if (r.code != 200) return null
+                val md = java.security.MessageDigest.getInstance("SHA-256")
+                var total = 0L
+                var lastTick = 0L
+                dest.parentFile?.mkdirs()
+                r.body!!.byteStream().use { input ->
+                    dest.outputStream().use { out ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            out.write(buf, 0, n); md.update(buf, 0, n); total += n
+                            val now = System.currentTimeMillis()
+                            if (now - lastTick > 250) { lastTick = now; progress(total) }
+                        }
+                    }
+                }
+                progress(total)
+                md.digest().joinToString("") { "%02x".format(it) }
+            }
+        } catch (e: Exception) { null }
+    }
+
     /** Baixa o script mais novo do servidor (ETag). Devolve o texto novo, ou null se não mudou / não deu. */
     fun fetchScript(): String? {
         val base = store.apiBase()

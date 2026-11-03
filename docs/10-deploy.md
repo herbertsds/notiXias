@@ -64,3 +64,16 @@ docker compose -f docker-compose.prod.yml exec -T mongo mongorestore --archive -
 ```
 
 Teste a restauração ao menos uma vez num banco temporário antes de confiar no backup.
+
+## Atualização do app Android pelo servidor
+
+O app confere (ao abrir, no máximo a cada 30 min) `GET /api/v1/app/version` e, se o `versionCode` for maior que o instalado, pergunta e baixa `GET /api/v1/app/apk`, conferindo o sha256, e entrega ao instalador do Android (que ainda pede a confirmação; na primeira vez pede também para permitir "instalar apps desconhecidos" ao notiXias). Os arquivos ficam em `~/projetos/notixias/android-dist/` (`notixias.apk` + `notixias.json`), fora do Git, montados em `/android-dist` na API.
+
+Publicar uma versão nova (depois de subir `versionCode` em `android/app/build.gradle`):
+
+```bash
+docker compose --profile build run --rm android-build
+./scripts/publish_apk.sh
+```
+
+Primeira vez no servidor (a API monta o diretório novo): `git pull` e `docker compose -f docker-compose.prod.yml up -d --build api`. O APK precisa ser assinado com a mesma chave (a de debug fica no volume `android_debug_key`), senão o Android recusa a atualização.

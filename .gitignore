@@ -14,3 +14,4 @@ android/build/
 android/local.properties
 android/app/src/main/assets/notixias.user.js
 *.apk
+android-dist/

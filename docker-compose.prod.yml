@@ -39,6 +39,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./userscript:/userscript:ro   # o app do Android baixa daqui o script mais novo (GET /api/v1/userscript)
+      - ./android-dist:/android-dist:ro   # e o próprio APK novo (GET /api/v1/app/version e /api/v1/app/apk)
     depends_on:
       mongo:
         condition: service_healthy

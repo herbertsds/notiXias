@@ -6,7 +6,9 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, Response
+import json
+
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pymongo import DESCENDING
 
 from . import services as svc
@@ -54,6 +56,39 @@ def get_userscript(request: Request):
     if m:
         headers["X-Nx-Version"] = m.group(1).decode("ascii", "ignore")
     return Response(content=data, media_type="application/javascript; charset=utf-8", headers=headers)
+
+
+# ---------- app Android (o app confere aqui se há versão nova e baixa o APK) ----------
+def _app_dist() -> Path:
+    return Path(os.environ.get("APP_DIST_PATH", "/android-dist"))
+
+
+@router.get("/app/version")
+def get_app_version():
+    """Versão do APK publicado (`scripts/publish_apk.sh`): versionCode/versionName, tamanho e sha256. 404 se não há APK."""
+    d = _app_dist()
+    apk, meta = d / "notixias.apk", d / "notixias.json"
+    if not apk.is_file() or not meta.is_file():
+        raise HTTPException(status_code=404, detail="nenhum app publicado")
+    try:
+        info = json.loads(meta.read_text())
+        code = int(info["versionCode"])
+    except (ValueError, KeyError, OSError):
+        raise HTTPException(status_code=404, detail="descrição do app inválida")
+    h = hashlib.sha256()
+    with apk.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return {"versionCode": code, "versionName": str(info.get("versionName", "")), "size": apk.stat().st_size, "sha256": h.hexdigest()}
+
+
+@router.get("/app/apk")
+def get_app_apk():
+    apk = _app_dist() / "notixias.apk"
+    if not apk.is_file():
+        raise HTTPException(status_code=404, detail="nenhum app publicado")
+    return FileResponse(apk, media_type="application/vnd.android.package-archive", filename="notixias.apk",
+                        headers={"Cache-Control": "no-cache"})
 
 
 # ---------- estado ----------

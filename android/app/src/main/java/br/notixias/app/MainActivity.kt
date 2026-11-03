@@ -76,6 +76,7 @@ class MainActivity : Activity() {
         override fun run() { applyAwake(); ui.postDelayed(this, 1000) }
     }
 
+    private val updater by lazy { AppUpdater(this, net) { player == null && detached == null } }
     private val vcache by lazy { VideoCache.get(this) }
     private val mediaDumps = HashMap<Long, Int>()   // seq -> quantas vezes já se procurou vídeo nessa tela
 
@@ -461,7 +462,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); ui.post(sweeper); ui.post(videoScan) }
+        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); updater.onResume(); ui.post(sweeper); ui.post(videoScan) }
     }
 
     override fun onPause() {

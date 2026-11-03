@@ -79,3 +79,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.5.2:** os botões do player voltam a ser ícones, desenhados no código (`IconView`): fechar, play/pause, voltar/avançar 10 s, som/mudo, cadeado. Círculos quase transparentes, sem borda, traço fino branco. Qualidade e velocidade seguem como texto (são valores).
 
 **0.5.3:** ao fechar o player, a tela volta para a orientação de antes de abrir (retrato/paisagem) e depois de 1,5 s volta ao modo anterior do app. Script de fábrica 0.19.2 (telas de trás ficam no topo).
+
+**0.6.0:** o app se atualiza pelo servidor (`AppUpdater.kt`, `Net.appInfo/downloadApk`, `FileProvider`, permissão `REQUEST_INSTALL_PACKAGES`). Ao abrir, confere se há `versionCode` maior no servidor, pergunta "Atualizar agora?" (com "Depois" até a próxima abertura), baixa mostrando o progresso, confere o sha256 e abre o instalador do Android. Publicar: ver `docs/10-deploy.md`. Esta versão precisa ser instalada à mão uma vez; as seguintes chegam pelo servidor.

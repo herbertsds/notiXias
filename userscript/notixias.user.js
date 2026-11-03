@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.42
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.42
+// @version      0.16.43
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.43
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2303,7 +2303,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.42'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.43'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3639,20 +3639,11 @@ async function startApp() {
     return el;
   }
 
-  // Botão ✕ nosso sobre o vídeo em tela cheia pedida por nós (o player reduzido do X não tem como sair); some ao sair.
-  function addExitButton(host) {
-    if (!host || document.getElementById('notixias-fs-exit')) return;
-    const b = document.createElement('button');
-    b.id = 'notixias-fs-exit';
-    b.type = 'button';
-    b.textContent = '✕';
-    b.setAttribute('aria-label', 'Sair da tela cheia');
-    b.style.cssText = 'position:absolute;top:12px;right:12px;width:48px;height:48px;border-radius:24px;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:22px;line-height:48px;padding:0;z-index:2147483647;cursor:pointer';
-    b.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); if (document.exitFullscreen) document.exitFullscreen(); });
-    host.appendChild(b);
-    const onChange = () => { if (!document.fullscreenElement) { b.remove(); document.removeEventListener('fullscreenchange', onChange); } };
-    document.addEventListener('fullscreenchange', onChange);
-  }
+  // O toque no botão "sair da tela cheia" do X sai da tela cheia ao SOLTAR o dedo, e o "click" que vem logo depois cai no vídeo já
+  // em tamanho normal: o nosso tratamento de clique o via como um toque novo e voltava à tela cheia (daí a tela preta). Clique
+  // até 800 ms depois de sair da tela cheia é engolido.
+  let fsExitAt = 0;
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) fsExitAt = Date.now(); });
 
   let pointerState = null;
   ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
@@ -3666,6 +3657,7 @@ async function startApp() {
     if (cfg.bot) return;
     const t = e.target;
     if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
+    if (Date.now() - fsExitAt < 800 && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
     const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
     if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
     const f0 = Xdom.fullscreenButton(document, window);
@@ -3689,8 +3681,7 @@ async function startApp() {
         const req = el.requestFullscreen || el.webkitRequestFullscreen;
         try {
           const r = req && req.call(el);
-          // O player reduzido não tem botão de sair da tela cheia: coloca um nosso (✕) por cima, enquanto durar.
-          if (r && r.then) r.then(() => addExitButton(document.fullscreenElement || el)).catch((err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); });
+          if (r && r.catch) r.catch((err) => { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); });
         } catch (err) { gm.set('nx_orient', 'auto'); ui.toast('Tela cheia recusada: ' + ((err && err.message) || err), { tone: 'warn', ms: 5000 }); }
       }
       // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.

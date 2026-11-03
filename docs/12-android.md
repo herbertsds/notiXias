@@ -61,3 +61,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.18:** botão X = toque no vídeo (mesmo caminho do dedo; a orientação agora é tratada pelo script, via `nx_orient`). O app reafirma a orientação pedida por 1,6 s depois de entrar em tela cheia (o X tenta travar em deitado). Script de fábrica 0.16.39.
 
 **0.1.19:** sem mudança nativa; script de fábrica 0.16.41 (tela cheia em retrato).
+
+**0.1.20:** barras de status e de navegação (inclusive a de gestos) seguem o modo claro/escuro do celular: fundo preto e ícones claros no escuro, fundo branco e ícones escuros no claro; muda na hora quando o modo do celular muda. Script de fábrica 0.16.45.

@@ -75,6 +75,7 @@ class MainActivity : Activity() {
         web = WebView(this)
         root.addView(web, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         setContentView(root)
+        applySystemBars()
 
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) ||
             !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
@@ -305,7 +306,29 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = if (on) {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        } else View.SYSTEM_UI_FLAG_VISIBLE
+        } else barFlags()
+    }
+
+    private fun isNight() =
+        (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    // Barras de status e de navegação (inclusive a de gestos) seguem o modo claro/escuro do celular.
+    private fun barFlags(): Int =
+        if (isNight()) View.SYSTEM_UI_FLAG_VISIBLE
+        else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+
+    private fun applySystemBars() {
+        val bg = if (isNight()) Color.BLACK else Color.WHITE
+        window.statusBarColor = bg
+        window.navigationBarColor = bg
+        if (android.os.Build.VERSION.SDK_INT >= 28) window.navigationBarDividerColor = bg
+        if (customView == null) window.decorView.systemUiVisibility = barFlags()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applySystemBars()
     }
 
     // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pergunta ao script um ponto do vídeo visível e dá ali um

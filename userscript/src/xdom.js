@@ -746,7 +746,10 @@ const Xdom = (function () {
       const label = b.getAttribute('aria-label') || '';
       if (FS_BUTTON_RE.test(label) && !FS_EXIT_RE.test(label)) { button = b; break; }
     }
-    return { button, video: v, portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
+    // Formato: pelo tamanho real do vídeo; sem ele ainda (não carregou), pela caixa na tela.
+    const rb = v.getBoundingClientRect();
+    const portrait = v.videoWidth > 0 ? v.videoHeight > v.videoWidth : (rb.width > 0 ? rb.height > rb.width : null);
+    return { button, video: v, portrait };
   }
 
   function fullscreenButtonPoint(root, win) {

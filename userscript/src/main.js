@@ -1303,12 +1303,13 @@ async function startApp() {
     }
   }, 300);
 
-  // Tela cheia do vídeo: é o botão "Tela cheia" do próprio player do X, apertado pelo app do Android (botão X do controle) com um
-  // toque de verdade (o navegador só aceita tela cheia depois de um gesto real). Aqui só se diz ONDE está o botão e o formato do
-  // vídeo (para o app girar a tela antes). JSON '{"x":..,"y":..,"portrait":..}' (px do CSS) ou '' sem vídeo visível.
+  // Tela cheia do vídeo = o botão "Tela cheia" do próprio player do X (ver o tratamento do clique acima). O botão X do controle
+  // faz o MESMO caminho: o app dá um toque de verdade num ponto do vídeo visível (aqui indicado, em px do CSS; '' sem vídeo).
   window.nxVideoCenter = () => {
-    const p = Xdom.fullscreenButtonPoint(document, window);
-    return p ? JSON.stringify(p) : '';
+    const vv = Xdom.visibleVideo(document, window);
+    if (!vv) return '';
+    const r = vv.rect;
+    return JSON.stringify({ x: Math.round((r.left + r.right) / 2), y: Math.round(r.top + (r.bottom - r.top) * 0.4) });
   };
 
   // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
@@ -1328,15 +1329,15 @@ async function startApp() {
     if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
     const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
     if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
-    const f = Xdom.fullscreenButton(document, window);
-    if (!f || !f.button) return; // sem o botão do X na página: o toque segue o comportamento padrão
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    const before = pointerState && pointerState.video === f.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f.video.paused, muted: f.video.muted };
+    const f0 = Xdom.fullscreenButton(document, window);
+    if (!f0) return;
+    // Com o botão já na página, o toque não faz mais nada além da tela cheia; sem ele (o X só o desenha com os controles), o
+    // toque segue o padrão (mostra os controles) e a tela cheia sai assim que o botão aparecer, tudo no mesmo gesto.
+    if (f0.button) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
+    const before = pointerState && pointerState.video === f0.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f0.video.paused, muted: f0.video.muted };
     const press = () => {
       const g = Xdom.fullscreenButton(document, window); // o X redesenha o post ao girar: acha de novo
-      if (!g || !g.button) { ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
+      if (!g || !g.button) { gm.set('nx_orient', 'auto'); ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
       g.button.click();
       // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
       [150, 500, 1200].forEach((ms) => setTimeout(() => {
@@ -1346,16 +1347,26 @@ async function startApp() {
         } catch (err) { /* melhor esforço */ }
       }, ms));
     };
-    const phonePortrait = window.innerHeight > window.innerWidth;
-    if (f.portrait !== null && f.portrait !== phonePortrait) {
+    // Sempre pede ao app a orientação do vídeo (em pé x deitado) ANTES: se a tela já está nela, só a trava (o X tenta travar em
+    // deitado ao entrar em tela cheia); se não está, espera a tela girar (o gesto do toque vale por alguns segundos).
+    const start = () => {
+      const g = Xdom.fullscreenButton(document, window) || f0;
+      const wantPortrait = g.portrait !== null ? g.portrait : null;
+      if (wantPortrait === null) return press();
+      const phonePortrait = window.innerHeight > window.innerWidth;
+      gm.set('nx_orient', wantPortrait ? 'portrait' : 'landscape');
+      if (wantPortrait === phonePortrait) return press();
       let done = false;
       const once = () => { if (done) return; done = true; window.removeEventListener('resize', once); setTimeout(press, 400); };
       window.addEventListener('resize', once);
-      gm.set('nx_orient', f.portrait ? 'portrait' : 'landscape');
       setTimeout(once, 1500);
-    } else {
-      press();
-    }
+    };
+    if (f0.button) return start();
+    let tries = 0;
+    const iv = setInterval(() => {
+      const g = Xdom.fullscreenButton(document, window);
+      if ((g && g.button) || ++tries > 15) { clearInterval(iv); if (g && g.button) start(); }
+    }, 100);
   }, true);
 
   window.addEventListener('keydown', (e) => {

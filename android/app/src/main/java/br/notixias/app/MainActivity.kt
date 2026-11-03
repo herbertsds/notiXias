@@ -138,6 +138,8 @@ class MainActivity : Activity() {
                 root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                 web.visibility = View.GONE
                 immersive(true)
+                // O X tenta travar a tela em deitado ao entrar em tela cheia (vídeo em pé saía de lado): reafirma a do vídeo.
+                if (wantedOrientation != "auto") listOf(250L, 800L, 1600L).forEach { ms -> ui.postDelayed({ if (customView != null) setOrientation(wantedOrientation) }, ms) }
             }
             override fun onHideCustomView() {
                 customView?.let { root.removeView(it) }
@@ -146,6 +148,7 @@ class MainActivity : Activity() {
                 customCallback = null
                 web.visibility = View.VISIBLE
                 immersive(false)
+                wantedOrientation = "auto"
                 requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 // Evita a tela preta ao voltar: força nova medida/desenho do WebView e avisa a página do novo tamanho.
                 web.requestLayout()
@@ -277,7 +280,12 @@ class MainActivity : Activity() {
      * cheia na hora): "portrait" trava em pé, "landscape" trava deitado (o sensor ainda vira de cabeça para baixo), "auto" volta
      * a seguir o celular.
      */
+    private var wantedOrientation = "auto"
+
     private fun setOrientation(v: String) {
+        wantedOrientation = if (v.contains("portrait")) "portrait" else if (v.contains("landscape")) "landscape" else "auto"
+        // Se a tela cheia não abrir em 6 s, a trava de orientação é solta (não deixar o celular preso em pé ou deitado).
+        if (wantedOrientation != "auto") ui.postDelayed({ if (customView == null && wantedOrientation != "auto") setOrientation("auto") }, 6000)
         requestedOrientation = when {
             v.contains("portrait") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             v.contains("landscape") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -300,11 +308,10 @@ class MainActivity : Activity() {
         } else View.SYSTEM_UI_FLAG_VISIBLE
     }
 
-    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pergunta ao script onde está o botão "Tela cheia" do player
-    // do vídeo visível (e o formato do vídeo) e o aperta com um TOQUE de verdade (o navegador só aceita tela cheia depois de um
-    // gesto real). Se o vídeo e o celular estão em posições diferentes (em pé x deitado), trava antes a orientação do vídeo, espera
-    // girar e pergunta de novo (a tela mudou de tamanho). Sem vídeo na tela, manda Alt+seta para cima (o script abre a foto).
-    private fun toggleVideoFullscreen(retried: Boolean = false) {
+    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pergunta ao script um ponto do vídeo visível e dá ali um
+    // TOQUE de verdade: é o mesmo caminho do toque do dedo (o script aperta o botão "Tela cheia" do player, girando a tela antes
+    // para a posição do vídeo). Sem vídeo na tela, manda Alt+seta para cima (o script abre a foto).
+    private fun toggleVideoFullscreen() {
         if (!::web.isInitialized) return
         if (customView != null) {
             web.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
@@ -317,18 +324,6 @@ class MainActivity : Activity() {
                 return@evaluateJavascript
             }
             val o = org.json.JSONObject(json)
-            val videoPortrait = if (o.isNull("portrait")) null else o.optBoolean("portrait")
-            val phonePortrait = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
-            if (!retried && videoPortrait != null && videoPortrait != phonePortrait) {
-                setOrientation(if (videoPortrait) "portrait" else "landscape")
-                ui.postDelayed({ toggleVideoFullscreen(retried = true) }, 900)
-                return@evaluateJavascript
-            }
-            if (!o.has("x")) {
-                setOrientation("auto")
-                Toast.makeText(this, "Botão de tela cheia não está na tela: toque no vídeo para mostrar os controles", Toast.LENGTH_SHORT).show()
-                return@evaluateJavascript
-            }
             val d = resources.displayMetrics.density
             tap(o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
         }

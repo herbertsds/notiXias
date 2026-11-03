@@ -57,3 +57,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.16:** botão X = **aperta o botão "Tela cheia" do próprio player** (achado pelo diagnóstico: `aria-label="Tela cheia"` em `videoPlayer`) com um toque de verdade; antes gira a tela para a orientação do vídeo (espera 900 ms) e pergunta de novo onde está o botão. Sem o botão na tela, avisa para tocar no vídeo e mostrar os controles.
 
 **0.1.17:** sem mudança nativa; recompilado para levar de fábrica o script 0.16.38 (toque no vídeo = mesmo caminho do botão X).
+
+**0.1.18:** botão X = toque no vídeo (mesmo caminho do dedo; a orientação agora é tratada pelo script, via `nx_orient`). O app reafirma a orientação pedida por 1,6 s depois de entrar em tela cheia (o X tenta travar em deitado). Script de fábrica 0.16.39.

@@ -875,3 +875,16 @@ test('setLandscapeLayout: cabeçalho fora do invólucro do texto e da mídia -> 
   assert.equal(d.getElementById('w').hasAttribute('data-nx-flat'), true);
   assert.equal(d.getElementById('m').hasAttribute('data-nx-media'), true);
 });
+
+test('setLandscapeLayout: respostas e post citado com mídia também ganham a grade', () => {
+  const post = (id, extra) => '<article data-testid="tweet"><div id="g' + id + '"><div data-testid="User-Name"></div><div data-testid="tweetText">t</div>' +
+    '<div id="m' + id + '"><div data-testid="tweetPhoto"></div></div>' + (extra || '') + '</div><a href="/u/status/' + id + '"><time></time></a></article>';
+  const quote = '<div role="link" id="q"><div data-testid="User-Name"></div><div data-testid="tweetText">c</div><div id="qm"><div data-testid="tweetPhoto"></div></div></div>';
+  const html = '<body><main><div data-testid="primaryColumn">' + post('1') + post('2', quote) + '</div></main></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/u/status/1' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const d = w.document;
+  Xdom.setLandscapeLayout(d, w, true);
+  for (const id of ['m1', 'm2', 'qm']) assert.equal(d.getElementById(id).hasAttribute('data-nx-media'), true, id);
+  assert.equal(d.getElementById('q').hasAttribute('data-nx-grid'), true);
+});

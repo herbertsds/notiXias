@@ -303,16 +303,6 @@ const Xdom = (function () {
     for (const a of [WIDE_ATTR, GRID_ATTR, MEDIA_ATTR, FLAT_ATTR]) root.querySelectorAll('[' + a + ']').forEach((n) => n.removeAttribute(a));
   }
 
-  function mainArticle(root, win) {
-    const m = /\/status\/(\d+)/.exec(win.location.pathname);
-    if (!m) return null;
-    for (const art of articles(root)) {
-      const p = primaryStatus(art);
-      if (p && p.id === m[1]) return art;
-    }
-    return null;
-  }
-
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -326,26 +316,36 @@ const Xdom = (function () {
     doc.documentElement.setAttribute(LAND_ATTR, '1');
     const col = root.querySelector('[data-testid="primaryColumn"]');
     if (col) for (let n = col; n && n !== doc.body; n = n.parentElement) if (!n.hasAttribute(WIDE_ATTR)) n.setAttribute(WIDE_ATTR, '1');
-    const art = mainArticle(root, win);
-    for (const m of root.querySelectorAll(MEDIA_SEL)) if (!art || !art.contains(m)) fitMediaHeight(root, win, m);
-    if (!art) return false;
-    const media = Array.from(art.querySelectorAll(MEDIA_SEL)).find((m) => !m.closest('[role="link"]'));
-    const text = art.querySelector('[data-testid="tweetText"]');
+    // Todo tweet com mídia da página (o principal, as respostas e o post citado dentro de um) ganha o mesmo layout.
+    let built = false;
+    for (const art of articles(root)) {
+      if (layoutScope(root, win, art, art, false)) built = true;
+      for (const q of art.querySelectorAll('[role="link"]')) if (layoutScope(root, win, q, art, true)) built = true;
+    }
+    // Mídia que ficou fora de qualquer grade: só limita a altura.
+    for (const m of root.querySelectorAll(MEDIA_SEL)) if (!m.closest('[' + MEDIA_ATTR + ']')) fitMediaHeight(root, win, m);
+    return built;
+  }
+
+  // Monta a grade de duas colunas em `scope` (um article, ou um post citado): a grade fica no menor ancestral que contém
+  // cabeçalho (nome, foto, Grok, "..."), texto e mídia, e a mídia começa no topo do post, ao lado do cabeçalho. Os invólucros
+  // entre a grade e a mídia que também contêm o texto viram `display: contents`, para que tudo seja item da mesma grade.
+  // No article, mídia/texto/cabeçalho de posts citados (dentro de `[role=link]`) não contam; no citado, só os dele.
+  function layoutScope(root, win, scope, art, quoted) {
+    const own = (n) => quoted || !n.closest('[role="link"]');
+    const media = Array.from(scope.querySelectorAll(MEDIA_SEL)).find(own);
+    const text = Array.from(scope.querySelectorAll('[data-testid="tweetText"]')).find(own);
     if (!media || !text || media.contains(text)) return false;
-    // A grade fica no menor ancestral que contém cabeçalho (nome, foto, Grok, "..."), texto e mídia: a mídia começa no topo
-    // do post, ao lado do cabeçalho, que vai para a esquerda. Os invólucros entre a grade e a mídia que também contêm o texto
-    // viram `display: contents`, para que o texto, o cabeçalho e o resto sejam itens da mesma grade.
-    const head = art.querySelector('[data-testid="User-Name"]') || text;
+    const head = Array.from(scope.querySelectorAll('[data-testid="User-Name"]')).find(own) || text;
     let common = media.parentElement;
     while (common && !(common.contains(text) && common.contains(head))) common = common.parentElement;
-    if (!common || common.contains(art)) return false;
+    if (!common || !scope.contains(common) || (!quoted && common === art) || common.contains(art) && common !== scope) return false;
     let block = media;
     while (block.parentElement !== common && !block.parentElement.contains(text) && !block.parentElement.contains(head)) block = block.parentElement;
     for (let n = block.parentElement; n && n !== common; n = n.parentElement) if (!n.hasAttribute(FLAT_ATTR)) n.setAttribute(FLAT_ATTR, '1');
     if (!common.hasAttribute(GRID_ATTR)) common.setAttribute(GRID_ATTR, '1');
     if (!block.hasAttribute(MEDIA_ATTR)) block.setAttribute(MEDIA_ATTR, '1');
-    const got = { block };
-    fitMediaHeight(root, win, got.block);
+    fitMediaHeight(root, win, block);
     return true;
   }
 

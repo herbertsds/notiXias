@@ -1338,7 +1338,14 @@ async function startApp() {
     if (e.key !== 'F9' || cfg.bot) return;
     e.preventDefault();
     e.stopPropagation();
-    try { Xdom.openMediaFullscreen(document, window, openMedia); } catch (err) { /* melhor esforço */ }
+    try {
+      // Já em tela cheia (vídeo): o mesmo botão sai dela.
+      if (Xdom.videoFullscreenActive(document, window)) {
+        const v = Array.from(document.querySelectorAll('video')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+        if (v) Xdom.leaveFullscreen(v, window);
+        else if (document.exitFullscreen) document.exitFullscreen();
+      } else Xdom.openMediaFullscreen(document, window, openMedia);
+    } catch (err) { /* melhor esforço */ }
   }, true);
 
   window.addEventListener('keydown', (e) => {

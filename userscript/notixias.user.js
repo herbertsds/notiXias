@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.27
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.27
+// @version      0.16.28
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.28
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2260,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.27'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.28'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3597,7 +3597,14 @@ async function startApp() {
     if (e.key !== 'F9' || cfg.bot) return;
     e.preventDefault();
     e.stopPropagation();
-    try { Xdom.openMediaFullscreen(document, window, openMedia); } catch (err) { /* melhor esforço */ }
+    try {
+      // Já em tela cheia (vídeo): o mesmo botão sai dela.
+      if (Xdom.videoFullscreenActive(document, window)) {
+        const v = Array.from(document.querySelectorAll('video')).sort((a, b) => b.getBoundingClientRect().width - a.getBoundingClientRect().width)[0];
+        if (v) Xdom.leaveFullscreen(v, window);
+        else if (document.exitFullscreen) document.exitFullscreen();
+      } else Xdom.openMediaFullscreen(document, window, openMedia);
+    } catch (err) { /* melhor esforço */ }
   }, true);
 
   window.addEventListener('keydown', (e) => {

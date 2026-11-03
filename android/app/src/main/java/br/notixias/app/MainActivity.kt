@@ -202,9 +202,30 @@ class MainActivity : Activity() {
     }
 
     private var hatY = 0f
+    private var rTrig = false
+    private var lTrig = false
+
+    // Gatilhos R2/L2: há controles que mandam tecla (BUTTON_R2/L2) e outros só o eixo analógico (RTRIGGER/GAS, LTRIGGER/BRAKE);
+    // o eixo vale a partir de 50% do curso, uma vez por aperto.
+    private fun triggerAxes(event: MotionEvent) {
+        val r = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS)) > 0.5f
+        val l = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE)) > 0.5f
+        if (r && !rTrig) sendNav("ArrowRight")
+        if (l && !lTrig) sendNav("ArrowLeft")
+        rTrig = r
+        lTrig = l
+    }
+
+    private fun sendNav(dir: String) {
+        if (!::web.isInitialized) return
+        web.evaluateJavascript(
+            "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$dir',altKey:true,bubbles:true,cancelable:true}))", null
+        )
+    }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_MOVE && (event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0) {
+            triggerAxes(event)
             val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             if (y != hatY) {
                 hatY = y
@@ -215,7 +236,7 @@ class MainActivity : Activity() {
         return super.dispatchGenericMotionEvent(event)
     }
 
-    // Controle (gamepad): A e R1 avançam, B e L1 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
+    // Controle (gamepad): A e R2 avançam, B e L2 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -223,15 +244,11 @@ class MainActivity : Activity() {
             return true
         }
         val dir = when (event.keyCode) {
-            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R1 -> "ArrowRight"
-            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L1 -> "ArrowLeft"
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R2 -> "ArrowRight"
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L2 -> "ArrowLeft"
             else -> return super.dispatchKeyEvent(event)
         }
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && ::web.isInitialized) {
-            web.evaluateJavascript(
-                "window.dispatchEvent(new KeyboardEvent('keydown',{key:'$dir',altKey:true,bubbles:true,cancelable:true}))", null
-            )
-        }
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) sendNav(dir)
         return true
     }
 

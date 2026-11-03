@@ -1311,6 +1311,53 @@ async function startApp() {
     return p ? JSON.stringify(p) : '';
   };
 
+  // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
+  // girando a tela (pelo app) para a posição do vídeo. O toque do dono é um gesto real, e o gesto vale por alguns segundos, então
+  // dá para esperar a tela girar. Em tela cheia, o toque é do X.
+  let pointerState = null;
+  ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
+    const t = e.target;
+    const vp = t && t.closest && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    const v = vp && vp.querySelector('video');
+    if (v) pointerState = { video: v, paused: v.paused, muted: v.muted, at: Date.now() };
+  }, true));
+
+  window.addEventListener('click', (e) => {
+    if (cfg.bot) return;
+    const t = e.target;
+    if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
+    const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
+    const f = Xdom.fullscreenButton(document, window);
+    if (!f || !f.button) return; // sem o botão do X na página: o toque segue o comportamento padrão
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const before = pointerState && pointerState.video === f.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f.video.paused, muted: f.video.muted };
+    const press = () => {
+      const g = Xdom.fullscreenButton(document, window); // o X redesenha o post ao girar: acha de novo
+      if (!g || !g.button) { ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
+      g.button.click();
+      // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
+      [150, 500, 1200].forEach((ms) => setTimeout(() => {
+        try {
+          if (!before.paused && g.video.paused) g.video.play().catch(() => {});
+          if (g.video.muted !== before.muted) g.video.muted = before.muted;
+        } catch (err) { /* melhor esforço */ }
+      }, ms));
+    };
+    const phonePortrait = window.innerHeight > window.innerWidth;
+    if (f.portrait !== null && f.portrait !== phonePortrait) {
+      let done = false;
+      const once = () => { if (done) return; done = true; window.removeEventListener('resize', once); setTimeout(press, 400); };
+      window.addEventListener('resize', once);
+      gm.set('nx_orient', f.portrait ? 'portrait' : 'landscape');
+      setTimeout(once, 1500);
+    } else {
+      press();
+    }
+  }, true);
+
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }

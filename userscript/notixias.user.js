@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.37
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.37
+// @version      0.16.38
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.38
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1131,20 +1131,30 @@ const Xdom = (function () {
   // `videoPlayer`). Devolve o centro dele (px do CSS) e se o vídeo é retrato; sem o botão na tela, só o formato.
   const FS_BUTTON_RE = /(tela cheia|full ?screen)/i;
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
-  function fullscreenButtonPoint(root, win) {
+  // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
+  // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
+  function fullscreenButton(root, win) {
     const vv = visibleVideo(root, win);
     if (!vv) return null;
     const v = vv.video;
-    const out = { portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
     const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
+    let button = null;
     for (const b of scope.querySelectorAll('button, [role="button"]')) {
       const label = b.getAttribute('aria-label') || '';
-      if (!FS_BUTTON_RE.test(label) || FS_EXIT_RE.test(label)) continue;
-      const r = b.getBoundingClientRect();
+      if (FS_BUTTON_RE.test(label) && !FS_EXIT_RE.test(label)) { button = b; break; }
+    }
+    return { button, video: v, portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
+  }
+
+  function fullscreenButtonPoint(root, win) {
+    const f = fullscreenButton(root, win);
+    if (!f) return null;
+    const out = { portrait: f.portrait };
+    if (f.button) {
+      const r = f.button.getBoundingClientRect();
       if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < win.innerWidth && r.top < win.innerHeight) {
         out.x = Math.round((Math.max(r.left, 0) + Math.min(r.right, win.innerWidth)) / 2);
         out.y = Math.round((Math.max(r.top, 0) + Math.min(r.bottom, win.innerHeight)) / 2);
-        break;
       }
     }
     return out;
@@ -1304,7 +1314,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButton, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2290,7 +2300,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.37'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.38'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3599,6 +3609,53 @@ async function startApp() {
     const p = Xdom.fullscreenButtonPoint(document, window);
     return p ? JSON.stringify(p) : '';
   };
+
+  // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
+  // girando a tela (pelo app) para a posição do vídeo. O toque do dono é um gesto real, e o gesto vale por alguns segundos, então
+  // dá para esperar a tela girar. Em tela cheia, o toque é do X.
+  let pointerState = null;
+  ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
+    const t = e.target;
+    const vp = t && t.closest && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    const v = vp && vp.querySelector('video');
+    if (v) pointerState = { video: v, paused: v.paused, muted: v.muted, at: Date.now() };
+  }, true));
+
+  window.addEventListener('click', (e) => {
+    if (cfg.bot) return;
+    const t = e.target;
+    if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
+    const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
+    const f = Xdom.fullscreenButton(document, window);
+    if (!f || !f.button) return; // sem o botão do X na página: o toque segue o comportamento padrão
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const before = pointerState && pointerState.video === f.video && Date.now() - pointerState.at < 4000 ? pointerState : { paused: f.video.paused, muted: f.video.muted };
+    const press = () => {
+      const g = Xdom.fullscreenButton(document, window); // o X redesenha o post ao girar: acha de novo
+      if (!g || !g.button) { ui.toast('Botão de tela cheia não encontrado', { tone: 'warn', ms: 4000 }); return; }
+      g.button.click();
+      // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
+      [150, 500, 1200].forEach((ms) => setTimeout(() => {
+        try {
+          if (!before.paused && g.video.paused) g.video.play().catch(() => {});
+          if (g.video.muted !== before.muted) g.video.muted = before.muted;
+        } catch (err) { /* melhor esforço */ }
+      }, ms));
+    };
+    const phonePortrait = window.innerHeight > window.innerWidth;
+    if (f.portrait !== null && f.portrait !== phonePortrait) {
+      let done = false;
+      const once = () => { if (done) return; done = true; window.removeEventListener('resize', once); setTimeout(press, 400); };
+      window.addEventListener('resize', once);
+      gm.set('nx_orient', f.portrait ? 'portrait' : 'landscape');
+      setTimeout(once, 1500);
+    } else {
+      press();
+    }
+  }, true);
 
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;

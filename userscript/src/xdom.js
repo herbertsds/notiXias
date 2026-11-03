@@ -734,20 +734,30 @@ const Xdom = (function () {
   // `videoPlayer`). Devolve o centro dele (px do CSS) e se o vídeo é retrato; sem o botão na tela, só o formato.
   const FS_BUTTON_RE = /(tela cheia|full ?screen)/i;
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
-  function fullscreenButtonPoint(root, win) {
+  // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
+  // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
+  function fullscreenButton(root, win) {
     const vv = visibleVideo(root, win);
     if (!vv) return null;
     const v = vv.video;
-    const out = { portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
     const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
+    let button = null;
     for (const b of scope.querySelectorAll('button, [role="button"]')) {
       const label = b.getAttribute('aria-label') || '';
-      if (!FS_BUTTON_RE.test(label) || FS_EXIT_RE.test(label)) continue;
-      const r = b.getBoundingClientRect();
+      if (FS_BUTTON_RE.test(label) && !FS_EXIT_RE.test(label)) { button = b; break; }
+    }
+    return { button, video: v, portrait: v.videoWidth > 0 ? v.videoHeight > v.videoWidth : null };
+  }
+
+  function fullscreenButtonPoint(root, win) {
+    const f = fullscreenButton(root, win);
+    if (!f) return null;
+    const out = { portrait: f.portrait };
+    if (f.button) {
+      const r = f.button.getBoundingClientRect();
       if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < win.innerWidth && r.top < win.innerHeight) {
         out.x = Math.round((Math.max(r.left, 0) + Math.min(r.right, win.innerWidth)) / 2);
         out.y = Math.round((Math.max(r.top, 0) + Math.min(r.bottom, win.innerHeight)) / 2);
-        break;
       }
     }
     return out;
@@ -907,7 +917,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButton, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

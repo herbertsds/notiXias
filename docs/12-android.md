@@ -55,3 +55,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.15:** sem mudança de código nativo; recompilado para levar de fábrica o script 0.16.36 (a cópia de fábrica do 0.1.14 era a 0.16.31, ainda com o toque no vídeo que abria a tela cheia).
 
 **0.1.16:** botão X = **aperta o botão "Tela cheia" do próprio player** (achado pelo diagnóstico: `aria-label="Tela cheia"` em `videoPlayer`) com um toque de verdade; antes gira a tela para a orientação do vídeo (espera 900 ms) e pergunta de novo onde está o botão. Sem o botão na tela, avisa para tocar no vídeo e mostrar os controles.
+
+**0.1.17:** sem mudança nativa; recompilado para levar de fábrica o script 0.16.38 (toque no vídeo = mesmo caminho do botão X).

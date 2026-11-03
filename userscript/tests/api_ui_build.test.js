@@ -298,12 +298,13 @@ test('bundle: nenhuma ação de escrita no X (curtir/repostar/seguir/postar)', (
   assert.ok(!/data-testid=["']?(like|unlike|retweet|unretweet|follow|unfollow|tweetButton)/.test(src));
 });
 
-test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "Mostrar mais", "Ver novos posts", "Mostrar mais" do texto dos posts, voltar do visualizador de vídeo)', () => {
+test('bundle: os únicos cliques programáticos são os esperados (aba, lacuna "Mostrar mais", "Ver novos posts", "Mostrar mais" do texto dos posts, voltar do visualizador de vídeo, botão "Tela cheia" do player)', () => {
   const clicks = bundle().split('\n').filter((l) => /\.click\(\)/.test(l) && !l.trim().startsWith('//')).map((l) => l.trim());
-  assert.equal(clicks.length, 6, clicks.join('\n'));
+  assert.equal(clicks.length, 7, clicks.join('\n'));
   assert.ok(clicks.some((l) => /tab\.click\(\)/.test(l)), 'aba do feed');
   assert.ok(clicks.some((l) => /pill\.click\(\)/.test(l)), 'Ver novos posts');
   assert.ok(clicks.some((l) => /back\.click\(\)/.test(l)), 'botão voltar do visualizador de vídeo, quando o vídeo termina');
+  assert.ok(clicks.some((l) => /g\.button\.click\(\)/.test(l)), 'botão "Tela cheia" do player (toque no vídeo)');
   assert.ok(clicks.some((l) => /b\.click\(\)/.test(l)), 'botão "Desativar legendas" do player (legendas desligadas por padrão)');
 });
 

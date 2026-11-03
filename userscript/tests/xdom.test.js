@@ -888,3 +888,16 @@ test('setLandscapeLayout: respostas e post citado com mídia também ganham a gr
   for (const id of ['m1', 'm2', 'qm']) assert.equal(d.getElementById(id).hasAttribute('data-nx-media'), true, id);
   assert.equal(d.getElementById('q').hasAttribute('data-nx-grid'), true);
 });
+
+test('setLandscapeLayout: post só com fotos (sem texto, carrossel) também ganha a grade', () => {
+  const html = '<body><main><div data-testid="primaryColumn"><article data-testid="tweet"><div id="g"><div id="h"><div data-testid="User-Name"></div></div>' +
+    '<div id="ph"><div data-testid="tweetPhoto"><a href="/u/status/3/photo/1"><img src="https://pbs.twimg.com/media/a.jpg"></a></div>' +
+    '<div data-testid="tweetPhoto"><a href="/u/status/3/photo/2"><img src="https://pbs.twimg.com/media/b.jpg"></a></div></div></div>' +
+    '<a href="/u/status/3"><time></time></a></article></div></main></body>';
+  const w = new JSDOM(html, { url: 'https://x.com/u/status/3' }).window;
+  w.innerWidth = 900; w.innerHeight = 400;
+  const d = w.document;
+  assert.equal(Xdom.setLandscapeLayout(d, w, true), true);
+  assert.equal(d.getElementById('ph').hasAttribute('data-nx-media'), true);
+  assert.equal(d.getElementById('g').hasAttribute('data-nx-grid'), true);
+});

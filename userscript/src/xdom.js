@@ -265,7 +265,7 @@ const Xdom = (function () {
     '[' + FLAT_ATTR + ']{display:contents!important}' +
     '[' + GRID_ATTR + ']>*,[' + FLAT_ATTR + ']>*{grid-column:1}' +
     '[' + MEDIA_ATTR + ']{grid-column:2!important;grid-row:1 / span 20;justify-self:stretch;min-width:0}';
-  const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"]';
+  const MEDIA_SEL = '[data-testid="tweetPhoto"],[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="card.wrapper"],a[href*="/photo/"],img[src*="pbs.twimg.com/media"]';
 
   // Nenhuma mídia passa da altura da tela (menos a barra do notiXias): se passar, a largura é calculada UMA vez pela
   // proporção medida. Se mesmo assim a altura não acompanhar (a caixa não mantém proporção pela largura), desfaz e tenta de
@@ -334,9 +334,12 @@ const Xdom = (function () {
   function layoutScope(root, win, scope, art, quoted) {
     const own = (n) => quoted || !n.closest('[role="link"]');
     const media = Array.from(scope.querySelectorAll(MEDIA_SEL)).find(own);
-    const text = Array.from(scope.querySelectorAll('[data-testid="tweetText"]')).find(own);
-    if (!media || !text || media.contains(text)) return false;
-    const head = Array.from(scope.querySelectorAll('[data-testid="User-Name"]')).find(own) || text;
+    const text0 = Array.from(scope.querySelectorAll('[data-testid="tweetText"]')).find(own);
+    const head0 = Array.from(scope.querySelectorAll('[data-testid="User-Name"]')).find(own);
+    // Post só com foto/vídeo não tem texto: o cabeçalho serve de âncora (e vice-versa).
+    const text = text0 || head0;
+    const head = head0 || text0;
+    if (!media || !text || media.contains(text) || media.contains(head)) return false;
     let common = media.parentElement;
     while (common && !(common.contains(text) && common.contains(head))) common = common.parentElement;
     if (!common || !scope.contains(common) || (!quoted && common === art) || common.contains(art) && common !== scope) return false;

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.20
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.20
+// @version      0.16.21
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.21
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -1089,17 +1089,21 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
-  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> aperta o botão de tela cheia do player
-  // (ou, sem ele, toca no player, o que mostra os controles/abre o visualizador); sem vídeo, a foto mais visível -> toca nela
-  // (abre o visualizador de fotos do X). Devolve 'video', 'photo' ou null. Clique por script basta: a rota do X é interna.
-  const FS_BTN_RE = /(tela cheia|full ?screen|expandir|expand)/i;
-  function openMediaFullscreen(root, win) {
+  // Caminho do visualizador de vídeo (tela cheia do X) do post que contém `el`: /usuario/status/ID/video/1.
+  function videoViewerPath(el) {
+    const art = el.closest ? el.closest('article') : null;
+    const p = art ? primaryStatus(art) : null;
+    return p ? '/' + p.author + '/status/' + p.id + '/video/1' : null;
+  }
+
+  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> visualizador de vídeo do X; sem
+  // vídeo, a foto mais visível -> visualizador de fotos. `go(caminho)` navega (internamente, sem recarregar). Devolve
+  // 'video', 'photo' ou null. Não depende de botão do player (o X só mostra os controles depois de um toque).
+  function openMediaFullscreen(root, win, go) {
     const vv = visibleVideo(root, win);
     if (vv) {
-      const scope = vv.component || vv.video.parentElement || root;
-      const btn = Array.from(scope.querySelectorAll('button, [role="button"]')).find((b) => FS_BTN_RE.test(b.getAttribute('aria-label') || ''));
-      (btn || vv.component || vv.video).click();
-      return 'video';
+      const path = videoViewerPath(vv.video);
+      if (path) { go(path); return 'video'; }
     }
     let best = null;
     for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
@@ -1110,8 +1114,9 @@ const Xdom = (function () {
       const share = (w * h) / (r.width * r.height);
       if (share >= 0.3 && (!best || w * h > best.area)) best = { el: ph, area: w * h };
     }
-    if (!best) return null;
-    (best.el.closest('a') || best.el).click();
+    const a = best && (best.el.closest('a[href*="/photo/"]') || best.el.querySelector('a[href*="/photo/"]'));
+    if (!a) return null;
+    go(a.getAttribute('href'));
     return 'photo';
   }
 
@@ -1269,7 +1274,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2255,7 +2260,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.20'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.21'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2265,6 +2270,7 @@ async function startApp() {
     buttons: 'both', // 'both' | 'next' | 'prev'
     hideXBar: true, // esconde a barra de navegação inferior do X (mobile)
     autoSendSession: true, // se o robô parar por falta de sessão, manda o login deste navegador sozinho (só no Tampermonkey do computador)
+    tapVideoViewer: true, // tocar no vídeo abre o visualizador em tela cheia (em vez de dar play/pause)
     landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
@@ -2615,6 +2621,7 @@ async function startApp() {
           api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: (Xdom.layoutDebug(document, window) + '\n====\n' + sk).slice(0, 60000), note: ('layout: ' + meta).slice(0, 500) })
             .then(() => ui.toast('Diagnóstico enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
         } },
+      { label: 'Tocar no vídeo abre em tela cheia: ' + (cfg.tapVideoViewer ? 'sim' : 'não'), onClick: () => { cfg.tapVideoViewer = !cfg.tapVideoViewer; saveCfg(); drawBar(); } },
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
@@ -3553,11 +3560,27 @@ async function startApp() {
     }
   }, 300);
 
+  // Tocar no vídeo (fora dos controles) abre o visualizador em tela cheia, em vez de dar play/pause. O mudo/som segue o
+  // estado atual do X (o visualizador usa a mesma preferência). Já em tela cheia, o toque é do player.
+  window.addEventListener('click', (e) => {
+    if (cfg.bot || !cfg.tapVideoViewer) return;
+    const t = e.target;
+    if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
+    const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
+    if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
+    const path = Xdom.videoViewerPath(vp);
+    if (!path) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    go(path);
+  }, true);
+
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window); } catch (err) { /* melhor esforço */ } } // botão X do controle
+    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, go); } catch (err) { /* melhor esforço */ } } // botão X do controle
   });
 
   // Comando pela URL (atalho do iPhone: https://x.com/home?nx=update): guarda e limpa o parâmetro.

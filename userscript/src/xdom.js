@@ -692,17 +692,21 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
-  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> aperta o botão de tela cheia do player
-  // (ou, sem ele, toca no player, o que mostra os controles/abre o visualizador); sem vídeo, a foto mais visível -> toca nela
-  // (abre o visualizador de fotos do X). Devolve 'video', 'photo' ou null. Clique por script basta: a rota do X é interna.
-  const FS_BTN_RE = /(tela cheia|full ?screen|expandir|expand)/i;
-  function openMediaFullscreen(root, win) {
+  // Caminho do visualizador de vídeo (tela cheia do X) do post que contém `el`: /usuario/status/ID/video/1.
+  function videoViewerPath(el) {
+    const art = el.closest ? el.closest('article') : null;
+    const p = art ? primaryStatus(art) : null;
+    return p ? '/' + p.author + '/status/' + p.id + '/video/1' : null;
+  }
+
+  // Abre em tela cheia a mídia que está na tela (botão X do controle): vídeo visível -> visualizador de vídeo do X; sem
+  // vídeo, a foto mais visível -> visualizador de fotos. `go(caminho)` navega (internamente, sem recarregar). Devolve
+  // 'video', 'photo' ou null. Não depende de botão do player (o X só mostra os controles depois de um toque).
+  function openMediaFullscreen(root, win, go) {
     const vv = visibleVideo(root, win);
     if (vv) {
-      const scope = vv.component || vv.video.parentElement || root;
-      const btn = Array.from(scope.querySelectorAll('button, [role="button"]')).find((b) => FS_BTN_RE.test(b.getAttribute('aria-label') || ''));
-      (btn || vv.component || vv.video).click();
-      return 'video';
+      const path = videoViewerPath(vv.video);
+      if (path) { go(path); return 'video'; }
     }
     let best = null;
     for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
@@ -713,8 +717,9 @@ const Xdom = (function () {
       const share = (w * h) / (r.width * r.height);
       if (share >= 0.3 && (!best || w * h > best.area)) best = { el: ph, area: w * h };
     }
-    if (!best) return null;
-    (best.el.closest('a') || best.el).click();
+    const a = best && (best.el.closest('a[href*="/photo/"]') || best.el.querySelector('a[href*="/photo/"]'));
+    if (!a) return null;
+    go(a.getAttribute('href'));
     return 'photo';
   }
 
@@ -872,7 +877,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, openMediaFullscreen, videoViewerPath, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

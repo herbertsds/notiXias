@@ -51,3 +51,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.1.13:** ao entrar em tela cheia, o app lê `videoWidth x videoHeight` do vídeo (`lockOrientationToVideo`): mais alto que largo → `SCREEN_ORIENTATION_SENSOR_PORTRAIT`; senão `SENSOR_LANDSCAPE`. Se o vídeo ainda não carregou (0x0), tenta até 8 vezes a cada 300 ms. Ao sair, `UNSPECIFIED` (volta a seguir o celular).
 
 **0.1.14:** a orientação do vídeo agora é pedida **antes** de entrar em tela cheia (girar depois fazia a página sair dela): o script envia `nx_orient` (`portrait`/`landscape`/`auto`) pela ponte e espera a tela girar (até 1,5 s; o gesto do toque dura alguns segundos). Ao sair da tela cheia o app repinta/remede o WebView (tela preta) e volta a orientação para `auto`.
+
+**0.1.15:** sem mudança de código nativo; recompilado para levar de fábrica o script 0.16.36 (a cópia de fábrica do 0.1.14 era a 0.16.31, ainda com o toque no vídeo que abria a tela cheia).

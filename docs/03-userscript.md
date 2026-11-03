@@ -494,3 +494,5 @@ No app Userscripts, `GM_getValue`/`GM_setValue` devolvem Promise (no Tampermonke
 0.16.34: o diagnóstico do player inclui a versão do script e o valor de `tapVideoViewer`.
 
 0.16.35: **removido** o toque do dono no vídeo que abria a tela cheia (a opção do menu não desligava). O clique interceptado agora só existe armado por `nxVideoCenter()` (o toque que o app do Android dá ao apertar o botão X do controle), por 1,5 s; o toque normal do dono é sempre o padrão do X (play/pause).
+
+0.16.36: diagnóstico temporário: `requestFullscreen` é envolvido para mandar à API (`/health/skeleton`, nota `diag requestFullscreen`) a pilha de quem pediu a tela cheia (script do notiXias ou código do X), no máximo a cada 20 s. Serve para achar por que um toque ainda abre a tela cheia.

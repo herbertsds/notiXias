@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.16.35
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.35
+// @version      0.16.36
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.16.36
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2280,7 +2280,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.16.35'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.16.36'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3680,6 +3680,30 @@ async function startApp() {
     const r = vv.rect;
     return JSON.stringify({ x: Math.round((r.left + r.right) / 2), y: Math.round(r.top + (r.bottom - r.top) * 0.3) });
   };
+
+  // Diagnóstico temporário (0.16.36): quem pede a tela cheia? Registra a pilha de chamadas de requestFullscreen e manda para a API
+  // (sem texto de post; no máximo uma vez a cada 20 s).
+  if (!cfg.bot) {
+    let lastFsDiagAt = 0;
+    const wrap = (name) => {
+      const orig = Element.prototype[name];
+      if (typeof orig !== 'function') return;
+      Element.prototype[name] = function (...args) {
+        try {
+          if (Date.now() - lastFsDiagAt > 20000) {
+            lastFsDiagAt = Date.now();
+            const stack = String(new Error().stack || '').split('\n').slice(1, 9).map((l) => l.trim().replace(/https?:\/\/[^/]+/g, '')).join('\n');
+            const sk = name + ' em ' + this.tagName.toLowerCase() + (this.getAttribute('data-testid') ? '[' + this.getAttribute('data-testid') + ']' : '') +
+              '\narmedAt=' + (armedAt ? Date.now() - armedAt + 'ms' : '0') + ' path=' + location.pathname + '\n' + stack;
+            api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: sk.slice(0, 4000), note: ('diag requestFullscreen v' + NX_VERSION).slice(0, 500) }).catch(() => {});
+          }
+        } catch (e) { /* melhor esforço */ }
+        return orig.apply(this, args);
+      };
+    };
+    wrap('requestFullscreen');
+    wrap('webkitRequestFullscreen');
+  }
 
   // F9 = botão X do controle (o app manda a tecla de verdade, com gesto do usuário, para poder entrar em tela cheia).
   window.addEventListener('keydown', (e) => {

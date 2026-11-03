@@ -49,9 +49,10 @@ class Bridge(private val store: Store, private val net: Net, private val app: (W
     companion object {
         // nx_awake: vídeo tocando em tela cheia (tela acesa); nx_orient: orientação antes da tela cheia; nx_swap: trazer para a
         // frente a tela que já tem o post; nx_neighbors: anteriores/próximos a abrir atrás; nx_ready: esta tela terminou de abrir o
-        // post; nx_window: quantas telas da janela (esta e as 3 seguintes) ainda não carregaram; nx_detach: abrir link por cima;
+        // post; nx_window: quantas telas da janela (esta e as 3 seguintes) ainda não carregaram;
+        // nx_player: abrir o player de vídeo do app (links, formato, som e ponto em que o vídeo da página estava); nx_detach: abrir link por cima;
         // nx_back / nx_nav: fechar a tela por cima (e passar de post).
-        val APP_KEYS = setOf("nx_awake", "nx_orient", "nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_detach", "nx_back", "nx_nav")
+        val APP_KEYS = setOf("nx_awake", "nx_orient", "nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_player", "nx_detach", "nx_back", "nx_nav")
     }
 
     /** Cookies de x.com no formato que o script espera (name/value/domain). Inclui os HttpOnly. */

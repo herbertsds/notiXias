@@ -15,8 +15,8 @@ android {
         applicationId 'br.notixias.app'
         minSdk 26
         targetSdk 34
-        versionCode 23
-        versionName '0.3.0'
+        versionCode 24
+        versionName '0.4.0'
         buildConfigField 'String', 'DEFAULT_API_URL', '"https://notixias.163.176.176.10.nip.io"'
         buildConfigField 'String', 'DEFAULT_API_KEY', '"' + defaultKey + '"'
     }
@@ -34,6 +34,10 @@ android {
 dependencies {
     implementation 'androidx.webkit:webkit:1.11.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Player de vídeo do app (mp4 e HLS)
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
 }
 
 // O script que vai junto do app é o gerado em userscript/ (a cópia de fábrica; o app ainda baixa a mais nova do servidor).

@@ -60,6 +60,7 @@ class MainActivity : Activity() {
     private lateinit var active: Slot
     private val slots = mutableListOf<Slot>()   // telas da fila (inclui a da frente)
     private var detached: Slot? = null           // tela por cima, fora da fila
+    private var player: PlayerOverlay? = null    // player de vídeo do app, por cima de tudo
     private var nextList = listOf<JSONObject>()  // seguintes na fila (até 4), do mais próximo ao mais longe
     private var prevList = listOf<JSONObject>()  // anteriores na fila (até 4), do mais próximo ao mais longe
     private val bridgeName = "_nx" + ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
@@ -83,7 +84,7 @@ class MainActivity : Activity() {
 
     /** A tela do celular só fica acesa com vídeo tocando em tela cheia; fora disso vale o tempo de tela do sistema. */
     private fun applyAwake() {
-        val allowed = scriptAwake || customView != null
+        val allowed = scriptAwake || customView != null || player != null
         if (allowed) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -127,6 +128,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        player?.close()
         allSlots().forEach { s -> root.removeView(s.web); s.web.destroy() }
         slots.clear()
         detached = null
@@ -271,6 +273,7 @@ class MainActivity : Activity() {
             true
         }
         "nx_window" -> onUi { unloadedInWindow(JSONObject(value).optString("dir")) } ?: 0
+        "nx_player" -> { runOnUiThread { if (view === top()) openPlayer(JSONObject(value)) }; true }
         "nx_detach" -> { runOnUiThread { if (ready && view === active.web) detach(JSONObject(value).optString("url")) }; true }
         "nx_back" -> { runOnUiThread { if (view === detached?.web) detachedBack() }; true }
         "nx_nav" -> {
@@ -367,6 +370,17 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Player de vídeo do app: tela cheia por cima de tudo, no formato do vídeo. O vídeo da página fica parado atrás. */
+    private fun openPlayer(info: JSONObject) {
+        player?.close()
+        if (customView != null) exitFullscreenNow()
+        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake() }, { immersive(true) })
+        player = p
+        if (!p.start()) { player = null; Toast.makeText(this, "Esse vídeo não tem arquivo para tocar", Toast.LENGTH_SHORT).show(); return }
+        immersive(true)
+        applyAwake()
+    }
+
     /** Link para fora da fila: abre na tela por cima (a da fila fica parada no post). */
     private fun detach(url: String) {
         if (!isXUrl(url)) return
@@ -419,6 +433,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         ui.removeCallbacks(sweeper)
+        player?.pause()
         if (ready) { allSlots().forEach { it.web.onPause() }; CookieManager.getInstance().flush() }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onPause()
@@ -434,6 +449,7 @@ class MainActivity : Activity() {
     // eixo (HAT_Y), e o analógico como AXIS_Y (esquerdo) ou AXIS_RZ (direito): cada fonte guarda a sua direção (-1, 0, 1) e vale
     // a primeira diferente de 0. Os eventos do analógico são consumidos, para o WebView não rolar sozinho sem parar.
     private fun scrollPage(down: Boolean) {
+        if (player != null) return
         val sign = if (down) "" else "-"
         top()?.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
     }
@@ -478,7 +494,7 @@ class MainActivity : Activity() {
     // Avançar/voltar vai para a tela da fila. Com a tela por cima aberta: voltar só a fecha (volta ao post); avançar a fecha e
     // passa para o próximo.
     private fun sendNav(dir: String) {
-        if (!ready) return
+        if (!ready || player != null) return
         if (detached != null) {
             closeDetached()
             if (dir != "ArrowRight") return
@@ -489,6 +505,7 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (player != null && (event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0) return true
         if ((event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0 && event.action == MotionEvent.ACTION_MOVE) {
             triggerAxes(event)
             val hat = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
@@ -551,7 +568,7 @@ class MainActivity : Activity() {
         window.statusBarColor = bg
         window.navigationBarColor = bg
         if (android.os.Build.VERSION.SDK_INT >= 28) window.navigationBarDividerColor = bg
-        if (customView == null) window.decorView.systemUiVisibility = barFlags()
+        if (customView == null && player == null) window.decorView.systemUiVisibility = barFlags()
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -559,43 +576,28 @@ class MainActivity : Activity() {
         applySystemBars()
     }
 
-    // Botão X: em tela cheia, sai (exitFullscreen na página); fora dela, pergunta ao script um ponto do vídeo visível e dá ali um
-    // TOQUE de verdade: é o mesmo caminho do toque do dedo (o script aperta o botão "Tela cheia" do player, girando a tela antes
-    // para a posição do vídeo). Sem vídeo na tela, manda Alt+seta para cima (o script abre a foto).
+    // Botão X: com o player aberto, fecha; senão pede ao script para abrir o vídeo mais visível no player (sem vídeo na tela,
+    // manda Alt+seta para cima: o script abre a foto).
     private fun toggleVideoFullscreen() {
+        if (player != null) { player?.close(); return }
         if (customView != null) {
             customOwner?.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
             return
         }
         val w = top() ?: return
-        w.evaluateJavascript("(window.nxVideoCenter?window.nxVideoCenter():'')") { raw ->
-            val json = raw?.trim('"')?.replace("\\\"", "\"") ?: ""
-            if (json.isEmpty() || json == "null") {
+        w.evaluateJavascript("(window.nxPlayVisible?window.nxPlayVisible():false)") { raw ->
+            if (raw?.trim() != "true")
                 w.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true,cancelable:true}))", null)
-                return@evaluateJavascript
-            }
-            val o = JSONObject(json)
-            val d = resources.displayMetrics.density
-            tap(w, o.getDouble("x").toFloat() * d, o.getDouble("y").toFloat() * d)
         }
-    }
-
-    private fun tap(w: WebView, x: Float, y: Float) {
-        val t = android.os.SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
-        w.dispatchTouchEvent(down)
-        down.recycle()
-        ui.postDelayed({
-            val t2 = android.os.SystemClock.uptimeMillis()
-            val up = MotionEvent.obtain(t, t2, MotionEvent.ACTION_UP, x, y, 0).apply { source = android.view.InputDevice.SOURCE_TOUCHSCREEN }
-            w.dispatchTouchEvent(up)
-            up.recycle()
-        }, 60)
     }
 
     // Controle (gamepad): A e R2 avançam, B e L2 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        player?.let { p ->
+            if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) return super.dispatchKeyEvent(event)
+            return p.onKey(event)
+        }
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             val d = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) keyDir = d
@@ -624,6 +626,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            player != null -> player?.close()
             customView != null -> exitFullscreenNow()
             detached != null -> detachedBack()
             // na tela da fila, voltar é navegação do script (não abre a tela por cima)

@@ -570,30 +570,6 @@ test('threadLinks / readItems: lê as linhas de conversa do X (fim da célula de
 });
 
 
-test('blockEndedAdvance: o fim do vídeo não chega aos ouvintes do X (que pulariam para o próximo); liga/desliga sem remover', () => {
-  const w = new JSDOM('<body><div id="player"><video id="v"></video></div></body>', { url: 'https://x.com/i/status/1' }).window;
-  const d = w.document;
-  const seen = { video: 0, ancestor: 0, window: 0, paused: 0 };
-  const v = d.getElementById('v');
-  v.pause = () => { seen.paused++; };
-  v.addEventListener('ended', () => seen.video++);                                  // ouvinte do X no próprio <video>
-  d.getElementById('player').addEventListener('ended', () => seen.ancestor++, true); // e num ancestral (captura)
-  let on = true;
-  const remove = Xdom.blockEndedAdvance(w, () => on);                                // registrado depois, mas em window: roda primeiro
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(seen, { video: 0, ancestor: 0, window: 0, paused: 1 });          // nenhum ouvinte do X viu; o vídeo só pausou
-  on = false;                                                                        // desligado no menu: o X vê normalmente
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual([seen.video, seen.ancestor, seen.paused], [1, 1, 1]);
-  on = true;
-  d.getElementById('player').dispatchEvent(new w.Event('ended'));                    // só <video> é bloqueado
-  assert.equal(seen.ancestor, 2);
-  remove();                                                                          // removido: tudo volta ao normal
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual([seen.video, seen.ancestor], [2, 3]);
-});
-
-
 test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem negativa do X), uma vez só', () => {
   const w = new JSDOM('<body><div data-testid="primaryColumn"><div id="inner"><div id="o" style="position:sticky;top:0"><div data-testid="TopNavBar"></div></div><article data-testid="tweet"></article></div></div></body>', { url: 'https://x.com/a/status/1' }).window;
   const d = w.document;
@@ -608,146 +584,6 @@ test('setHeaderStatic: compensa o começo do conteúdo acima da tela (margem neg
   top = 0;                                                         // já na tela: nada a mais, e não acumula
   Xdom.setHeaderStatic(d, w);
   assert.equal(own.style.marginTop, '10px');
-});
-
-
-test('leaveFullscreen: sai do player nativo, do Fullscreen API e do visualizador de vídeo do X; senão não faz nada', () => {
-  const mk = (url = 'https://x.com/home') => {
-    const w = new JSDOM('<body><video id="v"></video></body>', { url }).window;
-    const calls = [];
-    w.history.back = () => calls.push('back');
-    const v = w.document.getElementById('v');
-    return { w, v, calls };
-  };
-  // 1) player nativo do iPhone
-  let c = mk();
-  c.v.webkitDisplayingFullscreen = true;
-  c.v.webkitExitFullscreen = () => c.calls.push('nativo');
-  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
-  assert.deepEqual(c.calls, ['nativo']);
-  // 2) modo de apresentação do WebKit
-  c = mk();
-  c.v.webkitPresentationMode = 'fullscreen';
-  c.v.webkitSetPresentationMode = (m) => c.calls.push('modo:' + m);
-  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
-  assert.deepEqual(c.calls, ['modo:inline']);
-  // 3) Fullscreen API
-  c = mk();
-  Object.defineProperty(c.w.document, 'fullscreenElement', { value: c.v, configurable: true });
-  c.w.document.exitFullscreen = () => { c.calls.push('api'); return Promise.resolve(); };
-  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
-  assert.deepEqual(c.calls, ['api']);
-  // 4) visualizador de vídeo do X (rota própria): volta uma página
-  c = mk('https://x.com/geglobo/status/2108/video/1');
-  assert.equal(Xdom.leaveFullscreen(c.v, c.w), true);
-  assert.deepEqual(c.calls, ['back']);
-  // 5) vídeo comum na linha do tempo (nada em tela cheia): não faz nada, nem volta página
-  c = mk('https://x.com/geglobo/status/2108');
-  assert.equal(Xdom.leaveFullscreen(c.v, c.w), false);
-  assert.deepEqual(c.calls, []);
-  // quando o player nativo já tratou, não volta também a página
-  c = mk('https://x.com/a/status/9/video/1');
-  c.v.webkitDisplayingFullscreen = true;
-  c.v.webkitExitFullscreen = () => c.calls.push('nativo');
-  Xdom.leaveFullscreen(c.v, c.w);
-  assert.deepEqual(c.calls, ['nativo']);
-});
-
-test('blockEndedAdvance: sair da tela cheia e bloquear o avanço são independentes', () => {
-  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/home' }).window;
-  const v = w.document.getElementById('v');
-  const seen = { x: 0, left: 0, paused: 0 };
-  v.pause = () => { seen.paused++; };
-  v.webkitDisplayingFullscreen = true;
-  v.webkitExitFullscreen = () => { seen.left++; };
-  v.addEventListener('ended', () => seen.x++);
-  let block = true;
-  let leave = true;
-  Xdom.blockEndedAdvance(w, () => block, () => leave);
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(seen, { x: 0, left: 1, paused: 1 });                       // X não viu; saiu da tela cheia; pausou
-  leave = false;
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(seen, { x: 0, left: 1, paused: 2 });                       // só bloqueia
-  block = false;
-  leave = true;
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(seen, { x: 1, left: 2, paused: 2 });                       // só sai da tela cheia; o X ainda vê o fim
-  leave = false;
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(seen, { x: 2, left: 2, paused: 2 });                       // tudo desligado: nada muda
-});
-
-
-test('blockEndedAdvance: avisa o fim (onEnded) com o que foi feito; visualizador /immersive também fecha', () => {
-  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/i/immersive/123' }).window;
-  const v = w.document.getElementById('v');
-  const calls = [];
-  w.history.back = () => calls.push('back');
-  const ended = [];
-  Xdom.blockEndedAdvance(w, () => true, () => true, (video, r) => ended.push(r));
-  v.dispatchEvent(new w.Event('ended'));
-  assert.deepEqual(calls, ['back']);                                           // rota imersiva: voltou uma página
-  assert.deepEqual(ended, [{ block: true, leave: true, left: true }]);
-  // página de post comum: nada em tela cheia, não volta, e avisa que não saiu (para o diagnóstico)
-  const w2 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/geglobo/status/2108' }).window;
-  const back2 = [];
-  w2.history.back = () => back2.push('back');
-  const ended2 = [];
-  Xdom.blockEndedAdvance(w2, () => false, () => true, (video, r) => ended2.push(r));
-  w2.document.getElementById('v').dispatchEvent(new w2.Event('ended'));
-  assert.deepEqual(back2, []);
-  assert.deepEqual(ended2, [{ block: false, leave: true, left: false }]);
-});
-
-
-test('leaveFullscreen: no visualizador do X (/mediaViewer) aperta o botão voltar do vídeo; sem o botão, volta a página', () => {
-  const html = (url) => new JSDOM(
-    '<body><div data-testid="vss-scroll-view">' +
-    '<div data-testid="cellInnerDiv-tweet-111"><button data-testid="immersive-tweet-back-button-111"></button><video id="v1"></video></div>' +
-    '<div data-testid="cellInnerDiv-tweet-222"><button data-testid="immersive-tweet-back-button-222"></button><video id="v2"></video></div>' +
-    '</div></body>', { url }).window;
-  const w = html('https://x.com/geglobo/status/222/mediaViewer?currentTweet=222&currentTweetUser=geglobo');
-  const clicked = [];
-  w.document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => clicked.push(b.getAttribute('data-testid'))));
-  w.history.back = () => clicked.push('history.back');
-  assert.equal(Xdom.leaveFullscreen(w.document.getElementById('v2'), w), true);
-  assert.deepEqual(clicked, ['immersive-tweet-back-button-222']);                       // o botão do vídeo que acabou, não o do vizinho
-  // sem botão (X mudou o markup): cai na rota /mediaViewer e volta uma página
-  const w2 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/a/status/9/mediaViewer?currentTweet=9' }).window;
-  const back = [];
-  w2.history.back = () => back.push('back');
-  assert.equal(Xdom.leaveFullscreen(w2.document.getElementById('v'), w2), true);
-  assert.deepEqual(back, ['back']);
-  // página de post comum com vídeo: nada
-  const w3 = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/a/status/9' }).window;
-  assert.equal(Xdom.leaveFullscreen(w3.document.getElementById('v'), w3), false);
-});
-
-test('watchVideoLoop: liga o loop ao tocar e avisa a cada volta ao começo (o "fim" que o X nunca vê)', () => {
-  const w = new JSDOM('<body><video id="v"></video></body>', { url: 'https://x.com/home' }).window;
-  const v = w.document.getElementById('v');
-  let on = true;
-  const loops = [];
-  Xdom.watchVideoLoop(w, { loopOn: () => on, onLoop: (video) => loops.push(video.id) });
-  Object.defineProperty(v, 'duration', { value: 10, configurable: true });
-  const time = (t) => { Object.defineProperty(v, 'currentTime', { value: t, configurable: true }); v.dispatchEvent(new w.Event('timeupdate')); };
-  v.dispatchEvent(new w.Event('play'));
-  assert.equal(v.loop, true);                                         // o vídeo não termina: o X não vê o `ended`
-  time(1); time(5); time(9.7);
-  assert.deepEqual(loops, []);                                        // ainda tocando
-  time(0.2);                                                          // deu a volta ao começo = o vídeo "terminou"
-  assert.deepEqual(loops, ['v']);
-  time(0.6); time(1.2);                                               // continua tocando: sem novo aviso
-  assert.deepEqual(loops, ['v']);
-  on = false;                                                         // desligado no menu
-  time(9.9); time(0.1);
-  assert.deepEqual(loops, ['v']);
-  // duração desconhecida (transmissão ao vivo): nada
-  on = true;
-  Object.defineProperty(v, 'duration', { value: Infinity, configurable: true });
-  time(5); time(0.1);
-  assert.deepEqual(loops, ['v']);
 });
 
 
@@ -812,21 +648,6 @@ test('disableCaptions: aperta "Desativar legendas" uma vez por botão e ignora "
   e.document.getElementById('x').addEventListener('click', () => n++);
   Xdom.disableCaptions(e.document);
   assert.equal(n, 1);
-});
-
-test('fullscreenVideoPlaying: só vale com tela cheia E vídeo tocando', () => {
-  const w = new JSDOM('<body><video></video></body>', { url: 'https://x.com/a/status/1' }).window;
-  const v = w.document.querySelector('video');
-  Object.defineProperty(v, 'paused', { value: false, configurable: true });
-  Object.defineProperty(v, 'readyState', { value: 4 });
-  assert.equal(Xdom.fullscreenVideoPlaying(w.document, w), false);                // tocando, mas inline
-  const f = new JSDOM('<body><video></video></body>', { url: 'https://x.com/a/status/1/mediaViewer' }).window;
-  const fv = f.document.querySelector('video');
-  Object.defineProperty(fv, 'paused', { value: false, configurable: true });
-  Object.defineProperty(fv, 'readyState', { value: 4 });
-  assert.equal(Xdom.fullscreenVideoPlaying(f.document, f), true);                 // visualizador do X + tocando
-  Object.defineProperty(fv, 'paused', { value: true, configurable: true });
-  assert.equal(Xdom.fullscreenVideoPlaying(f.document, f), false);                // pausado
 });
 
 test('setLandscapeLayout: texto à esquerda e mídia do post (não a do citado) à direita, só deitado e fora de tela cheia', () => {
@@ -916,24 +737,3 @@ test('setLandscapeLayout: foto/card dentro de âncora [role=link] conta como mí
   assert.equal(w.document.getElementById('cards').hasAttribute('data-nx-media'), true);
 });
 
-test('openMediaFullscreen: foto visível -> link da foto; sem foto, null', () => {
-  const rect = { left: 0, top: 0, right: 400, bottom: 300, width: 400, height: 300 };
-  const p = new JSDOM('<body><article data-testid="tweet"><a href="/u/status/1/photo/1"><div data-testid="tweetPhoto" id="p"></div></a></article></body>', { url: 'https://x.com/u/status/1' }).window;
-  p.innerWidth = 900; p.innerHeight = 400;
-  p.document.getElementById('p').getBoundingClientRect = () => rect;
-  const seen = [];
-  assert.equal(Xdom.openMediaFullscreen(p.document, p, (x) => seen.push(x)), 'photo');
-  assert.deepEqual(seen, ['/u/status/1/photo/1']);
-  assert.equal(Xdom.openMediaFullscreen(new JSDOM('<body></body>').window.document, p, () => {}), null);
-});
-
-test('fullscreenButtonPoint: acha o botão "Tela cheia" do player (não o de sair) e o formato do vídeo', () => {
-  const w = new JSDOM('<body><div data-testid="videoPlayer"><video id="v"></video><button aria-label="Sair da tela cheia" id="x"></button><button aria-label="Tela cheia" id="b"></button></div></body>', { url: 'https://x.com/u/status/1' }).window;
-  w.innerWidth = 900; w.innerHeight = 400;
-  const box = (id, l, t, wd, h) => { w.document.getElementById(id).getBoundingClientRect = () => ({ left: l, top: t, right: l + wd, bottom: t + h, width: wd, height: h }); };
-  box('v', 0, 0, 400, 300); box('x', 10, 10, 20, 20); box('b', 360, 260, 40, 40);
-  const v = w.document.getElementById('v');
-  Object.defineProperty(v, 'videoWidth', { value: 360 }); Object.defineProperty(v, 'videoHeight', { value: 640 });
-  assert.deepEqual(Xdom.fullscreenButtonPoint(w.document, w), { portrait: true, x: 380, y: 280 });
-  assert.equal(Xdom.fullscreenButtonPoint(new JSDOM('<body></body>').window.document, w), null);
-});

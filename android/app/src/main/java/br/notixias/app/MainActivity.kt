@@ -19,6 +19,7 @@ import android.webkit.JsResult
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -38,10 +39,14 @@ import java.util.concurrent.TimeUnit
  * notiXias: o X (x.com) em WebViews com o userscript injetado antes de cada página.
  *
  * Telas (WebViews) da fila: até [MAX_QUEUE_VIEWS], empilhadas. A da frente ("active") mostra o post atual; as de trás
- * ("standby") já abrem os 3 anteriores e os 3 seguintes (o script da frente avisa quais são: `nx_neighbors`). Passar de post
+ * ("standby") já abrem os 3 seguintes e o anterior (o script da frente avisa quais são: `nx_neighbors`). Passar de post
  * (`nx_swap`) só traz para a frente a tela que já tem o post, e a que saiu da frente fica atrás com o post dela, pronta para
  * voltar. Um link para fora da fila abre numa tela por cima ("detached", `nx_detach`); fechá-la mostra de novo o post da fila,
  * que nunca saiu do lugar.
+ *
+ * Energia: tela de trás que já abriu o post fica invisível (o Android não a desenha e a página fica "escondida"); fora de foco,
+ * o JavaScript de todas as telas é congelado (`pauseTimers`) e, depois de [UNLOAD_AFTER_MS], as telas de trás são esvaziadas
+ * (voltam a abrir quando o app volta). A telemetria e os contadores do X (notificações, mensagens, números ao vivo) são recusados.
  */
 class MainActivity : Activity() {
     private class Slot(val web: WebView, var role: String) {
@@ -60,52 +65,23 @@ class MainActivity : Activity() {
     private lateinit var active: Slot
     private val slots = mutableListOf<Slot>()   // telas da fila (inclui a da frente)
     private var detached: Slot? = null           // tela por cima, fora da fila
-    private var player: PlayerOverlay? = null    // player de vídeo do app, por cima de tudo
     private var nextList = listOf<JSONObject>()  // seguintes na fila (até 4), do mais próximo ao mais longe
-    private var prevList = listOf<JSONObject>()  // anteriores na fila (até 4), do mais próximo ao mais longe
+    private var prevList = listOf<JSONObject>()  // anterior na fila
+    private var emptied = false                  // telas de trás esvaziadas (fora de foco por muito tempo / pouca memória)
     private val bridgeName = "_nx" + ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private var shimText = ""
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
     private var customOwner: WebView? = null
     private val io = Executors.newSingleThreadExecutor()
-    private var scriptAwake = false      // o script avisou: vídeo tocando em tela cheia
     private var restarting = false
     private val ui = Handler(Looper.getMainLooper())
     private val sweeper = object : Runnable {
-        override fun run() { applyAwake(); ui.postDelayed(this, 1000) }
+        override fun run() { applyAwake(); ui.postDelayed(this, 2000) }
     }
+    private val emptyBehind = Runnable { emptyStandby() }
 
-    private val updater by lazy { AppUpdater(this, net) { player == null && detached == null } }
-    private val vcache by lazy { VideoCache.get(this) }
-    private val mediaDumps = HashMap<Long, Int>()   // seq -> quantas vezes já se procurou vídeo nessa tela
-
-    // A cada 3 s pergunta às telas da janela (frente + vizinhas) quais vídeos o post delas tem e manda baixar (até 5 min cada).
-    private val videoScan = object : Runnable {
-        override fun run() {
-            if (ready) for (s in slots.toList()) {
-                val sq = s.seq
-                if (!s.ready || sq < 0 || (mediaDumps[sq] ?: 0) >= MAX_MEDIA_SCANS) continue
-                mediaDumps[sq] = (mediaDumps[sq] ?: 0) + 1
-                s.web.evaluateJavascript("(window.__nxMediaDump?window.__nxMediaDump():'[]')") { raw -> queueVideos(sq, raw) }
-            }
-            ui.postDelayed(this, 3000)
-        }
-    }
-
-    private fun queueVideos(seq: Long, raw: String?) {
-        if (raw == null || raw == "null") return
-        try {
-            val list = org.json.JSONArray(JSONObject("{\"v\":$raw}").getString("v"))
-            if (slots.none { it.seq == seq }) return
-            for (i in 0 until list.length()) {
-                val m = list.getJSONObject(i)
-                val best = m.optJSONArray("variants")?.optJSONObject(0) ?: continue
-                val url = best.optString("url")
-                if (url.startsWith("https://")) vcache.fetch(url, seq, best.optLong("bitrate"), m.optLong("duration"))
-            }
-        } catch (e: Exception) { /* resposta inesperada: tenta de novo na próxima volta */ }
-    }
+    private val updater by lazy { AppUpdater(this, net) { detached == null && customView == null } }
 
     private val ready get() = ::active.isInitialized
     /** A tela que o dono está vendo: a de cima, se houver, ou a da frente da fila. */
@@ -113,9 +89,9 @@ class MainActivity : Activity() {
     private fun allSlots(): List<Slot> = slots + listOfNotNull(detached)
     private fun slotOf(view: WebView): Slot? = allSlots().firstOrNull { it.web === view }
 
-    /** A tela do celular só fica acesa com vídeo tocando em tela cheia; fora disso vale o tempo de tela do sistema. */
+    /** A tela do celular só fica acesa com vídeo em tela cheia; fora disso vale o tempo de tela do sistema. */
     private fun applyAwake() {
-        val allowed = scriptAwake || customView != null || player != null
+        val allowed = customView != null
         if (allowed) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -149,6 +125,10 @@ class MainActivity : Activity() {
         }
 
         CookieManager.getInstance().setAcceptCookie(true)
+        // o service worker do X também faz pedidos: a mesma recusa da telemetria vale para ele
+        android.webkit.ServiceWorkerController.getInstance().setServiceWorkerClient(object : android.webkit.ServiceWorkerClient() {
+            override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? = if (isNoise(request.url)) noContent() else null
+        })
         bridge = Bridge(store, net) { view, key, value -> onApp(view, key, value) }
         buildShim()
         active = createSlot("active", onTop = true)
@@ -159,7 +139,6 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        player?.close()
         allSlots().forEach { s -> root.removeView(s.web); s.web.destroy() }
         slots.clear()
         detached = null
@@ -194,13 +173,26 @@ class MainActivity : Activity() {
         return s
     }
 
+    /**
+     * Pedidos do X que não servem ao notiXias e só gastam rádio/bateria: telemetria (`jot`, `client_event`), contadores de
+     * notificações e mensagens (`badge_count`, `dm/…`) e a conexão de números ao vivo (`live_pipeline`). Respondidos vazios aqui.
+     */
+    private fun isNoise(u: Uri): Boolean {
+        val host = u.host ?: return false
+        if (!(host == "x.com" || host.endsWith(".x.com") || host.endsWith("twitter.com"))) return false
+        val p = u.path ?: return false
+        return NOISE.any { p.contains(it) }
+    }
+
+    private fun noContent() = WebResourceResponse(
+        "text/plain", "utf-8", 204, "No Content",
+        mapOf("Access-Control-Allow-Origin" to "https://x.com", "Access-Control-Allow-Credentials" to "true"),
+        java.io.ByteArrayInputStream(ByteArray(0)),
+    )
+
     private val webClient = object : WebViewClient() {
-        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-            if (view === top()) {
-                scriptAwake = false   // página nova: o script avisa de novo se houver vídeo em tela cheia
-                applyAwake()
-            }
-        }
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            if (isNoise(request.url)) noContent() else null
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val u = request.url
             val host = u.host ?: ""
@@ -249,8 +241,7 @@ class MainActivity : Activity() {
             root.addView(view, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             w.visibility = View.GONE
             immersive(true)
-            // O X tenta travar a tela em deitado ao entrar em tela cheia (vídeo em pé saía de lado): reafirma a do vídeo.
-            if (wantedOrientation != "auto") listOf(250L, 800L, 1600L).forEach { ms -> ui.postDelayed({ if (customView != null) setOrientation(wantedOrientation) }, ms) }
+            applyAwake()
         }
         override fun onHideCustomView() { hideCustom() }
     }
@@ -264,8 +255,7 @@ class MainActivity : Activity() {
         val w = customOwner
         customOwner = null
         immersive(false)
-        wantedOrientation = "auto"
-        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        applyAwake()
         if (w == null) return
         w.visibility = View.VISIBLE
         // Evita a tela preta ao voltar: força nova medida/desenho do WebView e avisa a página do novo tamanho.
@@ -291,20 +281,15 @@ class MainActivity : Activity() {
     }
 
     private fun onApp(view: WebView, key: String, value: String): Any? = when (key) {
-        // o script avisa se há vídeo tocando em tela cheia (só então a tela do celular fica acesa)
-        "nx_awake" -> { runOnUiThread { if (view === top()) { scriptAwake = value == "true"; applyAwake() } }; true }
-        // o script pede a orientação ("portrait", "landscape" ou "auto") antes de entrar em tela cheia
-        "nx_orient" -> { runOnUiThread { if (view === top()) setOrientation(value) }; true }
         "nx_role" -> onUi { roleOf(view) }
         "nx_swap" -> onUi { swap(view, JSONObject(value)) } ?: 0
         "nx_neighbors" -> { runOnUiThread { assignNeighbors(view, JSONObject(value)) }; true }
         "nx_ready" -> {
             val seq = JSONObject(value).optLong("seq", -1)
-            runOnUiThread { slotOf(view)?.let { if (it.seq == seq || it === active) { it.seq = seq; it.ready = true } } }
+            runOnUiThread { slotOf(view)?.let { if (it.seq == seq || it === active) { it.seq = seq; it.ready = true; applyVisibility() } } }
             true
         }
         "nx_window" -> onUi { unloadedInWindow(JSONObject(value).optString("dir")) } ?: 0
-        "nx_player" -> { runOnUiThread { if (view === top()) openPlayer(JSONObject(value)) }; true }
         "nx_detach" -> { runOnUiThread { if (ready && view === active.web) detach(JSONObject(value).optString("url")) }; true }
         "nx_back" -> { runOnUiThread { if (view === detached?.web) detachedBack() }; true }
         "nx_nav" -> {
@@ -342,9 +327,10 @@ class MainActivity : Activity() {
         val e = o.optJSONObject("entry") ?: return 0
         val seq = e.optLong("seq", -1)
         val s = slots.firstOrNull { it !== active && it.seq == seq } ?: return 0
-        // Regra do carregamento: janela = a tela que vem + 3 além dela na direção; só cobre com carregamento se 3 das 4 não carregaram.
-        val list = if (o.optString("dir") == "back") prevList else nextList
-        val win = list.take(4).filter { isXUrl(it.optString("url")) }
+        // Regra do carregamento: para frente, janela = a tela que vem + 3 além dela; só cobre com carregamento se 3 das 4 não
+        // carregaram. Para trás, só há o anterior: cobre se ele ainda não carregou.
+        val back = o.optString("dir") == "back"
+        val win = (if (back) prevList.take(1) else nextList.take(4)).filter { isXUrl(it.optString("url")) }
         val unloaded = win.count { e -> slots.firstOrNull { it.seq == e.optLong("seq", -1) }?.ready != true }
         val gate = win.isNotEmpty() && unloaded >= minOf(3, win.size)
         if (customView != null) exitFullscreenNow()
@@ -353,6 +339,7 @@ class MainActivity : Activity() {
         s.role = "active"
         s.entry = e
         active = s
+        applyVisibility()
         s.web.bringToFront()
         detached?.web?.bringToFront()
         push(s, o.put("role", "active").put("gate", gate))
@@ -360,11 +347,11 @@ class MainActivity : Activity() {
         return if (gate) 2 else 1
     }
 
-    /** Quantas das telas da janela (a da frente e as 3 seguintes na direção `dir`) ainda não terminaram de abrir o post. */
+    /** Quantas das telas da janela (a da frente e, para frente, as 3 seguintes) ainda não terminaram de abrir o post. */
     private fun unloadedInWindow(dir: String): Int {
         if (!ready) return 0
-        val list = if (dir == "back") prevList else nextList
-        val seqs = listOf(active.seq) + list.take(3).filter { isXUrl(it.optString("url")) }.map { it.optLong("seq", -1) }
+        val more = if (dir == "back") emptyList() else nextList.take(PRELOAD_FWD)
+        val seqs = listOf(active.seq) + more.filter { isXUrl(it.optString("url")) }.map { it.optLong("seq", -1) }
         return seqs.count { sq -> slots.firstOrNull { it.seq == sq }?.ready != true }
     }
 
@@ -372,7 +359,7 @@ class MainActivity : Activity() {
         if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it) }.filter { isXUrl(it.optString("url")) }
 
     /**
-     * A tela da frente avisou o post atual e os vizinhos (até 4 de cada lado): os [PRELOAD_EACH_WAY] mais próximos de cada lado
+     * A tela da frente avisou o post atual e os vizinhos: os [PRELOAD_FWD] seguintes e os [PRELOAD_BACK] anteriores mais próximos
      * ficam em telas de trás, abertos desde já (reaproveita a tela que já tem o post; as que saíram da janela são reusadas).
      */
     private fun assignNeighbors(view: WebView, o: JSONObject) {
@@ -380,12 +367,14 @@ class MainActivity : Activity() {
         o.optJSONObject("cur")?.let { active.entry = it; active.seq = it.optLong("seq", -1); active.ready = true }
         nextList = entries(o.optJSONArray("next"))
         prevList = entries(o.optJSONArray("prev"))
+        fillNeighbors()
+    }
+
+    private fun fillNeighbors() {
+        emptied = false
         // os da frente primeiro: são os que o leitor vai ver antes
-        val want = nextList.take(PRELOAD_EACH_WAY).map { it to "fwd" } + prevList.take(PRELOAD_EACH_WAY).map { it to "back" }
+        val want = nextList.take(PRELOAD_FWD).map { it to "fwd" } + prevList.take(PRELOAD_BACK).map { it to "back" }
         val wantSeqs = want.map { it.first.optLong("seq", -1) }.toSet()
-        // vídeos de posts que saíram da janela: apagados do armazenamento
-        vcache.retain(wantSeqs + active.seq)
-        mediaDumps.keys.retainAll(wantSeqs + active.seq)
         for ((e, d) in want) {
             val sq = e.optLong("seq", -1)
             if (sq == active.seq) continue
@@ -399,20 +388,35 @@ class MainActivity : Activity() {
             free.seq = sq
             free.dir = d
             free.ready = false
-            if (free.web.url.isNullOrEmpty()) free.web.loadUrl(e.optString("url"))
+            free.web.visibility = View.VISIBLE   // abrindo: tem de estar "visível" para o X montar a página
+            val u = free.web.url
+            if (u.isNullOrEmpty() || u == "about:blank") free.web.loadUrl(e.optString("url"))
             else push(free, JSONObject().put("role", "standby").put("entry", e).put("dir", d))
+        }
+        applyVisibility()
+    }
+
+    /** Tela de trás que já abriu o post fica invisível: o Android não a desenha e, para a página, ela está escondida. */
+    private fun applyVisibility() {
+        for (s in slots) {
+            if (s.web === customOwner) continue
+            val v = if (s === active || (!s.ready && s.seq >= 0)) View.VISIBLE else View.INVISIBLE
+            if (s.web.visibility != v) s.web.visibility = v
         }
     }
 
-    /** Player de vídeo do app: tela cheia por cima de tudo, no formato do vídeo. O vídeo da página fica parado atrás. */
-    private fun openPlayer(info: JSONObject) {
-        player?.close()
-        if (customView != null) exitFullscreenNow()
-        val p = PlayerOverlay(this, root, info, { player = null; immersive(false); applyAwake(); top()?.evaluateJavascript("window.nxPlayerClosed&&window.nxPlayerClosed()", null) }, { immersive(true) }, vcache.factory)
-        player = p
-        if (!p.start()) { player = null; Toast.makeText(this, "Esse vídeo não tem arquivo para tocar", Toast.LENGTH_SHORT).show(); return }
-        immersive(true)
-        applyAwake()
+    /** Esvazia as telas de trás (página em branco): sem rede nem memória do X. Voltam a abrir com o app em foco. */
+    private fun emptyStandby() {
+        if (!ready) return
+        for (s in slots) if (s !== active && s.seq >= 0) {
+            s.web.stopLoading()
+            s.web.loadUrl("about:blank")
+            s.seq = -1
+            s.entry = null
+            s.ready = false
+        }
+        applyVisibility()
+        emptied = true
     }
 
     /** Link para fora da fila: abre na tela por cima (a da fila fica parada no post). */
@@ -431,7 +435,6 @@ class MainActivity : Activity() {
         root.removeView(d.web)
         d.script?.remove()
         d.web.destroy()
-        scriptAwake = false
         applyAwake()
     }
 
@@ -462,16 +465,32 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (ready) { allSlots().forEach { it.web.onResume() }; checkScriptUpdate(); updater.onResume(); ui.post(sweeper); ui.post(videoScan) }
+        ui.removeCallbacks(emptyBehind)
+        if (ready) {
+            active.web.resumeTimers()   // vale para todas as telas
+            allSlots().forEach { it.web.onResume() }
+            if (emptied) fillNeighbors()
+            checkScriptUpdate(); updater.onResume(); ui.post(sweeper)
+        }
     }
 
     override fun onPause() {
         ui.removeCallbacks(sweeper)
-        ui.removeCallbacks(videoScan)
-        player?.pause()
-        if (ready) { allSlots().forEach { it.web.onPause() }; CookieManager.getInstance().flush() }
+        if (ready) {
+            allSlots().forEach { it.web.onPause() }
+            active.web.pauseTimers()   // congela o JavaScript de todas as telas (o X e o script) até o app voltar
+            CookieManager.getInstance().flush()
+            ui.postDelayed(emptyBehind, UNLOAD_AFTER_MS)
+        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onPause()
+    }
+
+    // Pouca memória: as telas de trás são as primeiras a sair.
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        @Suppress("DEPRECATION")
+        if (level == TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_MODERATE) { ui.removeCallbacks(emptyBehind); emptyStandby() }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -484,7 +503,6 @@ class MainActivity : Activity() {
     // eixo (HAT_Y), e o analógico como AXIS_Y (esquerdo) ou AXIS_RZ (direito): cada fonte guarda a sua direção (-1, 0, 1) e vale
     // a primeira diferente de 0. Os eventos do analógico são consumidos, para o WebView não rolar sozinho sem parar.
     private fun scrollPage(down: Boolean) {
-        if (player != null) return
         val sign = if (down) "" else "-"
         top()?.evaluateJavascript("window.scrollBy({top:${sign}Math.round(window.innerHeight*0.4),behavior:'smooth'})", null)
     }
@@ -529,7 +547,7 @@ class MainActivity : Activity() {
     // Avançar/voltar vai para a tela da fila. Com a tela por cima aberta: voltar só a fecha (volta ao post); avançar a fecha e
     // passa para o próximo.
     private fun sendNav(dir: String) {
-        if (!ready || player != null) return
+        if (!ready) return
         if (detached != null) {
             closeDetached()
             if (dir != "ArrowRight") return
@@ -540,7 +558,6 @@ class MainActivity : Activity() {
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (player != null && (event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0) return true
         if ((event.source and android.view.InputDevice.SOURCE_JOYSTICK) != 0 && event.action == MotionEvent.ACTION_MOVE) {
             triggerAxes(event)
             val hat = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
@@ -552,24 +569,6 @@ class MainActivity : Activity() {
             return true
         }
         return super.dispatchGenericMotionEvent(event)
-    }
-
-    /**
-     * O script lê o formato do vídeo e pede a orientação ANTES de entrar em tela cheia (girar depois fazia a página sair da tela
-     * cheia na hora): "portrait" trava em pé, "landscape" trava deitado (o sensor ainda vira de cabeça para baixo), "auto" volta
-     * a seguir o celular.
-     */
-    private var wantedOrientation = "auto"
-
-    private fun setOrientation(v: String) {
-        wantedOrientation = if (v.contains("portrait")) "portrait" else if (v.contains("landscape")) "landscape" else "auto"
-        // Se a tela cheia não abrir em 6 s, a trava de orientação é solta (não deixar o celular preso em pé ou deitado).
-        if (wantedOrientation != "auto") ui.postDelayed({ if (customView == null && wantedOrientation != "auto") setOrientation("auto") }, 6000)
-        requestedOrientation = when {
-            v.contains("portrait") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            v.contains("landscape") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
     }
 
     /** Tela cheia de vídeo cobre tudo, inclusive a barra de status (hora, bateria) e o recorte da câmera; ao sair, volta ao normal. */
@@ -603,7 +602,7 @@ class MainActivity : Activity() {
         window.statusBarColor = bg
         window.navigationBarColor = bg
         if (android.os.Build.VERSION.SDK_INT >= 28) window.navigationBarDividerColor = bg
-        if (customView == null && player == null) window.decorView.systemUiVisibility = barFlags()
+        if (customView == null) window.decorView.systemUiVisibility = barFlags()
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -611,28 +610,9 @@ class MainActivity : Activity() {
         applySystemBars()
     }
 
-    // Botão X: com o player aberto, fecha; senão pede ao script para abrir o vídeo mais visível no player (sem vídeo na tela,
-    // manda Alt+seta para cima: o script abre a foto).
-    private fun toggleVideoFullscreen() {
-        if (player != null) { player?.close(); return }
-        if (customView != null) {
-            customOwner?.evaluateJavascript("document.exitFullscreen&&document.exitFullscreen()", null)
-            return
-        }
-        val w = top() ?: return
-        w.evaluateJavascript("(window.nxPlayVisible?window.nxPlayVisible():false)") { raw ->
-            if (raw?.trim() != "true")
-                w.evaluateJavascript("window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true,cancelable:true}))", null)
-        }
-    }
-
     // Controle (gamepad): A e R2 avançam, B e L2 voltam um post. O script já atende Alt+seta direita/esquerda; o app só manda
     // essa tecla para a página. Consome o botão (descer e subir) para o Android não tratá-lo (ex.: B como "voltar").
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        player?.let { p ->
-            if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) return super.dispatchKeyEvent(event)
-            return p.onKey(event)
-        }
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP || event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             val d = if (event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) keyDir = d
@@ -643,16 +623,7 @@ class MainActivity : Activity() {
         val dir = when (event.keyCode) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_R2 -> "ArrowRight"
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L2 -> "ArrowLeft"
-            KeyEvent.KEYCODE_BUTTON_X -> {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleVideoFullscreen()
-                return true
-            }
-            else -> {
-                // Diagnóstico: mostra o código dos botões do controle que o app não usa (para achar o que o "X" manda de fato).
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && KeyEvent.isGamepadButton(event.keyCode))
-                    Toast.makeText(this, "Botão: " + KeyEvent.keyCodeToString(event.keyCode), Toast.LENGTH_SHORT).show()
-                return super.dispatchKeyEvent(event)
-            }
+            else -> return super.dispatchKeyEvent(event)
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) sendNav(dir)
         return true
@@ -661,7 +632,6 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            player != null -> player?.close()
             customView != null -> exitFullscreenNow()
             detached != null -> detachedBack()
             // na tela da fila, voltar é navegação do script (não abre a tela por cima)
@@ -673,8 +643,11 @@ class MainActivity : Activity() {
     companion object {
         private const val HOLD_FIRST_MS = 450L
         private const val HOLD_EVERY_MS = 250L
-        private const val PRELOAD_EACH_WAY = 3
-        private const val MAX_MEDIA_SCANS = 10
-        private const val MAX_QUEUE_VIEWS = 1 + 2 * PRELOAD_EACH_WAY
+        private const val PRELOAD_FWD = 3
+        private const val PRELOAD_BACK = 1
+        private const val MAX_QUEUE_VIEWS = 1 + PRELOAD_FWD + PRELOAD_BACK
+        private const val UNLOAD_AFTER_MS = 3 * 60 * 1000L
+        // trechos de caminho dos pedidos recusados (ver isNoise)
+        private val NOISE = listOf("/jot/", "client_event", "/badge_count/", "/dm/user_updates", "/dm/inbox_initial_state", "/live_pipeline/")
     }
 }

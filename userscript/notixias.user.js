@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.19.3
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.19.3
+// @version      0.20.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.20.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -738,26 +738,6 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
-  // Diagnóstico do player (sem texto de post): botões e controles do vídeo visível, com `aria-label`, para achar o botão de
-  // tela cheia de verdade do X.
-  function playerDebug(root, win) {
-    const vv = visibleVideo(root, win);
-    if (!vv) return 'nenhum vídeo visível';
-    const v = vv.video;
-    const art = v.closest('article') || root;
-    const tag = (n) => n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '');
-    const out = ['video ' + v.videoWidth + 'x' + v.videoHeight + ' paused=' + v.paused + ' muted=' + v.muted + ' fs=' + !!(root.ownerDocument || root).fullscreenElement];
-    const chain = [];
-    for (let n = v; n && n !== art; n = n.parentElement) chain.push(tag(n));
-    out.push('cadeia: ' + chain.join(' < '));
-    const scope = v.closest('[data-testid="videoPlayer"]') || art;
-    Array.from(scope.querySelectorAll('button,[role="button"],[role="slider"],[aria-label],[data-testid]')).slice(0, 60).forEach((n) => {
-      const r = n.getBoundingClientRect();
-      out.push('  ' + tag(n) + ' aria="' + (n.getAttribute('aria-label') || '').slice(0, 60) + '" rect=' + [r.left, r.top, r.width, r.height].map(Math.round).join(',') + ' vis=' + (r.width > 0 && r.height > 0));
-    });
-    return out.join('\n');
-  }
-
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -961,75 +941,10 @@ const Xdom = (function () {
   // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
   const VIEWER_RE = /\/mediaViewer\b|\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
 
-  function leaveFullscreen(video, win) {
-    const doc = win.document;
-    let did = false;
-    try {
-      if (video.webkitDisplayingFullscreen && typeof video.webkitExitFullscreen === 'function') {
-        video.webkitExitFullscreen();
-        did = true;
-      }
-    } catch (e) { /* segue */ }
-    try {
-      if (video.webkitPresentationMode === 'fullscreen' && typeof video.webkitSetPresentationMode === 'function') {
-        video.webkitSetPresentationMode('inline');
-        did = true;
-      }
-    } catch (e) { /* segue */ }
-    try {
-      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-        const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
-        if (typeof exit === 'function') {
-          const p = exit.call(doc);
-          if (p && typeof p.catch === 'function') p.catch(() => {});
-          did = true;
-        }
-      }
-    } catch (e) { /* segue */ }
-    // O visualizador do X (`/usuario/status/ID/mediaViewer`) tem um botão de voltar por vídeo (`immersive-tweet-back-button-ID`):
-    // apertá-lo é o mesmo que o toque do dono.
-    if (!did) {
-      try {
-        const cell = video.closest && video.closest('[data-testid^="cellInnerDiv-tweet-"]');
-        const back = (cell && cell.querySelector('[data-testid^="immersive-tweet-back-button"]')) ||
-          (doc.querySelector && doc.querySelector('[data-testid^="immersive-tweet-back-button"]'));
-        if (back) {
-          back.click();
-          did = true;
-        }
-      } catch (e) { /* segue */ }
-    }
-    if (!did && win.location && VIEWER_RE.test(win.location.pathname) && win.history) {
-      win.history.back();
-      did = true;
-    }
-    return did;
-  }
-
-  // Fim de um vídeo (evento `ended`, interceptado em `window` antes de qualquer ouvinte do X):
-  //  - `blockOn()`: o X não vê o fim, então não pula para o próximo vídeo; o vídeo só pausa no último quadro;
-  //  - `leaveOn()`: sai da tela cheia (ver `leaveFullscreen`).
-  // Ambos ligam/desligam sem remover o ouvinte. Devolve a função que o remove.
-  function blockEndedAdvance(win, blockOn, leaveOn, onEnded) {
-    const handler = (e) => {
-      const v = e.target;
-      if (!v || v.tagName !== 'VIDEO') return;
-      const block = !!(blockOn && blockOn());
-      const leave = !!(leaveOn && leaveOn());
-      if (block) {
-        e.stopImmediatePropagation();
-        try { v.pause(); } catch (err) { /* já parado */ }
-      }
-      let left = false;
-      if (leave) left = leaveFullscreen(v, win);
-      if (onEnded) {
-        try { onEnded(v, { block, leave, left }); } catch (err) { /* o aviso é só informativo */ }
-      }
-    };
-    win.addEventListener('ended', handler, true);
-    return () => win.removeEventListener('ended', handler, true);
-  }
-
+  // Legendas (closed caption) desligadas por padrão: desliga as faixas de texto do <video> e aperta, UMA vez por botão, o
+  // "Desativar legendas" do player do X (o aria-label muda para "Ativar..." depois; se o dono ligar de novo, respeita).
+  const CAPTION_OFF_RE = /(desativ|desligar|ocultar|esconder|turn off|hide|disable).{0,24}(legenda|caption|subtitle)/i;
+  const capDone = typeof WeakSet !== 'undefined' ? new WeakSet() : { has: () => false, add: () => {} };
   // O vídeo está em TELA CHEIA agora? Qualquer um dos jeitos: tela cheia comum (`fullscreenElement`), player nativo do iPhone
   // (`webkitDisplayingFullscreen`) ou o visualizador de vídeo do X (rota `/mediaViewer`... ou os elementos `immersive-*`).
   function videoFullscreenActive(root, win) {
@@ -1040,10 +955,6 @@ const Xdom = (function () {
     return !!root.querySelector('[data-testid^="immersive-"]');
   }
 
-  // Legendas (closed caption) desligadas por padrão: desliga as faixas de texto do <video> e aperta, UMA vez por botão, o
-  // "Desativar legendas" do player do X (o aria-label muda para "Ativar..." depois; se o dono ligar de novo, respeita).
-  const CAPTION_OFF_RE = /(desativ|desligar|ocultar|esconder|turn off|hide|disable).{0,24}(legenda|caption|subtitle)/i;
-  const capDone = typeof WeakSet !== 'undefined' ? new WeakSet() : { has: () => false, add: () => {} };
   function disableCaptions(root) {
     let did = false;
     for (const v of root.querySelectorAll('video')) {
@@ -1056,38 +967,6 @@ const Xdom = (function () {
       did = true;
     }
     return did;
-  }
-
-  // Um vídeo está TOCANDO em tela cheia? (o app do Android só mantém a tela do celular acesa nesse caso)
-  function fullscreenVideoPlaying(root, win) {
-    if (!videoFullscreenActive(root, win)) return false;
-    for (const v of root.querySelectorAll('video')) if (!v.paused && !v.ended && v.readyState >= 2) return true;
-    return false;
-  }
-
-  // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
-  // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
-  // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
-  function watchVideoLoop(win, opts) {
-    const doc = win.document;
-    const arm = (e) => {
-      const v = e.target;
-      if (v && v.tagName === 'VIDEO' && opts.loopOn()) {
-        try { if (!v.loop) v.loop = true; } catch (err) { /* segue */ }
-      }
-    };
-    const tick = (e) => {
-      const v = e.target;
-      if (!v || v.tagName !== 'VIDEO' || !opts.loopOn()) return;
-      const d = v.duration;
-      if (!isFinite(d) || d <= 0) return;
-      const t = v.currentTime;
-      const last = v.__nxLastT;
-      v.__nxLastT = t;
-      if (last !== undefined && last > d * 0.85 && t < d * 0.15) opts.onLoop(v);
-    };
-    for (const ev of ['play', 'playing', 'loadedmetadata']) doc.addEventListener(ev, arm, true);
-    doc.addEventListener('timeupdate', tick, true);
   }
 
   // ---- vídeo na tela ----
@@ -1109,61 +988,10 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
-  // Abre a foto mais visível no visualizador de fotos do X (botão X do controle, quando não há vídeo na tela).
-  // `go(caminho)` navega internamente. Devolve 'photo' ou null.
-  function openMediaFullscreen(root, win, go) {
-    let best = null;
-    for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
-      const r = ph.getBoundingClientRect();
-      if (!r.width || !r.height) continue;
-      const w = Math.max(0, Math.min(r.right, win.innerWidth) - Math.max(r.left, 0));
-      const h = Math.max(0, Math.min(r.bottom, win.innerHeight) - Math.max(r.top, 0));
-      const share = (w * h) / (r.width * r.height);
-      if (share >= 0.3 && (!best || w * h > best.area)) best = { el: ph, area: w * h };
-    }
-    const a = best && (best.el.closest('a[href*="/photo/"]') || best.el.querySelector('a[href*="/photo/"]'));
-    if (!a) return null;
-    go(a.getAttribute('href'));
-    return 'photo';
-  }
-
   // Botão "Tela cheia" do player do vídeo visível (achado pelo diagnóstico: `button` com aria-label "Tela cheia", dentro de
   // `videoPlayer`). Devolve o centro dele (px do CSS) e se o vídeo é retrato; sem o botão na tela, só o formato.
   const FS_BUTTON_RE = /(tela cheia|full ?screen)/i;
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
-  // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
-  // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
-  // `video` (opcional): o vídeo tocado; sem ele (ou fora da página), o mais visível.
-  function fullscreenButton(root, win, video) {
-    let v = video && video.isConnected ? video : null;
-    if (!v) { const vv = visibleVideo(root, win); v = vv && vv.video; }
-    if (!v) return null;
-    const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
-    let button = null;
-    for (const b of scope.querySelectorAll('button, [role="button"]')) {
-      const label = b.getAttribute('aria-label') || '';
-      if (FS_BUTTON_RE.test(label) && !FS_EXIT_RE.test(label)) { button = b; break; }
-    }
-    // Formato: pelo tamanho real do vídeo; sem ele ainda (não carregou), pela caixa na tela.
-    const rb = v.getBoundingClientRect();
-    const portrait = v.videoWidth > 0 ? v.videoHeight > v.videoWidth : (rb.width > 0 ? rb.height > rb.width : null);
-    return { button, video: v, portrait };
-  }
-
-  function fullscreenButtonPoint(root, win) {
-    const f = fullscreenButton(root, win);
-    if (!f) return null;
-    const out = { portrait: f.portrait };
-    if (f.button) {
-      const r = f.button.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < win.innerWidth && r.top < win.innerHeight) {
-        out.x = Math.round((Math.max(r.left, 0) + Math.min(r.right, win.innerWidth)) / 2);
-        out.y = Math.round((Math.max(r.top, 0) + Math.min(r.bottom, win.innerHeight)) / 2);
-      }
-    }
-    return out;
-  }
-
   // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
   // escolher 1x depois de outra velocidade tem de devolver o vídeo ao normal, e o padrão (1x, nunca mexido) deixa o X
   // em paz. O navegador pode recusar velocidades baixas demais (o iOS limita): então o vídeo segue como estava.
@@ -1318,7 +1146,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButton, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, videoFullscreenActive, disableCaptions, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;
@@ -2305,7 +2133,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.19.3'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.20.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -2318,9 +2146,6 @@ async function startApp() {
     landscapeLayout: true, // tela deitada: texto à esquerda e mídia à direita
     captionsOff: true, // legendas (closed caption) desligadas por padrão nos vídeos
     loopVideos: true, // o vídeo repete ao terminar (e assim o X nunca avança sozinho para o próximo)
-    resetSpeedOnEnd: true, // ao terminar, o vídeo volta a 1x
-    exitFullscreenOnEnd: false, // ao terminar (a cada volta do loop), o vídeo sai da tela cheia; desligado: o loop segue em tela cheia
-    noVideoAdvance: true, // o vídeo nunca avança sozinho para o próximo ao terminar (o X no celular não tem o botão do app)
     videoSpeed: 1, // velocidade dos vídeos (botão sobre o vídeo; o X no celular não tem controle)
     bot: false, // robô do servidor (navegador sem tela): só busca novas, nunca abre/lê entradas nem mexe na posição
   };
@@ -2462,24 +2287,33 @@ async function startApp() {
   };
   const setPhase = (name, extra) => gm.set('nx_phase', Object.assign({ name, at: Date.now() }, extra || {}));
 
+  // Página escondida (tela de trás já pronta, ou o app fora de foco): os laços do script não fazem nada. Ao voltar a aparecer, tudo
+  // é reaplicado na hora. O robô (navegador sem tela) nunca dorme.
+  const asleep = () => !cfg.bot && document.hidden;
+
   // ---------- barra do X escondida ----------
   function applyXBar() {
+    if (asleep()) return;
     try { Xdom.setBottomBarsHidden(document, window, cfg.hideXBar); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyXBar, 1500);
   function applyLandscape() {
-    if (cfg.bot) return;
+    if (cfg.bot || asleep()) return;
     try { Xdom.setLandscapeLayout(document, window, cfg.landscapeLayout); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyLandscape, 700);
 
   // "· 35 h" ao lado do nome, nas páginas de post (o horário próprio do X nessa linha é escondido).
   function applyAges() {
-    if (cfg.bot || !Core.parseStatusPath(location.pathname)) return;
+    if (cfg.bot || asleep() || !Core.parseStatusPath(location.pathname)) return;
     try { Xdom.setHeaderStatic(document, window); } catch (e) { /* melhor esforço */ }
     try { Xdom.setAges(document, window); } catch (e) { /* melhor esforço */ }
   }
   setInterval(applyAges, 1500);
+  document.addEventListener('visibilitychange', () => {
+    if (asleep()) return;
+    applyXBar(); applyLandscape(); applyAges(); syncLabels();
+  });
 
   // Velocidade do vídeo: botão dentro do player (rola junto com o vídeo) que só aparece com os controles do X visíveis;
   // o toque abre um menu de 0,1x a 3x. Só mexe no vídeo quando a escolhida não é 1x.
@@ -2488,7 +2322,7 @@ async function startApp() {
   const speedTouched = new WeakSet(); // vídeos cuja velocidade o script já alterou
   window.addEventListener('scroll', () => { scrollingUntil = Date.now() + 300; }, true);
   function applySpeed() {
-    if (cfg.bot || inApp) return;
+    if (cfg.bot || asleep()) return;
     let v = null;
     try { v = Xdom.visibleVideo(document, window); } catch (e) { /* melhor esforço */ }
     if (!v || (!v.component && Date.now() < scrollingUntil)) { ui.hideSpeed(); return; }
@@ -2505,56 +2339,17 @@ async function startApp() {
     });
   }
   setInterval(applySpeed, 300);
-  // Vídeo em tela cheia: a barra inferior do notiXias some (ficava na frente do vídeo) e volta quando ele sai da tela cheia.
-  if (!cfg.bot) setInterval(() => { try { ui.setBarHidden(Xdom.videoFullscreenActive(document, window)); } catch (e) { /* melhor esforço */ } }, 300);
-  // Legendas desligadas por padrão e, para o app do Android, aviso de "vídeo tocando em tela cheia" (só então a tela fica acesa).
-  if (!cfg.bot && !inApp) {
-    let awake = false;
-    setInterval(() => {
-      try {
-        if (cfg.captionsOff) Xdom.disableCaptions(document);
-        const now = Xdom.fullscreenVideoPlaying(document, window);
-        if (now !== awake) { awake = now; gm.set('nx_awake', now); }
-      } catch (e) { /* melhor esforço */ }
-    }, 600);
+  // Legendas desligadas e loop: só quando um vídeo carrega/começa (sem laço). O X recria o vídeo e devolve a velocidade a 1x ao
+  // (re)começar: reaplica na hora, sem esperar o intervalo.
+  if (!cfg.bot) {
+    for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, (e) => {
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO') return;
+      try { if (cfg.captionsOff) Xdom.disableCaptions(document); } catch (err) { /* melhor esforço */ }
+      try { if (cfg.loopVideos && !v.loop) v.loop = true; } catch (err) { /* melhor esforço */ }
+      applySpeed();
+    }, true);
   }
-  // Fim de um vídeo: o X não pula sozinho para o próximo (interceptado em `window`, antes do player). Liga/desliga no menu.
-  // Ao terminar: volta a 1x (a escolha de velocidade vale para UM vídeo) e, se pediu para sair da tela cheia e nada
-  // conseguiu sair, manda para a API (esqueleto, sem texto de posts) o que a página era, para eu ajustar a regra.
-  let lastVideoDiagAt = 0;
-  const onVideoEnded = (v, r) => {
-    if (cfg.resetSpeedOnEnd && (cfg.videoSpeed || 1) !== 1) {
-      cfg.videoSpeed = 1;
-      saveCfg();
-      try { v.playbackRate = 1; } catch (e) { /* segue */ }
-    }
-    if (r.leave && !r.left && Date.now() - lastVideoDiagAt > 15000 && document.querySelector('[data-testid^="immersive-"]')) {
-      lastVideoDiagAt = Date.now();
-      const fs = document.fullscreenElement || document.webkitFullscreenElement;
-      const diag = {
-        path: location.pathname, search: location.search.slice(0, 60), histLen: history.length,
-        fullscreenEl: fs ? fs.tagName : null, vFS: !!v.webkitDisplayingFullscreen, vMode: v.webkitPresentationMode || null,
-        inPrimaryColumn: !!v.closest('[data-testid="primaryColumn"]'), loop: !!v.loop,
-        testids: Array.from(new Set(Array.from(document.querySelectorAll('[data-testid]')).map((e) => e.getAttribute('data-testid')))).slice(0, 40),
-      };
-      api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: JSON.stringify(diag).slice(0, 4000), note: 'video terminou sem sair da tela cheia' }).catch(() => {});
-    }
-  };
-  if (!cfg.bot && !inApp) {
-    Xdom.blockEndedAdvance(window, () => !!cfg.noVideoAdvance, () => !!cfg.exitFullscreenOnEnd, onVideoEnded);
-    // Loop: o vídeo repete e o fim "de verdade" nunca chega ao X. A cada volta ao começo: volta a 1x e, se pediu, fecha a tela
-    // do vídeo apertando o botão voltar dela.
-    Xdom.watchVideoLoop(window, {
-      loopOn: () => !!cfg.loopVideos,
-      onLoop: (v) => {
-        const leave = !!cfg.exitFullscreenOnEnd;
-        const left = leave ? Xdom.leaveFullscreen(v, window) : false;
-        onVideoEnded(v, { block: true, leave, left });
-      },
-    });
-  }
-  // O X recria o vídeo e devolve a velocidade a 1x ao (re)começar: reaplica na hora, sem esperar o intervalo.
-  for (const ev of ['play', 'loadedmetadata']) document.addEventListener(ev, () => { applySpeed(); }, true);
 
   // ---------- etiquetas dentro da página ----------
   let labelModel = null;
@@ -2576,7 +2371,7 @@ async function startApp() {
   }
   // O X redesenha posts o tempo todo; reinserimos as etiquetas quando sumirem (sync é idempotente).
   new MutationObserver(() => {
-    if (labelTimer || !labelModel) return;
+    if (labelTimer || !labelModel || asleep()) return;
     labelTimer = setTimeout(() => { labelTimer = null; syncLabels(); }, 200);
   }).observe(document.documentElement, { childList: true, subtree: true });
 
@@ -2684,10 +2479,6 @@ async function startApp() {
       { label: 'Copiar esqueleto da última falha', onClick: copySkeleton },
       { label: 'Configurar API…', onClick: () => promptConfig() },
       { label: 'Retomar automaticamente: ' + (cfg.autoResume ? 'sim' : 'não'), onClick: () => { cfg.autoResume = !cfg.autoResume; saveCfg(); drawBar(); } },
-      { label: 'Enviar diagnóstico do player', onClick: () => {
-          api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: Xdom.playerDebug(document, window).slice(0, 20000), note: ('diagnóstico do player de vídeo; v' + NX_VERSION).slice(0, 500) })
-            .then(() => ui.toast('Diagnóstico do player enviado'), () => ui.toast('Falha ao enviar o diagnóstico'));
-        } },
       { label: 'Enviar diagnóstico do layout', onClick: () => {
           const arts = Xdom.articles ? Xdom.articles(document) : [];
           const sk = (arts.slice(0, 3).map((a) => Xdom.skeleton(a))).join('\n----\n') || Xdom.skeleton(document.querySelector('main') || document.body);
@@ -2698,14 +2489,10 @@ async function startApp() {
       { label: 'Tela deitada em duas colunas: ' + (cfg.landscapeLayout ? 'sim' : 'não'), onClick: () => { cfg.landscapeLayout = !cfg.landscapeLayout; saveCfg(); applyLandscape(); drawBar(); } },
       { label: 'Legendas desligadas por padrão: ' + (cfg.captionsOff ? 'sim' : 'não'), onClick: () => { cfg.captionsOff = !cfg.captionsOff; saveCfg(); drawBar(); } },
       { label: 'Repetir vídeo (loop): ' + (cfg.loopVideos ? 'sim' : 'não'), onClick: () => { cfg.loopVideos = !cfg.loopVideos; saveCfg(); drawBar(); } },
-      { label: 'Voltar a 1x ao terminar: ' + (cfg.resetSpeedOnEnd ? 'sim' : 'não'), onClick: () => { cfg.resetSpeedOnEnd = !cfg.resetSpeedOnEnd; saveCfg(); drawBar(); } },
-      { label: 'Sair da tela cheia ao terminar: ' + (cfg.exitFullscreenOnEnd ? 'sim' : 'não'), onClick: () => { cfg.exitFullscreenOnEnd = !cfg.exitFullscreenOnEnd; saveCfg(); drawBar(); } },
-      { label: 'Vídeo avança sozinho: ' + (cfg.noVideoAdvance ? 'não' : 'sim'), onClick: () => { cfg.noVideoAdvance = !cfg.noVideoAdvance; saveCfg(); drawBar(); } },
       { label: 'Navegação interna: ' + (cfg.internalNav ? 'sim' : 'não'), onClick: () => { cfg.internalNav = !cfg.internalNav; saveCfg(); drawBar(); } },
       { label: 'notiXias versão ' + NX_VERSION, onClick: () => {} },
     ];
-    // No app o vídeo toca no player do app: os ajustes do vídeo do X não existem lá.
-    return inApp ? items.filter((i) => !/^(Enviar diagnóstico do player|Legendas|Repetir vídeo|Voltar a 1x|Sair da tela cheia|Vídeo avança)/.test(i.label)) : items;
+    return items;
   }
 
   const NAV_ITEMS = () => [
@@ -2992,8 +2779,8 @@ async function startApp() {
   async function publishNeighbors(cur) {
     if (appRole !== 'active' || !cur) return;
     try {
-      // Até 4 de cada lado (o app abre 3 de cada lado; o 4º só entra na conta de "o que já carregou" ao trocar de tela).
-      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 4 }), api.queue({ before: cur.seq, limit: 4 })]);
+      // Até 4 seguintes (o app abre 3; o 4º só entra na conta de "o que já carregou" ao trocar de tela) e 1 anterior.
+      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 4 }), api.queue({ before: cur.seq, limit: 1 })]);
       if (appRole !== 'active' || !curEntry || curEntry.seq !== cur.seq) return;
       neighbors = { cur: cur.seq, next: n.items, prev: p.items };
       await appCall('nx_neighbors', { cur, next: n.items, prev: p.items });
@@ -3021,19 +2808,18 @@ async function startApp() {
 
   // ---- tela de trás: abre o post sem falar com a API nem mexer na posição, com os vídeos parados ----
   const heldVideos = new Set();
-  let holdIv = null;
+  // Tela de trás: vídeo nenhum toca (nem o automático do X). Sem laço: pausa os que já tocam e cada um que começar a tocar.
+  let holdOn = false;
+  const holdOne = (v) => { if (!v.paused) { try { v.pause(); heldVideos.add(v); } catch (e) { /* segue */ } } };
+  document.addEventListener('play', (e) => { if (holdOn && e.target && e.target.tagName === 'VIDEO') holdOne(e.target); }, true);
   function holdVideos(on) {
     if (on) {
-      if (holdIv) return;
-      const tick = () => document.querySelectorAll('video').forEach((v) => {
-        if (!v.paused) { try { v.pause(); heldVideos.add(v); } catch (e) { /* segue */ } }
-      });
-      tick();
-      holdIv = setInterval(tick, 300);
+      if (holdOn) return;
+      holdOn = true;
+      document.querySelectorAll('video').forEach(holdOne);
       return;
     }
-    clearInterval(holdIv);
-    holdIv = null;
+    holdOn = false;
     // Volta a tocar (como o X faria) os vídeos que paramos e que estão na tela.
     heldVideos.forEach((v) => {
       try {
@@ -3171,7 +2957,7 @@ async function startApp() {
     appRole = a.role;
   };
   // Tela de trás: o X rola sozinho até o post (também quando a página termina de carregar mídia); mantém no topo.
-  setInterval(() => { if (appRole === 'standby' && window.scrollY > 0) window.scrollTo(0, 0); }, 700);
+  window.addEventListener('scroll', () => { if (appRole === 'standby' && window.scrollY > 0) window.scrollTo(0, 0); }, { passive: true });
   // Voltar do Android na tela da fila: é navegação nossa (não abre a tela por cima).
   window.nxBack = () => { selfNavAt = Date.now(); history.back(); };
 
@@ -3815,7 +3601,6 @@ async function startApp() {
       ui.hideLoading();
       return;
     }
-    if (!cfg.bot && !inApp && /\/status\/\d+\/(?:video|mediaViewer)/i.test(location.pathname)) setTimeout(() => sendPlayerDiag('visualizador de vídeo aberto'), 2500);
     const fromPath = prevPath;
     prevPath = location.pathname;
     setLabels(null);
@@ -3883,6 +3668,7 @@ async function startApp() {
 
   // Detecta mudança de rota do SPA por polling (independe de eventos internos do X).
   setInterval(() => {
+    if (asleep()) return;
     if (location.href !== lastHref) {
       let fromPath = '';
       try { fromPath = new URL(lastHref).pathname; } catch (e) { /* primeira vez */ }
@@ -3929,238 +3715,10 @@ async function startApp() {
     appCall('nx_detach', { url: u.href });
   }, true);
 
-  // Diagnóstico do player (botões com aria-label, sem texto de post), no máximo a cada 20 s: mandado quando o toque no vídeo não
-  // acha o botão "Tela cheia" (modo retrato) e quando o X abre o visualizador de vídeo (rota /video/N).
-  let lastPlayerDiagAt = 0;
-  function sendPlayerDiag(why) {
-    if (cfg.bot || Date.now() - lastPlayerDiagAt < 20000) return;
-    lastPlayerDiagAt = Date.now();
-    try {
-      api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: ('inner=' + window.innerWidth + 'x' + window.innerHeight + '\n' + Xdom.playerDebug(document, window)).slice(0, 20000), note: ('diagnóstico do player: ' + why + ' v' + NX_VERSION).slice(0, 500) }).catch(() => {});
-    } catch (e) { /* melhor esforço */ }
-  }
-
-  // Tocar no vídeo (fora dos controles) faz o MESMO que o botão X do controle: aperta o botão "Tela cheia" do player, antes
-  // girando a tela (pelo app) para a posição do vídeo. O toque do dono é um gesto real, e o gesto vale por alguns segundos, então
-  // dá para esperar a tela girar. Em tela cheia, o toque é do X.
-  // O elemento em tela cheia tem de incluir os controles do player (pausar, som), que ficam fora do `<video>`: sobe até o primeiro
-  // ancestral que os contém (no máximo o `videoPlayer`/post).
-  function fullscreenTarget(video) {
-    const ctrl = '[data-testid="mute-button"],[data-testid="scrubber"],[data-testid^="video-player-mini-ui"]';
-    let el = video;
-    while (el.parentElement && !el.querySelector(ctrl) && !el.matches('article')) el = el.parentElement;
-    if (el.matches('article') || el === video.ownerDocument.body) el = video.closest('[data-testid="videoPlayer"]') || video.closest('[data-testid="videoComponent"]') || video;
-    return el;
-  }
-
-  // O toque no botão "sair da tela cheia" do X sai da tela cheia ao SOLTAR o dedo, e o "click" que vem logo depois cai no vídeo já
-  // em tamanho normal: o nosso tratamento de clique o via como um toque novo e voltava à tela cheia (daí a tela preta). Clique
-  // até 800 ms depois de sair da tela cheia é engolido.
-  let fsExitAt = 0;
-  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) fsExitAt = Date.now(); });
-
-  // Tela cheia pedida POR NÓS (retrato: o player reduzido do X não tem botão de tela cheia). Nela o X mostra o botão de sair, mas
-  // o X não sabe que está em tela cheia (não foi ele que pediu): o botão dele, tocado com o dedo, brigava com a saída (tela
-  // preta), enquanto o `exitFullscreen` do botão X do controle funciona. Então, nesse caso, o toque no botão de tela cheia/sair do
-  // X é desviado para o MESMO `document.exitFullscreen()` do controle, e o X não recebe o toque.
-  let ownFs = false;
-  const fsLog = [];
-  const fsNote = (m) => { fsLog.push(Math.round(performance.now()) + ' ' + m); if (fsLog.length > 40) fsLog.shift(); };
-  document.addEventListener('fullscreenchange', () => {
-    const el = document.fullscreenElement;
-    fsNote('fullscreenchange ' + (el ? el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : '') : 'saiu') + ' own=' + ownFs);
-    if (!el && ownFs) {
-      ownFs = false;
-      const lines = fsLog.splice(0).join('\n');
-      setTimeout(() => {
-        try { api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: lines.slice(0, 8000), note: ('tela cheia nossa: saída v' + NX_VERSION).slice(0, 500) }).catch(() => {}); } catch (e) { /* melhor esforço */ }
-      }, 1500);
-    }
-  });
-  const FS_LABEL_RE = /(tela cheia|full ?screen)/i;
-  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'click'].forEach((type) => window.addEventListener(type, (e) => {
-    if (!ownFs || !document.fullscreenElement) return;
-    const t = e.target;
-    const b = t && t.closest && t.closest('button,[role="button"]');
-    if (type === 'click') fsNote('click em ' + (b ? 'botão "' + (b.getAttribute('aria-label') || '') + '"' : (t && t.tagName ? t.tagName.toLowerCase() : '?')));
-    if (!b || !FS_LABEL_RE.test(b.getAttribute('aria-label') || '')) return;
-    e.stopImmediatePropagation();
-    e.stopPropagation();
-    if (type === 'click') {
-      e.preventDefault();
-      fsNote('desviado para exitFullscreen');
-      if (document.exitFullscreen) document.exitFullscreen().catch((err) => fsNote('exitFullscreen falhou: ' + (err && err.message)));
-    }
-  }, true));
-
-  let pointerState = null;
-  ['pointerdown', 'touchstart'].forEach((ev) => window.addEventListener(ev, (e) => {
-    const t = e.target;
-    const vp = t && t.closest && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
-    const v = vp && vp.querySelector('video');
-    if (v) pointerState = { video: v, paused: v.paused, muted: v.muted, at: Date.now() };
-  }, true));
-
-  window.addEventListener('click', (e) => {
-    if (cfg.bot || inApp) return; // no app, o toque no vídeo abre o player do app (abaixo)
-    const t = e.target;
-    if (!t || !t.closest || Xdom.videoFullscreenActive(document, window)) return;
-    if (Date.now() - fsExitAt < 800 && t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]')) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); return; }
-    const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
-    if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
-    // O vídeo TOCADO (não "o mais visível"), e o post dele: ao girar a tela o X redesenha tudo e o vídeo é outro elemento.
-    const v0 = vp.querySelector('video');
-    if (!v0) return;
-    const art0 = v0.closest('article');
-    const p0 = art0 && Xdom.parseArticle(art0);
-    const id0 = p0 && p0.id;
-    const findVideo = () => {
-      if (v0.isConnected) return v0;
-      if (id0) {
-        for (const a of Xdom.articles(document)) {
-          const p = Xdom.parseArticle(a);
-          const v = p && p.id === id0 && a.querySelector('video');
-          if (v) return v;
-        }
-      }
-      const vv = Xdom.visibleVideo(document, window);
-      return vv && vv.video;
-    };
-    const f0 = Xdom.fullscreenButton(document, window, v0);
-    if (!f0) return;
-    // Com o botão "Tela cheia" do X na página (paisagem), ele é apertado. Em retrato o X desenha só a "mini UI" (pausar e som), sem
-    // esse botão, e o toque abriria o visualizador do X (que não é tela cheia): aí pedimos a tela cheia ao próprio player.
-    const mini = !f0.button && (window.innerWidth < 600 || !!vp.querySelector('[data-testid^="video-player-mini-ui"]'));
-    if (!f0.button && !mini) sendPlayerDiag('toque no vídeo sem botão "Tela cheia"');
-    if (f0.button || mini) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
-    const before = pointerState && pointerState.video === v0 && Date.now() - pointerState.at < 4000 ? pointerState : { paused: v0.paused, muted: v0.muted };
-    // Tudo tem de acontecer dentro do gesto do toque (o navegador o aceita por ~5 s): as tentativas param em 4,5 s.
-    const deadline = Date.now() + 4500;
-    let attempts = 0;
-    let lastErr = null;
-    const giveUp = (msg) => { gm.set('nx_orient', 'auto'); ui.toast(msg, { tone: 'warn', ms: 4000 }); };
-    const restore = (v) => [150, 500, 1200].forEach((ms) => setTimeout(() => {
-      try {
-        // O toque no vídeo faz o X pausar/religar o som; devolve o estado de antes.
-        if (!before.paused && v.paused) v.play().catch(() => {});
-        if (v.muted !== before.muted) v.muted = before.muted;
-      } catch (err) { /* melhor esforço */ }
-    }, ms));
-    const inFs = () => !!document.fullscreenElement || Xdom.videoFullscreenActive(document, window);
-    const press = () => {
-      if (inFs()) return;
-      const v = findVideo();
-      const g = v && Xdom.fullscreenButton(document, window, v);
-      // O X ainda está redesenhando (depois de girar): espera o vídeo voltar, em vez de desistir de cara.
-      if (!g || (!g.button && !mini)) {
-        if (Date.now() < deadline) { setTimeout(press, 150); return; }
-        return giveUp('Vídeo não encontrado para a tela cheia');
-      }
-      attempts++;
-      if (g.button) g.button.click();
-      else {
-        // Sem botão (retrato): tela cheia pedida ao elemento que inclui os controles do player (pausar/som), não só ao <video>.
-        const el = fullscreenTarget(g.video);
-        const req = el.requestFullscreen || el.webkitRequestFullscreen;
-        try {
-          fsNote('pedindo tela cheia (nossa) em ' + el.tagName.toLowerCase() + (el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : ''));
-          const r = req && req.call(el);
-          if (r && r.then) r.then(() => { ownFs = true; fsNote('entrou (nossa)'); }, (err) => { lastErr = err; fsNote('recusada: ' + (err && err.message)); });
-        } catch (err) { lastErr = err; }
-      }
-      restore(g.video);
-      // Conferência: se em 1 s não estiver em tela cheia (o X redesenhou o player no meio, ou o pedido foi recusado), tenta de novo
-      // enquanto o gesto do toque vale.
-      setTimeout(() => {
-        if (inFs()) return;
-        const active = !navigator.userActivation || navigator.userActivation.isActive;
-        if (attempts < 4 && Date.now() < deadline && active) return press();
-        giveUp('Tela cheia não abriu' + (lastErr && lastErr.message ? ': ' + lastErr.message : '') + '. Toque de novo.');
-      }, 1000);
-    };
-    // Orientação do vídeo (em pé x deitado) pedida ao app SEMPRE antes (o X tenta travar em deitado ao entrar em tela cheia). Se a
-    // tela precisa girar, espera ela estar na orientação pedida E o tamanho parar de mudar por 300 ms (o X termina de redesenhar).
-    const start = () => {
-      const g = Xdom.fullscreenButton(document, window, findVideo() || v0) || f0;
-      const want = g.portrait;
-      if (want !== null) gm.set('nx_orient', want ? 'portrait' : 'landscape');
-      if (want === null || want === (window.innerHeight > window.innerWidth)) return press();
-      let last = '';
-      let same = 0;
-      const iv = setInterval(() => {
-        const size = window.innerWidth + 'x' + window.innerHeight;
-        same = size === last ? same + 1 : 0;
-        last = size;
-        const ok = (window.innerHeight > window.innerWidth) === want;
-        if ((ok && same >= 3) || Date.now() > deadline - 1500) { clearInterval(iv); press(); }
-      }, 100);
-    };
-    if (f0.button || mini) return start();
-    let tries = 0;
-    const iv = setInterval(() => {
-      const g = Xdom.fullscreenButton(document, window, findVideo() || v0);
-      if ((g && g.button) || ++tries > 15) { clearInterval(iv); if (g && g.button) start(); }
-    }, 100);
-  }, true);
-
-  // ---------- player do app ----------
-  // Tocar no vídeo (ou o botão X do controle) abre o player do app com o arquivo do vídeo: o app lê o formato, gira a tela, abre
-  // mudo ou com som como o vídeo da página estava e começa de onde ele estava. Os links vêm do captador do shim (respostas da API
-  // do X). Sem link (vídeo que o X não entrega em arquivo, GIF), o toque segue o comportamento do X.
-  let playerVideo = null;
-  function openPlayerFor(v) {
-    if (!inApp || cfg.bot || !v || typeof window.__nxMediaFor !== 'function') return false;
-    const art = v.closest('article');
-    const post = art && Xdom.parseArticle(art);
-    const vids = art ? Array.from(art.querySelectorAll('video')) : [v];
-    let info = null;
-    try { info = window.__nxMediaFor(v.getAttribute('poster') || '', post && post.id, Math.max(0, vids.indexOf(v))); } catch (err) { /* sem link */ }
-    if (!info || info.type !== 'video' || !info.variants || !info.variants.length) return false;
-    try { v.pause(); } catch (err) { /* segue */ }
-    playerVideo = v;
-    appCall('nx_player', { variants: info.variants, w: info.w, h: info.h, muted: !!v.muted, time: v.currentTime || 0 });
-    return true;
-  }
-  // Ao fechar o player a tela gira de volta e o X reflui (e pode recriar o post): recoloca o POST que tem o vídeo no topo da tela
-  // (não o vídeo), algumas vezes até assentar. Acha o post de novo pelo id se o elemento antigo saiu da página.
-  window.nxPlayerClosed = () => {
-    const v = playerVideo;
-    playerVideo = null;
-    if (!v) return;
-    const art0 = v.closest('article');
-    const post = art0 && Xdom.parseArticle(art0);
-    const id = post && post.id;
-    let stop = false;
-    const off = () => { stop = true; };
-    ['wheel', 'touchstart', 'keydown'].forEach((ev) => window.addEventListener(ev, off, { once: true, passive: true }));
-    const top = () => {
-      if (stop) return;
-      let art = art0 && art0.isConnected ? art0 : null;
-      if (!art && id) art = Array.from(document.querySelectorAll('article')).find((a) => a.querySelector('a[href*="/status/' + id + '"]')) || null;
-      if (!art) return;
-      try { window.scrollTo(0, Math.max(0, art.getBoundingClientRect().top + window.scrollY)); } catch (err) { /* segue */ }
-    };
-    for (const ms of [0, 150, 400, 800, 1500, 2500]) setTimeout(top, ms);
-  };
-  window.nxPlayVisible = () => {
-    const vv = Xdom.visibleVideo(document, window);
-    return !!(vv && openPlayerFor(vv.video));
-  };
-  window.addEventListener('click', (e) => {
-    if (!inApp || cfg.bot) return;
-    const t = e.target;
-    if (!t || !t.closest) return;
-    const vp = t.closest('[data-testid="videoPlayer"],[data-testid="videoComponent"]');
-    if (!vp || t.closest('button,[role="button"],[role="slider"],[data-testid="scrubber"],[id^="notixias"]')) return;
-    const v = vp.querySelector('video');
-    if (v && openPlayerFor(v)) { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); }
-  }, true);
-
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
-    if (e.key === 'ArrowUp') { e.preventDefault(); try { Xdom.openMediaFullscreen(document, window, go); } catch (err) { /* melhor esforço */ } } // botão X do controle, sem vídeo: foto
   });
 
   // Comando pela URL (atalho do iPhone: https://x.com/home?nx=update): guarda e limpa o parâmetro.

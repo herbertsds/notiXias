@@ -12,7 +12,7 @@ import java.util.concurrent.Executors
 
 /**
  * Ponte entre a página (https://x.com) e o app: armazenamento, rede e cookies do script. As chaves de [APP_KEYS] não vão para o
- * armazenamento: são ordens para o app (tela acesa, orientação, troca de telas da fila...), atendidas por [app] com a tela
+ * armazenamento: são ordens para o app (troca de telas da fila, link por cima...), atendidas por [app] com a tela
  * (WebView) que mandou; o que [app] devolve volta para o script.
  */
 class Bridge(private val store: Store, private val net: Net, private val app: (WebView, String, String) -> Any?) : WebViewCompat.WebMessageListener {
@@ -47,12 +47,10 @@ class Bridge(private val store: Store, private val net: Net, private val app: (W
     }
 
     companion object {
-        // nx_awake: vídeo tocando em tela cheia (tela acesa); nx_orient: orientação antes da tela cheia; nx_swap: trazer para a
-        // frente a tela que já tem o post; nx_neighbors: anteriores/próximos a abrir atrás; nx_ready: esta tela terminou de abrir o
-        // post; nx_window: quantas telas da janela (esta e as 3 seguintes) ainda não carregaram;
-        // nx_player: abrir o player de vídeo do app (links, formato, som e ponto em que o vídeo da página estava); nx_detach: abrir link por cima;
+        // nx_swap: trazer para a frente a tela que já tem o post; nx_neighbors: anteriores/próximos a abrir atrás; nx_ready: esta
+        // tela terminou de abrir o post; nx_window: quantas telas da janela ainda não carregaram; nx_detach: abrir link por cima;
         // nx_back / nx_nav: fechar a tela por cima (e passar de post).
-        val APP_KEYS = setOf("nx_awake", "nx_orient", "nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_player", "nx_detach", "nx_back", "nx_nav")
+        val APP_KEYS = setOf("nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_detach", "nx_back", "nx_nav")
     }
 
     /** Cookies de x.com no formato que o script espera (name/value/domain). Inclui os HttpOnly. */

@@ -341,26 +341,6 @@ const Xdom = (function () {
     return lines.join('\n');
   }
 
-  // Diagnóstico do player (sem texto de post): botões e controles do vídeo visível, com `aria-label`, para achar o botão de
-  // tela cheia de verdade do X.
-  function playerDebug(root, win) {
-    const vv = visibleVideo(root, win);
-    if (!vv) return 'nenhum vídeo visível';
-    const v = vv.video;
-    const art = v.closest('article') || root;
-    const tag = (n) => n.tagName.toLowerCase() + (n.getAttribute('data-testid') ? '[' + n.getAttribute('data-testid') + ']' : '') + (n.getAttribute('role') ? '{' + n.getAttribute('role') + '}' : '');
-    const out = ['video ' + v.videoWidth + 'x' + v.videoHeight + ' paused=' + v.paused + ' muted=' + v.muted + ' fs=' + !!(root.ownerDocument || root).fullscreenElement];
-    const chain = [];
-    for (let n = v; n && n !== art; n = n.parentElement) chain.push(tag(n));
-    out.push('cadeia: ' + chain.join(' < '));
-    const scope = v.closest('[data-testid="videoPlayer"]') || art;
-    Array.from(scope.querySelectorAll('button,[role="button"],[role="slider"],[aria-label],[data-testid]')).slice(0, 60).forEach((n) => {
-      const r = n.getBoundingClientRect();
-      out.push('  ' + tag(n) + ' aria="' + (n.getAttribute('aria-label') || '').slice(0, 60) + '" rect=' + [r.left, r.top, r.width, r.height].map(Math.round).join(',') + ' vis=' + (r.width > 0 && r.height > 0));
-    });
-    return out.join('\n');
-  }
-
   // enabled=true: aplica se estiver deitado, em página de post e fora de tela cheia; senão desfaz. Idempotente.
   // Devolve true quando a grade de duas colunas está montada.
   function setLandscapeLayout(root, win, enabled) {
@@ -564,75 +544,10 @@ const Xdom = (function () {
   // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
   const VIEWER_RE = /\/mediaViewer\b|\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
 
-  function leaveFullscreen(video, win) {
-    const doc = win.document;
-    let did = false;
-    try {
-      if (video.webkitDisplayingFullscreen && typeof video.webkitExitFullscreen === 'function') {
-        video.webkitExitFullscreen();
-        did = true;
-      }
-    } catch (e) { /* segue */ }
-    try {
-      if (video.webkitPresentationMode === 'fullscreen' && typeof video.webkitSetPresentationMode === 'function') {
-        video.webkitSetPresentationMode('inline');
-        did = true;
-      }
-    } catch (e) { /* segue */ }
-    try {
-      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
-        const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
-        if (typeof exit === 'function') {
-          const p = exit.call(doc);
-          if (p && typeof p.catch === 'function') p.catch(() => {});
-          did = true;
-        }
-      }
-    } catch (e) { /* segue */ }
-    // O visualizador do X (`/usuario/status/ID/mediaViewer`) tem um botão de voltar por vídeo (`immersive-tweet-back-button-ID`):
-    // apertá-lo é o mesmo que o toque do dono.
-    if (!did) {
-      try {
-        const cell = video.closest && video.closest('[data-testid^="cellInnerDiv-tweet-"]');
-        const back = (cell && cell.querySelector('[data-testid^="immersive-tweet-back-button"]')) ||
-          (doc.querySelector && doc.querySelector('[data-testid^="immersive-tweet-back-button"]'));
-        if (back) {
-          back.click();
-          did = true;
-        }
-      } catch (e) { /* segue */ }
-    }
-    if (!did && win.location && VIEWER_RE.test(win.location.pathname) && win.history) {
-      win.history.back();
-      did = true;
-    }
-    return did;
-  }
-
-  // Fim de um vídeo (evento `ended`, interceptado em `window` antes de qualquer ouvinte do X):
-  //  - `blockOn()`: o X não vê o fim, então não pula para o próximo vídeo; o vídeo só pausa no último quadro;
-  //  - `leaveOn()`: sai da tela cheia (ver `leaveFullscreen`).
-  // Ambos ligam/desligam sem remover o ouvinte. Devolve a função que o remove.
-  function blockEndedAdvance(win, blockOn, leaveOn, onEnded) {
-    const handler = (e) => {
-      const v = e.target;
-      if (!v || v.tagName !== 'VIDEO') return;
-      const block = !!(blockOn && blockOn());
-      const leave = !!(leaveOn && leaveOn());
-      if (block) {
-        e.stopImmediatePropagation();
-        try { v.pause(); } catch (err) { /* já parado */ }
-      }
-      let left = false;
-      if (leave) left = leaveFullscreen(v, win);
-      if (onEnded) {
-        try { onEnded(v, { block, leave, left }); } catch (err) { /* o aviso é só informativo */ }
-      }
-    };
-    win.addEventListener('ended', handler, true);
-    return () => win.removeEventListener('ended', handler, true);
-  }
-
+  // Legendas (closed caption) desligadas por padrão: desliga as faixas de texto do <video> e aperta, UMA vez por botão, o
+  // "Desativar legendas" do player do X (o aria-label muda para "Ativar..." depois; se o dono ligar de novo, respeita).
+  const CAPTION_OFF_RE = /(desativ|desligar|ocultar|esconder|turn off|hide|disable).{0,24}(legenda|caption|subtitle)/i;
+  const capDone = typeof WeakSet !== 'undefined' ? new WeakSet() : { has: () => false, add: () => {} };
   // O vídeo está em TELA CHEIA agora? Qualquer um dos jeitos: tela cheia comum (`fullscreenElement`), player nativo do iPhone
   // (`webkitDisplayingFullscreen`) ou o visualizador de vídeo do X (rota `/mediaViewer`... ou os elementos `immersive-*`).
   function videoFullscreenActive(root, win) {
@@ -643,10 +558,6 @@ const Xdom = (function () {
     return !!root.querySelector('[data-testid^="immersive-"]');
   }
 
-  // Legendas (closed caption) desligadas por padrão: desliga as faixas de texto do <video> e aperta, UMA vez por botão, o
-  // "Desativar legendas" do player do X (o aria-label muda para "Ativar..." depois; se o dono ligar de novo, respeita).
-  const CAPTION_OFF_RE = /(desativ|desligar|ocultar|esconder|turn off|hide|disable).{0,24}(legenda|caption|subtitle)/i;
-  const capDone = typeof WeakSet !== 'undefined' ? new WeakSet() : { has: () => false, add: () => {} };
   function disableCaptions(root) {
     let did = false;
     for (const v of root.querySelectorAll('video')) {
@@ -659,38 +570,6 @@ const Xdom = (function () {
       did = true;
     }
     return did;
-  }
-
-  // Um vídeo está TOCANDO em tela cheia? (o app do Android só mantém a tela do celular acesa nesse caso)
-  function fullscreenVideoPlaying(root, win) {
-    if (!videoFullscreenActive(root, win)) return false;
-    for (const v of root.querySelectorAll('video')) if (!v.paused && !v.ended && v.readyState >= 2) return true;
-    return false;
-  }
-
-  // Repetir (loop): com `loop = true` o vídeo NÃO termina, então o `ended` não existe e o X não tem como pular para o próximo
-  // (bloquear o `ended` não bastava: o X o ouve antes do script). A cada volta ao começo (o tempo "dá a volta") o script
-  // avisa `onLoop(video)`, que é o "fim" para quem quer sair da tela do vídeo e voltar a 1x. `loopOn()` liga/desliga.
-  function watchVideoLoop(win, opts) {
-    const doc = win.document;
-    const arm = (e) => {
-      const v = e.target;
-      if (v && v.tagName === 'VIDEO' && opts.loopOn()) {
-        try { if (!v.loop) v.loop = true; } catch (err) { /* segue */ }
-      }
-    };
-    const tick = (e) => {
-      const v = e.target;
-      if (!v || v.tagName !== 'VIDEO' || !opts.loopOn()) return;
-      const d = v.duration;
-      if (!isFinite(d) || d <= 0) return;
-      const t = v.currentTime;
-      const last = v.__nxLastT;
-      v.__nxLastT = t;
-      if (last !== undefined && last > d * 0.85 && t < d * 0.15) opts.onLoop(v);
-    };
-    for (const ev of ['play', 'playing', 'loadedmetadata']) doc.addEventListener(ev, arm, true);
-    doc.addEventListener('timeupdate', tick, true);
   }
 
   // ---- vídeo na tela ----
@@ -712,61 +591,10 @@ const Xdom = (function () {
     return best ? { video: best.video, rect: best.rect, component: best.component } : null;
   }
 
-  // Abre a foto mais visível no visualizador de fotos do X (botão X do controle, quando não há vídeo na tela).
-  // `go(caminho)` navega internamente. Devolve 'photo' ou null.
-  function openMediaFullscreen(root, win, go) {
-    let best = null;
-    for (const ph of root.querySelectorAll('[data-testid="tweetPhoto"]')) {
-      const r = ph.getBoundingClientRect();
-      if (!r.width || !r.height) continue;
-      const w = Math.max(0, Math.min(r.right, win.innerWidth) - Math.max(r.left, 0));
-      const h = Math.max(0, Math.min(r.bottom, win.innerHeight) - Math.max(r.top, 0));
-      const share = (w * h) / (r.width * r.height);
-      if (share >= 0.3 && (!best || w * h > best.area)) best = { el: ph, area: w * h };
-    }
-    const a = best && (best.el.closest('a[href*="/photo/"]') || best.el.querySelector('a[href*="/photo/"]'));
-    if (!a) return null;
-    go(a.getAttribute('href'));
-    return 'photo';
-  }
-
   // Botão "Tela cheia" do player do vídeo visível (achado pelo diagnóstico: `button` com aria-label "Tela cheia", dentro de
   // `videoPlayer`). Devolve o centro dele (px do CSS) e se o vídeo é retrato; sem o botão na tela, só o formato.
   const FS_BUTTON_RE = /(tela cheia|full ?screen)/i;
   const FS_EXIT_RE = /(sair|exit|minimi|leave)/i;
-  // O botão "Tela cheia" (elemento) do player do vídeo visível, mesmo escondido (os controles do X somem durante o play);
-  // devolve também o vídeo e o formato dele (retrato?, ou null se ainda não carregou).
-  // `video` (opcional): o vídeo tocado; sem ele (ou fora da página), o mais visível.
-  function fullscreenButton(root, win, video) {
-    let v = video && video.isConnected ? video : null;
-    if (!v) { const vv = visibleVideo(root, win); v = vv && vv.video; }
-    if (!v) return null;
-    const scope = v.closest('[data-testid="videoPlayer"]') || v.closest('article') || root;
-    let button = null;
-    for (const b of scope.querySelectorAll('button, [role="button"]')) {
-      const label = b.getAttribute('aria-label') || '';
-      if (FS_BUTTON_RE.test(label) && !FS_EXIT_RE.test(label)) { button = b; break; }
-    }
-    // Formato: pelo tamanho real do vídeo; sem ele ainda (não carregou), pela caixa na tela.
-    const rb = v.getBoundingClientRect();
-    const portrait = v.videoWidth > 0 ? v.videoHeight > v.videoWidth : (rb.width > 0 ? rb.height > rb.width : null);
-    return { button, video: v, portrait };
-  }
-
-  function fullscreenButtonPoint(root, win) {
-    const f = fullscreenButton(root, win);
-    if (!f) return null;
-    const out = { portrait: f.portrait };
-    if (f.button) {
-      const r = f.button.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < win.innerWidth && r.top < win.innerHeight) {
-        out.x = Math.round((Math.max(r.left, 0) + Math.min(r.right, win.innerWidth)) / 2);
-        out.y = Math.round((Math.max(r.top, 0) + Math.min(r.bottom, win.innerHeight)) / 2);
-      }
-    }
-    return out;
-  }
-
   // Aplica a velocidade escolhida. Só mexe no vídeo quando a escolha não é 1x OU quando já o tinha mexido (`touched`):
   // escolher 1x depois de outra velocidade tem de devolver o vídeo ao normal, e o padrão (1x, nunca mexido) deixa o X
   // em paz. O navegador pode recusar velocidades baixas demais (o iOS limita): então o vídeo segue como estava.
@@ -921,7 +749,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, playerDebug, openMediaFullscreen, fullscreenButton, fullscreenButtonPoint, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, blockEndedAdvance, leaveFullscreen, watchVideoLoop, videoFullscreenActive, disableCaptions, fullscreenVideoPlaying, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, videoFullscreenActive, disableCaptions, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

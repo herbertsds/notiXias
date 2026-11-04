@@ -139,6 +139,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (ready) updater.onDestroy()
         allSlots().forEach { s -> root.removeView(s.web); s.web.destroy() }
         slots.clear()
         detached = null
@@ -456,8 +457,12 @@ class MainActivity : Activity() {
                 allSlots().forEach { s ->
                     s.script?.remove()
                     s.script = WebViewCompat.addDocumentStartJavaScript(s.web, shimText, setOf("https://x.com"))
-                    if (!s.web.url.isNullOrEmpty()) s.web.reload()
                 }
+                // Recarregar todas as telas de uma vez pesava a ponto de o app recomeçar (e a pergunta de atualização do app
+                // sumia junto): só a da frente (e a por cima) recarregam; as de trás esvaziam e reabrem quando a da frente
+                // avisar os vizinhos de novo.
+                emptyStandby()
+                (listOf(active) + listOfNotNull(detached)).forEach { s -> if (!s.web.url.isNullOrEmpty()) s.web.reload() }
                 Toast.makeText(this, "notiXias: script atualizado", Toast.LENGTH_SHORT).show()
             }
         }
@@ -477,6 +482,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         ui.removeCallbacks(sweeper)
         if (ready) {
+            updater.onPause()
             allSlots().forEach { it.web.onPause() }
             active.web.pauseTimers()   // congela o JavaScript de todas as telas (o X e o script) até o app voltar
             CookieManager.getInstance().flush()

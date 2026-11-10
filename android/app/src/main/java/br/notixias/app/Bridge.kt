@@ -49,8 +49,9 @@ class Bridge(private val store: Store, private val net: Net, private val app: (W
     companion object {
         // nx_swap: trazer para a frente a tela que já tem o post; nx_neighbors: anteriores/próximos a abrir atrás; nx_ready: esta
         // tela terminou de abrir o post; nx_window: quantas telas da janela ainda não carregaram; nx_detach: abrir link por cima;
-        // nx_back / nx_nav: fechar a tela por cima (e passar de post).
-        val APP_KEYS = setOf("nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_detach", "nx_back", "nx_nav")
+        // nx_back / nx_nav: fechar a tela por cima (e passar de post); nx_gone: o post desta tela de trás foi apagado (já saiu
+        // da fila), a tela fica livre.
+        val APP_KEYS = setOf("nx_swap", "nx_neighbors", "nx_ready", "nx_window", "nx_detach", "nx_back", "nx_nav", "nx_gone")
     }
 
     /** Cookies de x.com no formato que o script espera (name/value/domain). Inclui os HttpOnly. */

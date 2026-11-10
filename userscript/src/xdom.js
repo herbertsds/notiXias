@@ -11,13 +11,19 @@ const Xdom = (function () {
     return list;
   }
 
-  // Primeiro link de post com <time> dentro do article = post principal (citados vêm depois).
+  // Primeiro link de post com <time> dentro do article = post principal (citados vêm depois). Em post EDITADO, o horário da
+  // página do post é "Última edição …" e aponta para /usuario/status/ID/history: também vale.
+  const HISTORY_RE = /^\/([^/]+)\/status\/(\d+)\/history\/?$/;
   function primaryStatus(art) {
     const links = art.querySelectorAll('a[href*="/status/"]');
     for (const a of links) {
       if (!a.querySelector('time')) continue;
-      const p = C().parseStatusHref(a.getAttribute('href'), ORIGIN);
+      const href = a.getAttribute('href');
+      const p = C().parseStatusHref(href, ORIGIN);
       if (p) return p;
+      let m = null;
+      try { m = HISTORY_RE.exec(new URL(href, ORIGIN).pathname); } catch (e) { /* href inválido */ }
+      if (m) return { author: m[1], id: m[2] };
     }
     return null;
   }
@@ -129,6 +135,23 @@ const Xdom = (function () {
 
   function hasStatus(root, id) {
     return readItems(root).some((i) => i.id === id);
+  }
+
+  // O post pedido está na página? Devolve o id com que ele aparece (ou null). Além do id exato, aceita: um link para o post
+  // dentro da conversa (o X liga as versões de um post editado) e o post focal (`article[tabindex="-1"]`) do mesmo autor, que é o
+  // que o X mostra quando o id pedido é de uma versão antiga.
+  function statusPresent(root, id, author) {
+    if (hasStatus(root, id)) return id;
+    const col = root.querySelector('[data-testid="primaryColumn"]') || root;
+    for (const art of articles(col)) {
+      if (art.querySelector('a[href*="/status/' + id + '"]')) { const it = parseArticle(art); if (it) return it.id; }
+    }
+    if (author) {
+      const focal = col.querySelector('article[tabindex="-1"]');
+      const it = focal && parseArticle(focal);
+      if (it && it.author.toLowerCase() === String(author).toLowerCase()) return it.id;
+    }
+    return null;
   }
 
   function hasArticles(root) {
@@ -520,26 +543,24 @@ const Xdom = (function () {
   // O X mostra "Esta página não existe" (data-testid="error-detail") ou um estado vazio (conta suspensa/protegida), ou uma
   // célula avisando que o post foi excluído/está indisponível. Texto só vale FORA dos posts (a recomendação de outros posts
   // pode conter qualquer frase) e só quando o post pedido não está na tela (quem chama confere isso antes).
+  // O post apagado aparece também como um <article> SEM link de post ("Este post está indisponível"). Erro passageiro do X
+  // ("Algo deu errado. Tente de novo") não conta: o post pode existir.
   const MISSING_RE = /(foi exclu[ií]d|n[ãa]o existe|indispon[ií]vel|n[ãa]o est[áa] dispon[ií]vel|was deleted|doesn.t exist|does not exist|is unavailable|not available)/i;
+  const RETRY_RE = /(algo deu errado|tente (de novo|novamente)|recarregar|something went wrong|try again|retry|reload)/i;
   function pageMissing(root) {
     const col = root.querySelector('[data-testid="primaryColumn"]') || root;
-    if (col.querySelector('[data-testid="error-detail"], [data-testid="emptyState"]')) return true;
+    const err = col.querySelector('[data-testid="error-detail"]');
+    if (err && !RETRY_RE.test((err.textContent || '').slice(0, 400))) return true;
+    if (col.querySelector('[data-testid="emptyState"]')) return true;
     for (const cell of col.querySelectorAll('[data-testid="cellInnerDiv"]')) {
-      if (cell.querySelector('article')) continue;
-      if (MISSING_RE.test((cell.textContent || '').slice(0, 400))) return true;
+      const art = cell.querySelector('article');
+      if (art && primaryStatus(art)) continue;
+      const t = (cell.textContent || '').slice(0, 400);
+      if (MISSING_RE.test(t) && !RETRY_RE.test(t)) return true;
     }
     return false;
   }
 
-  // ---- fim do vídeo: não avançar sozinho ----
-  // O player do X (visualizador de vídeos no celular) pula para o próximo vídeo quando o evento `ended` dispara. Eventos
-  // de mídia não "sobem" (bubble), mas passam por TODOS os ancestrais na fase de captura, e `window` é o primeiro: um ouvinte
-  // de captura ali, com stopImmediatePropagation, impede que qualquer ouvinte do X (no próprio <video> ou em ancestrais) o veja.
-  // O vídeo só fica parado no último quadro. `isOn()` liga/desliga sem remover. Devolve a função que remove o ouvinte.
-  // Sai da tela cheia do vídeo que acabou. Cobre os dois "tela cheia" do iPhone/Safari:
-  //  - o player nativo (`video.webkitExitFullscreen()` / `webkitSetPresentationMode('inline')`) e o Fullscreen API normal;
-  //  - o visualizador de vídeo do X, uma rota própria (`/usuario/status/ID/video/N`), que se fecha voltando uma página.
-  // Devolve true se fez alguma coisa.
   // Rotas do visualizador de vídeo do X (a tela própria, não a página do post): /usuario/status/ID/video/N, e as de modo
   // imersivo. Uma página de post comum (/usuario/status/ID) NUNCA entra aqui.
   const VIEWER_RE = /\/mediaViewer\b|\/status\/\d+\/video\/\d+|\/immersive|\/i\/videos?(\/|$)/i;
@@ -749,7 +770,7 @@ const Xdom = (function () {
 
   return {
     articles, parseArticle, readItems, threadLinks, pageItems, findDateRow, hasStatus, hasArticles,
-    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, setHeaderStatic, videoFullscreenActive, disableCaptions, findGapButtons, findNewPostsPill,
+    selectTab, skeleton, isLoginPath, findBottomBars, findAppBanners, setBottomBarsHidden, setLandscapeLayout, layoutDebug, setAges, findTextMoreButtons, visibleVideo, controlsVisible, applyPlaybackRate, pageMissing, statusPresent, setHeaderStatic, videoFullscreenActive, disableCaptions, findGapButtons, findNewPostsPill,
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Xdom;

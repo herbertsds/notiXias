@@ -441,8 +441,8 @@ test('pageMissing: reconhece página/post que não existe, sem confundir com a p
   assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><span>This post is unavailable</span></div>')), true);
   assert.equal(Xdom.pageMissing(dom('')), false);                                       // ainda carregando
   assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><div role="progressbar"></div></div>')), false);
-  // frase "não existe" DENTRO de um post (ou de uma recomendação) não conta
-  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><article data-testid="tweet">isso não existe mais, sério</article></div>')), false);
+  // frase "não existe" DENTRO de um post (ou de uma recomendação) não conta; post de verdade sempre tem o link com horário
+  assert.equal(Xdom.pageMissing(dom('<div data-testid="cellInnerDiv"><article data-testid="tweet"><a href="/b/status/9"><time>1 h</time></a>isso não existe mais, sério</article></div>')), false);
 });
 
 
@@ -737,3 +737,24 @@ test('setLandscapeLayout: foto/card dentro de âncora [role=link] conta como mí
   assert.equal(w.document.getElementById('cards').hasAttribute('data-nx-media'), true);
 });
 
+
+test('post editado: o horário que aponta para /status/ID/history conta como o post (hasStatus/statusPresent)', () => {
+  const d = dom(`<main><div data-testid="primaryColumn"><div data-testid="cellInnerDiv"><article tabindex="-1">
+    <a href="/ana">Ana</a><a href="/ana/status/222/history"><time datetime="2026-11-01T10:00:00Z">Última edição 10:00</time></a>
+  </article></div></div></main>`);
+  assert.equal(Xdom.hasStatus(d, '222'), true);
+  assert.equal(Xdom.statusPresent(d, '222', 'ana'), '222');
+  // id pedido de uma versão antiga: o post focal do mesmo autor vale (com o id que ele tem na página)
+  assert.equal(Xdom.statusPresent(d, '111', 'Ana'), '222');
+  assert.equal(Xdom.statusPresent(d, '111', 'beto'), null);
+  assert.equal(Xdom.pageMissing(d), false);
+});
+
+test('pageMissing: post indisponível desenhado como <article> sem link conta; erro passageiro ("Tente de novo") não', () => {
+  const gone = dom(`<main><div data-testid="primaryColumn"><div data-testid="cellInnerDiv"><article>Este post está indisponível. Saiba mais</article></div></div></main>`);
+  assert.equal(Xdom.pageMissing(gone), true);
+  const retry = dom(`<main><div data-testid="primaryColumn"><div data-testid="error-detail">Algo deu errado. Tente recarregar.</div></div></main>`);
+  assert.equal(Xdom.pageMissing(retry), false);
+  const notFound = dom(`<main><div data-testid="primaryColumn"><div data-testid="error-detail">Esta página não existe.</div></div></main>`);
+  assert.equal(Xdom.pageMissing(notFound), true);
+});

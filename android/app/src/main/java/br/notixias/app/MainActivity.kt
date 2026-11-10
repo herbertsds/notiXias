@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
  * notiXias: o X (x.com) em WebViews com o userscript injetado antes de cada página.
  *
  * Telas (WebViews) da fila: até [MAX_QUEUE_VIEWS], empilhadas. A da frente ("active") mostra o post atual; as de trás
- * ("standby") já abrem os 3 seguintes e o anterior (o script da frente avisa quais são: `nx_neighbors`). Passar de post
+ * ("standby") já abrem os 5 seguintes e o anterior (o script da frente avisa quais são: `nx_neighbors`). Passar de post
  * (`nx_swap`) só traz para a frente a tela que já tem o post, e a que saiu da frente fica atrás com o post dela, pronta para
  * voltar. Um link para fora da fila abre numa tela por cima ("detached", `nx_detach`); fechá-la mostra de novo o post da fila,
  * que nunca saiu do lugar.
@@ -65,7 +65,8 @@ class MainActivity : Activity() {
     private lateinit var active: Slot
     private val slots = mutableListOf<Slot>()   // telas da fila (inclui a da frente)
     private var detached: Slot? = null           // tela por cima, fora da fila
-    private var nextList = listOf<JSONObject>()  // seguintes na fila (até 4), do mais próximo ao mais longe
+    private var nextList = listOf<JSONObject>()  // seguintes na fila (até 5), do mais próximo ao mais longe
+    private var gateSeqs = listOf<Long>()        // telas que a tela de carregamento espera (a que veio para a frente e a seguinte)
     private var prevList = listOf<JSONObject>()  // anterior na fila
     private var emptied = false                  // telas de trás esvaziadas (fora de foco por muito tempo / pouca memória)
     private val bridgeName = "_nx" + ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
@@ -290,7 +291,12 @@ class MainActivity : Activity() {
             runOnUiThread { slotOf(view)?.let { if (it.seq == seq || it === active) { it.seq = seq; it.ready = true; applyVisibility() } } }
             true
         }
-        "nx_window" -> onUi { unloadedInWindow(JSONObject(value).optString("dir")) } ?: 0
+        "nx_window" -> onUi { unloadedInWindow() } ?: 0
+        "nx_gone" -> {
+            val seq = JSONObject(value).optLong("seq", -1)
+            runOnUiThread { freeSlot(view, seq) }
+            true
+        }
         "nx_detach" -> { runOnUiThread { if (ready && view === active.web) detach(JSONObject(value).optString("url")) }; true }
         "nx_back" -> { runOnUiThread { if (view === detached?.web) detachedBack() }; true }
         "nx_nav" -> {
@@ -328,12 +334,14 @@ class MainActivity : Activity() {
         val e = o.optJSONObject("entry") ?: return 0
         val seq = e.optLong("seq", -1)
         val s = slots.firstOrNull { it !== active && it.seq == seq } ?: return 0
-        // Regra do carregamento: para frente, janela = a tela que vem + 3 além dela; só cobre com carregamento se 3 das 4 não
-        // carregaram. Para trás, só há o anterior: cobre se ele ainda não carregou.
+        // Regra do carregamento: para frente, se menos de 2 das telas da frente (a que vem e as seguintes) estão prontas, cobre
+        // com carregamento até a que vem e a seguinte ficarem prontas. Para trás, só há o anterior: cobre se ele não está pronto.
         val back = o.optString("dir") == "back"
-        val win = (if (back) prevList.take(1) else nextList.take(4)).filter { isXUrl(it.optString("url")) }
-        val unloaded = win.count { e -> slots.firstOrNull { it.seq == e.optLong("seq", -1) }?.ready != true }
-        val gate = win.isNotEmpty() && unloaded >= minOf(3, win.size)
+        val isReady = { sq: Long -> slots.firstOrNull { it.seq == sq }?.ready == true }
+        val win = (if (back) prevList.take(PRELOAD_BACK) else nextList.take(PRELOAD_FWD))
+            .filter { isXUrl(it.optString("url")) }.map { it.optLong("seq", -1) }
+        val gate = if (back) !isReady(seq) else win.isNotEmpty() && win.count(isReady) < minOf(2, win.size)
+        gateSeqs = if (back) listOf(seq) else (listOf(seq) + win.filter { it != seq }).take(2)
         if (customView != null) exitFullscreenNow()
         val old = active
         old.role = "standby"
@@ -348,12 +356,21 @@ class MainActivity : Activity() {
         return if (gate) 2 else 1
     }
 
-    /** Quantas das telas da janela (a da frente e, para frente, as 3 seguintes) ainda não terminaram de abrir o post. */
-    private fun unloadedInWindow(dir: String): Int {
+    /** Quantas das telas que a tela de carregamento espera (a da frente e a seguinte) ainda não terminaram de abrir o post. */
+    private fun unloadedInWindow(): Int {
         if (!ready) return 0
-        val more = if (dir == "back") emptyList() else nextList.take(PRELOAD_FWD)
-        val seqs = listOf(active.seq) + more.filter { isXUrl(it.optString("url")) }.map { it.optLong("seq", -1) }
-        return seqs.count { sq -> slots.firstOrNull { it.seq == sq }?.ready != true }
+        return gateSeqs.count { sq -> slots.firstOrNull { it.seq == sq }?.ready != true }
+    }
+
+    /** O post de uma tela de trás foi apagado (o script já o tirou da fila): a tela fica livre e a da frente manda os vizinhos de novo. */
+    private fun freeSlot(view: WebView, seq: Long) {
+        val s = slots.firstOrNull { it.web === view } ?: return
+        if (s === active || s.seq != seq) return
+        s.seq = -1
+        s.entry = null
+        s.ready = false
+        applyVisibility()
+        active.web.evaluateJavascript("window.nxRefreshNeighbors&&window.nxRefreshNeighbors()", null)
     }
 
     private fun entries(a: org.json.JSONArray?): List<JSONObject> =
@@ -649,7 +666,7 @@ class MainActivity : Activity() {
     companion object {
         private const val HOLD_FIRST_MS = 450L
         private const val HOLD_EVERY_MS = 250L
-        private const val PRELOAD_FWD = 3
+        private const val PRELOAD_FWD = 5
         private const val PRELOAD_BACK = 1
         private const val MAX_QUEUE_VIEWS = 1 + PRELOAD_FWD + PRELOAD_BACK
         private const val UNLOAD_AFTER_MS = 3 * 60 * 1000L

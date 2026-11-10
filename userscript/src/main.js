@@ -112,6 +112,20 @@ async function startApp() {
     return null;
   }
 
+  // Espera o post `wantId` aparecer ou o X dizer que ele não existe. O "não existe" só vale se continuar assim 2,5 s depois
+  // (um post de cima apagado, numa conversa, aparece antes do post pedido). Devolve { state: 'present', id } (o id com que ele
+  // aparece: o de um post editado pode ser outro), { state: 'missing' } ou { state: 'unknown' } (nem um nem outro no prazo).
+  async function findPost(wantId, author, ms) {
+    const look = () => Xdom.statusPresent(document, wantId, author);
+    await waitFor(() => look() || Xdom.pageMissing(document), ms, 150);
+    let id = look();
+    if (id) return { state: 'present', id };
+    if (!Xdom.pageMissing(document)) return { state: 'unknown' };
+    id = await waitFor(look, 2500, 150);
+    if (id) return { state: 'present', id };
+    return Xdom.pageMissing(document) ? { state: 'missing' } : { state: 'unknown' };
+  }
+
   let routeToken = 0;
   let lastHref = '';
   let prevPath = '';
@@ -462,7 +476,17 @@ async function startApp() {
     try { await fn(); } catch (e) { handleError(e); } finally { busy = false; drawBar(); }
   }
 
-  const onNext = () => guarded(async () => {
+  // Depois de ▶/◀, os próximos toques ficam ignorados por um instante (dois toques seguidos sem querer pulavam dois posts).
+  const NAV_COOLDOWN_MS = 800;
+  let navAt = 0;
+  const navCooling = () => {
+    const now = Date.now();
+    if (now - navAt < NAV_COOLDOWN_MS) return true;
+    navAt = now;
+    return false;
+  };
+
+  const onNext = () => navCooling() ? undefined : guarded(async () => {
     if (activationP) await activationP;
     if (appRole === 'detached') return void appCall('nx_nav', { dir: 'fwd' });
     if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.next.length &&
@@ -476,7 +500,7 @@ async function startApp() {
     return startFetch();
   });
 
-  const onPrev = () => guarded(async () => {
+  const onPrev = () => navCooling() ? undefined : guarded(async () => {
     if (activationP) await activationP;
     if (appRole === 'detached') return void appCall('nx_nav', { dir: 'back' });
     if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.prev.length &&
@@ -531,13 +555,15 @@ async function startApp() {
     const stale = () => { pin.stop(); return 'stale'; }; // outra navegação assumiu: para de rolar
 
     // Espera o post aparecer OU o X avisar que ele não existe mais (apagado, conta suspensa...): nesse caso não adianta esperar.
-    await waitFor(() => Xdom.hasStatus(document, status.id) || Xdom.pageMissing(document), 10000, 100);
+    const found = await findPost(status.id, (status.id === view.targetId ? null : cur.author), 10000);
     if (token !== routeToken) return stale();
-    if (!Xdom.hasStatus(document, status.id)) {
+    if (found.state !== 'present') {
       pin.stop();
-      if (Xdom.pageMissing(document)) return skipUnavailable(status, cur, view);
+      if (found.state === 'missing') return skipUnavailable(status, cur, view);
+      ui.hideLoading();
       return 'done';
     }
+    const sid = found.id; // post editado: o X pode mostrá-lo com o id da versão mais nova
     syncLabels();
     // Em vez de uma pausa fixa, espera a conversa parar de mudar (o X desenha os posts de cima aos poucos).
     await waitSettled(2500, 450);
@@ -547,7 +573,7 @@ async function startApp() {
 
     // Thread: pedaços do mesmo autor encadeados abaixo do post focal -> salta para o último.
     if (!view.targetId && !view.noJump) {
-      const target = threadTarget(status.id, cur);
+      const target = threadTarget(sid, cur);
       if (target) {
         view.targetId = target.id;
         gm.set('nx_view', view);
@@ -560,22 +586,12 @@ async function startApp() {
     // Tudo o que mexe no que se vê terminou: fixa no topo e revela o post pronto (a conferência da conversa, abaixo,
     // só fala com a API e não muda a tela).
     pin.stop();
-    // No app, o post aberto "do zero" (sem tela pronta) só é revelado quando ele e os 3 seguintes (na direção da leitura) carregaram.
-    const gateOpen = appRole === 'active' && !cfg.bot;
-    if (gateOpen) ui.showLoading(view.label, GATE_MAX_MS);
-    else {
-      ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
-      pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
-    }
+    // Só o post da frente precisa estar pronto: as telas de trás abrem depois, sem segurar a leitura.
+    ui.hideLoading({ scrollTop: true }); // destrava a rolagem, vai ao topo (ainda coberto) e começa o fade
+    pinTop(600); // o X pode tentar rolar até o post logo depois de destravar: segura o topo por um instante
 
-    if (!(await coverPage(cur, status.id, notice, () => token === routeToken))) return 'stale';
+    if (!(await coverPage(cur, sid, notice, () => token === routeToken))) return 'stale';
     await entryShown(cur, view);
-    if (gateOpen) {
-      await waitWindow(view.dir === 'back' ? 'back' : 'fwd', () => token === routeToken && appRole === 'active');
-      if (token !== routeToken) return 'stale';
-      ui.hideLoading({ scrollTop: true });
-      pinTop(600);
-    }
     return 'done';
   }
 
@@ -647,13 +663,16 @@ async function startApp() {
   async function publishNeighbors(cur) {
     if (appRole !== 'active' || !cur) return;
     try {
-      // Até 4 seguintes (o app abre 3; o 4º só entra na conta de "o que já carregou" ao trocar de tela) e 1 anterior.
-      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 4 }), api.queue({ before: cur.seq, limit: 1 })]);
+      // Os 5 seguintes e o anterior (o app abre todos em telas de trás).
+      const [n, p] = await Promise.all([api.queue({ after: cur.seq, limit: 5 }), api.queue({ before: cur.seq, limit: 1 })]);
       if (appRole !== 'active' || !curEntry || curEntry.seq !== cur.seq) return;
       neighbors = { cur: cur.seq, next: n.items, prev: p.items };
       await appCall('nx_neighbors', { cur, next: n.items, prev: p.items });
     } catch (e) { /* sem vizinhos: passar de post segue pelo caminho normal */ }
   }
+
+  // Uma tela de trás achou um post apagado (já tirado da fila): o app pede os vizinhos de novo, e a tela livre recebe outro post.
+  window.nxRefreshNeighbors = () => { if (appRole === 'active' && curEntry) publishNeighbors(curEntry); };
 
   // Pede ao app para trazer para a frente a tela que já tem `entry` aberta. false: nenhuma tem (segue o caminho normal).
   async function appSwap(entry, dir, fromSeq) {
@@ -711,21 +730,25 @@ async function startApp() {
     slotMissing = false;
     slotView = { seq: entry.seq, tweetId: id, targetId: null, label: Core.openingLabel(entry), dir: dir === 'back' ? 'back' : 'fwd' };
     const view = slotView;
-    const open = async (url, wantId) => {
+    // 'present' | 'missing' | 'unknown'. Sem resposta no prazo ('unknown') NÃO é apagado: a tela da frente confere de novo.
+    const open = async (url, wantId, author) => {
       const s = Core.parseStatusPath(location.pathname);
       if (!s || s.id !== wantId) go(url);
-      await waitFor(() => Xdom.hasStatus(document, wantId) || Xdom.pageMissing(document), 12000, 150);
-      return Xdom.hasStatus(document, wantId);
+      const f = await findPost(wantId, author, 15000);
+      if (f.state === 'present') view.foundId = f.id;
+      return f.state;
     };
     preloadP = (async () => {
-      if (!(await open(entry.url, id))) { if (alive()) slotMissing = true; return; }
+      const first = await open(entry.url, id, entry.author);
       if (!alive()) return;
+      if (first === 'missing') { slotMissing = true; return; }
+      if (first === 'unknown') { view.unknown = true; return; }
       await waitSettled(2500, 450);
       if (!alive() || !(await expandMores(alive))) return;
-      const target = threadTarget(id, entry);
+      const target = threadTarget(view.foundId || id, entry);
       if (target) {
         view.targetId = target.id;
-        if (await open('https://x.com/' + target.author + '/status/' + target.id, target.id)) {
+        if (await open('https://x.com/' + target.author + '/status/' + target.id, target.id, null) === 'present') {
           if (!alive()) return;
           await waitSettled(2500, 450);
           if (!alive() || !(await expandMores(alive))) return;
@@ -733,11 +756,22 @@ async function startApp() {
           if (!alive()) return; // o fim da thread sumiu: fica no post da fila
           view.targetId = null;
           view.noJump = true;
-          if (!(await open(entry.url, id))) { if (alive()) slotMissing = true; return; }
+          const back = await open(entry.url, id, entry.author);
+          if (!alive()) return;
+          if (back === 'missing') { slotMissing = true; return; }
+          if (back === 'unknown') { view.unknown = true; return; }
         }
       }
       if (alive()) pinTop(800);
-    })().catch(() => {}).then(() => { if (alive() && appRole) appCall('nx_ready', { seq: entry.seq }); });
+    })().catch(() => {}).then(async () => {
+      if (!alive() || !appRole) return;
+      // Apagado de verdade, achado ainda atrás: sai da fila e a tela fica livre para outro post (o app pede os vizinhos de novo).
+      if (slotMissing && appRole === 'standby') {
+        try { await api.patchEntry(entry.seq, { removed: true }); } catch (e) { /* fica para a tela da frente pular */ }
+        if (alive() && appRole === 'standby') return void appCall('nx_gone', { seq: entry.seq });
+      }
+      appCall('nx_ready', { seq: entry.seq });
+    });
     return preloadP;
   }
 
@@ -758,8 +792,8 @@ async function startApp() {
       const after = typeof a.st.unread_after === 'number' ? Math.max(0, a.st.unread_after + (fwd ? -1 : 1)) : a.st.unread_after;
       renderEntryBar(Object.assign({}, a.st, { current: entry, position: pos, unread_after: after }), a.notice);
     }
-    // O app manda `gate` quando 3 das 4 telas da janela (esta e as 3 seguintes na direção) ainda não carregaram: só então aparece a
-    // tela de carregamento, e ela fica até as 4 estarem prontas. Sem `gate`, a troca é direta (uma tela de carregamento antiga some).
+    // O app manda `gate` quando menos de 2 das telas da frente estão prontas (para trás: o anterior não está pronto): só então
+    // aparece a tela de carregamento, e ela fica até esta tela e a seguinte estarem prontas. Sem `gate`, a troca é direta.
     const gate = !!a.gate;
     if (gate) ui.showLoading(slotView && slotView.label, GATE_MAX_MS);
     else ui.hideLoading({ scrollTop: true });
@@ -781,12 +815,22 @@ async function startApp() {
         if (r !== 'jump') ui.hideLoading();
         return;
       }
+      if (view.unknown) {
+        // A tela de trás não conseguiu confirmar o post: abre do jeito normal (confere de novo, com a tela de carregamento).
+        view.unknown = false;
+        gm.set('nx_view', view);
+        await api.putState({ cursor_seq: entry.seq });
+        ui.showLoading(view.label, GATE_MAX_MS);
+        prevPath = '';
+        onRoute();
+        return;
+      }
       await api.putState({ cursor_seq: entry.seq });
       const st = await api.state();
       if (appRole !== 'active') return;
       renderEntryBar(st, a.notice);
       const cur = st.current || entry;
-      const statusId = (Core.parseStatusPath(location.pathname) || {}).id || view.tweetId;
+      const statusId = view.foundId || (Core.parseStatusPath(location.pathname) || {}).id || view.tweetId;
       const tok = routeToken;
       if (!(await coverPage(cur, statusId, a.notice, () => tok === routeToken && appRole === 'active'))) return;
       await entryShown(cur, view);

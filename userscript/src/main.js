@@ -157,6 +157,24 @@ async function startApp() {
   let detachReturnAt = 0; // a tela da fila acabou de voltar ao post (a página nova foi para a tela por cima)
   let activationP = null; // registro da tela que acabou de vir para a frente
   const GATE_MAX_MS = 20000; // espera máxima da tela de carregamento enquanto as telas da frente/de trás carregam
+  // Diagnóstico: tela de carregamento por mais de 6 s com o post já na página manda à API (esqueleto, sem texto de post) de onde
+  // ela veio, para achar carregamentos à toa. No máximo um por minuto.
+  let loadingWhy = '';
+  let loadingDiagAt = 0;
+  function showLoadingFor(why, label, maxMs) {
+    loadingWhy = why;
+    ui.showLoading(label, maxMs);
+    const at = Date.now();
+    setTimeout(() => {
+      if (cfg.bot || !ui.loadingShown() || loadingWhy !== why || Date.now() - loadingDiagAt < 60000) return;
+      const v = gm.get('nx_view', null) || {};
+      const present = v.tweetId ? Xdom.statusPresent(document, v.tweetId, curEntry && curEntry.author) : null;
+      if (!present) return;
+      loadingDiagAt = Date.now();
+      const info = { why, ms: Date.now() - at, role: appRole, path: location.pathname, viewSeq: v.seq, cur: curEntry && curEntry.seq, present, missing: Xdom.pageMissing(document), videos: document.querySelectorAll('video').length, hidden: document.hidden };
+      api.skeleton({ page: location.pathname.slice(0, 100), user_agent: navigator.userAgent.slice(0, 300), skeleton: JSON.stringify(info), note: ('carregamento com o post pronto; v' + NX_VERSION).slice(0, 500) }).catch(() => {});
+    }, 6000);
+  }
 
   const getPhase = () => {
     const p = gm.get('nx_phase', { name: 'idle' });
@@ -450,7 +468,7 @@ async function startApp() {
     if (appRole === 'active' && await appSwap(entry, dir === 'back' ? 'back' : 'fwd', null)) return;
     if (appRole === 'active') { neighbors = null; curEntry = null; }
     const label = Core.openingLabel(entry);
-    if (!cfg.bot) ui.showLoading(label, appRole === 'active' ? GATE_MAX_MS : undefined); // cobre a página já na saída; some em fade quando o post estiver pronto
+    if (!cfg.bot) showLoadingFor('open', label, appRole === 'active' ? GATE_MAX_MS : undefined); // cobre a página já na saída; some em fade quando o post estiver pronto
     await api.putState({ cursor_seq: entry.seq });
     gm.set('nx_view', { seq: entry.seq, tweetId: entry.open_id || entry.tweet_id, targetId: null, label, dir: dir === 'back' ? 'back' : 'fwd' });
     gm.set('nx_mode', 'read');
@@ -748,7 +766,10 @@ async function startApp() {
     const open = async (url, wantId, author) => {
       const s = Core.parseStatusPath(location.pathname);
       if (!s || s.id !== wantId) go(url);
-      const f = await findPost(wantId, author, 15000);
+      // Atrás não há pressa: com várias telas abrindo juntas (e vídeos), o post pode demorar; continua conferindo até 60 s.
+      const t0 = Date.now();
+      let f = await findPost(wantId, author, 15000);
+      while (f.state === 'unknown' && alive() && appRole === 'standby' && Date.now() - t0 < 60000) f = await findPost(wantId, author, 5000);
       if (f.state === 'present') view.foundId = f.id;
       return f.state;
     };
@@ -809,7 +830,7 @@ async function startApp() {
     // O app manda `gate` quando esta tela ainda não terminou de abrir o post: só então aparece a tela de carregamento, até ela ficar
     // pronta. Sem `gate`, a troca é direta.
     const gate = !!a.gate;
-    if (gate) ui.showLoading(slotView && slotView.label, GATE_MAX_MS);
+    if (gate) showLoadingFor('gate', slotView && slotView.label, GATE_MAX_MS);
     else ui.hideLoading({ scrollTop: true });
     const tok0 = routeToken;
     try {
@@ -830,14 +851,21 @@ async function startApp() {
         return;
       }
       if (view.unknown) {
-        // A tela de trás não conseguiu confirmar o post: abre do jeito normal (confere de novo, com a tela de carregamento).
+        // A tela de trás não confirmou o post a tempo. Se ele já está na página, segue normal (sem tela de carregamento);
+        // senão abre do jeito normal (confere de novo, com a tela de carregamento).
         view.unknown = false;
-        gm.set('nx_view', view);
-        await api.putState({ cursor_seq: entry.seq });
-        ui.showLoading(view.label, GATE_MAX_MS);
-        prevPath = '';
-        onRoute();
-        return;
+        const now = Xdom.statusPresent(document, view.tweetId, entry.author);
+        if (now) {
+          view.foundId = now;
+          await expandMores(() => appRole === 'active');
+        } else {
+          gm.set('nx_view', view);
+          await api.putState({ cursor_seq: entry.seq });
+          showLoadingFor('unknown', view.label, GATE_MAX_MS);
+          prevPath = '';
+          onRoute();
+          return;
+        }
       }
       await api.putState({ cursor_seq: entry.seq });
       const st = await api.state();
@@ -1540,7 +1568,7 @@ async function startApp() {
       return;
     }
     // Abrindo um post da fila: cobre a página já (antes de falar com a API); em qualquer outra página, descobre.
-    if (!cfg.bot && isEntryPath()) ui.showLoading((gm.get('nx_view', null) || {}).label); else ui.hideLoading();
+    if (!cfg.bot && isEntryPath()) showLoadingFor('route', (gm.get('nx_view', null) || {}).label); else ui.hideLoading();
     try {
       if (Xdom.isLoginPath(location.pathname)) { botDone({ ok: false, error: 'sessão do X expirada (tela de login)', login: true }); return; }
       if (!cfg.apiKey && !promptConfig()) return handleError(new Error('Configure a API para começar'));

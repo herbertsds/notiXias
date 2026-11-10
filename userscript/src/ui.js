@@ -435,7 +435,8 @@ const Ui = (function () {
       }, 520);
     }
 
-    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading, toast, hideToast };
+    const loadingShown = () => !!ldNode && !ldNode.classList.contains('out');
+    return { renderBar, hideBar, setBarHidden, showOverlay, hideOverlay, showSpeed, hideSpeed, showLoading, hideLoading, loadingShown, toast, hideToast };
   }
 
   return { create, readWidths };

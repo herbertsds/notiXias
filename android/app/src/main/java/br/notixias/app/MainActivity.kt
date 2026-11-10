@@ -292,6 +292,11 @@ class MainActivity : Activity() {
             true
         }
         "nx_window" -> onUi { unloadedInWindow() } ?: 0
+        "nx_ready_count" -> {
+            val a = JSONObject(value).optJSONArray("seqs")
+            val seqs = if (a == null) emptyList() else (0 until a.length()).map { a.optLong(it, -1) }
+            onUi { seqs.count { sq -> slots.any { it !== active && it.seq == sq && it.ready } } } ?: 0
+        }
         "nx_gone" -> {
             val seq = JSONObject(value).optLong("seq", -1)
             runOnUiThread { freeSlot(view, seq) }
@@ -334,14 +339,10 @@ class MainActivity : Activity() {
         val e = o.optJSONObject("entry") ?: return 0
         val seq = e.optLong("seq", -1)
         val s = slots.firstOrNull { it !== active && it.seq == seq } ?: return 0
-        // Regra do carregamento: para frente, se menos de 2 das telas da frente (a que vem e as seguintes) estão prontas, cobre
-        // com carregamento até a que vem e a seguinte ficarem prontas. Para trás, só há o anterior: cobre se ele não está pronto.
-        val back = o.optString("dir") == "back"
-        val isReady = { sq: Long -> slots.firstOrNull { it.seq == sq }?.ready == true }
-        val win = (if (back) prevList.take(PRELOAD_BACK) else nextList.take(PRELOAD_FWD))
-            .filter { isXUrl(it.optString("url")) }.map { it.optLong("seq", -1) }
-        val gate = if (back) !isReady(seq) else win.isNotEmpty() && win.count(isReady) < minOf(2, win.size)
-        gateSeqs = if (back) listOf(seq) else (listOf(seq) + win.filter { it != seq }).take(2)
+        // Regra do carregamento: só cobre com carregamento se a tela que vem ainda não terminou de abrir o post, e até ela ficar
+        // pronta. (Avançar já espera, no script, 2 telas seguintes prontas.)
+        val gate = !s.ready
+        gateSeqs = listOf(seq)
         if (customView != null) exitFullscreenNow()
         val old = active
         old.role = "standby"
@@ -356,7 +357,7 @@ class MainActivity : Activity() {
         return if (gate) 2 else 1
     }
 
-    /** Quantas das telas que a tela de carregamento espera (a da frente e a seguinte) ainda não terminaram de abrir o post. */
+    /** A tela que a tela de carregamento espera (a que veio para a frente) ainda não terminou de abrir o post? (0 ou 1) */
     private fun unloadedInWindow(): Int {
         if (!ready) return 0
         return gateSeqs.count { sq -> slots.firstOrNull { it.seq == sq }?.ready != true }

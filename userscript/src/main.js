@@ -477,7 +477,7 @@ async function startApp() {
   }
 
   // Depois de ▶/◀, os próximos toques ficam ignorados por um instante (dois toques seguidos sem querer pulavam dois posts).
-  const NAV_COOLDOWN_MS = 800;
+  const NAV_COOLDOWN_MS = 500;
   let navAt = 0;
   const navCooling = () => {
     const now = Date.now();
@@ -486,9 +486,21 @@ async function startApp() {
     return false;
   };
 
+  // No app, ▶ só passa quando pelo menos 2 dos posts seguintes já estão abertos nas telas de trás (ou todos, se houver menos),
+  // para a leitura não cair em carregamento. Não trava para sempre: depois de GATE_MAX_MS no post, passa de qualquer jeito.
+  async function nextBlocked() {
+    if (appRole !== 'active' || !curEntry || !neighbors || neighbors.cur !== curEntry.seq || !neighbors.next.length) return false;
+    if (Date.now() - shownAt > GATE_MAX_MS) return false;
+    const seqs = neighbors.next.slice(0, 5).map((e) => e.seq);
+    const readyN = await appCall('nx_ready_count', { seqs });
+    if (typeof readyN !== 'number') return false;
+    return readyN < Math.min(2, seqs.length);
+  }
+
   const onNext = () => navCooling() ? undefined : guarded(async () => {
     if (activationP) await activationP;
     if (appRole === 'detached') return void appCall('nx_nav', { dir: 'fwd' });
+    if (await nextBlocked()) { ui.toast('Carregando os próximos posts…', { ms: 1500 }); return; }
     if (appRole === 'active' && curEntry && neighbors && neighbors.cur === curEntry.seq && neighbors.next.length &&
       await appSwap(neighbors.next[0], 'fwd', curEntry.seq)) return;
     const st = await api.state();
@@ -650,7 +662,9 @@ async function startApp() {
 
   // O post da fila está pronto nesta tela. No app, avisa quais são o anterior e o próximo (o app os abre nas telas de trás);
   // vem depois da cobertura, porque ela pode tirar da fila posts que viriam a seguir.
+  let shownAt = 0;
   function entryShown(cur, view) {
+    shownAt = Date.now();
     curEntry = cur;
     slotEntry = cur;
     slotView = view;
@@ -792,8 +806,8 @@ async function startApp() {
       const after = typeof a.st.unread_after === 'number' ? Math.max(0, a.st.unread_after + (fwd ? -1 : 1)) : a.st.unread_after;
       renderEntryBar(Object.assign({}, a.st, { current: entry, position: pos, unread_after: after }), a.notice);
     }
-    // O app manda `gate` quando menos de 2 das telas da frente estão prontas (para trás: o anterior não está pronto): só então
-    // aparece a tela de carregamento, e ela fica até esta tela e a seguinte estarem prontas. Sem `gate`, a troca é direta.
+    // O app manda `gate` quando esta tela ainda não terminou de abrir o post: só então aparece a tela de carregamento, até ela ficar
+    // pronta. Sem `gate`, a troca é direta.
     const gate = !!a.gate;
     if (gate) ui.showLoading(slotView && slotView.label, GATE_MAX_MS);
     else ui.hideLoading({ scrollTop: true });

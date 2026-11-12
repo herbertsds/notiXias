@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         notiXias
 // @namespace    notixias
-// @version      0.21.2
-// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.21.2
+// @version      0.22.0
+// @description  Leitor sequencial da timeline do X com posição salva (uso pessoal). v0.22.0
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @run-at       document-idle
@@ -2155,7 +2155,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Ui;
 // main: orquestração no navegador (GM_*, navegação, fases). Não é coberto por testes unitários;
 // ver o checklist manual em docs/STATUS.md.
 async function startApp() {
-  const NX_VERSION = '0.21.2'; // trocado na montagem (build.js)
+  const NX_VERSION = '0.22.0'; // trocado na montagem (build.js)
   const DEFAULTS = {
     apiBaseUrl: 'http://localhost:8010',
     apiKey: '',
@@ -3821,6 +3821,20 @@ async function startApp() {
     if (u.origin !== location.origin || u.pathname === location.pathname || keepInView(u.pathname)) return;
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     appCall('nx_detach', { url: u.href });
+  }, true);
+
+  // No app, o botão de compartilhar de um post abre direto a folha de compartilhar do celular (o app troca o `navigator.share`,
+  // que o WebView não tem) com o link do post, em vez do menu do X que só copia o link.
+  const SHARE_RE = /compartilh|share/i;
+  window.addEventListener('click', (e) => {
+    if (!inApp || cfg.bot || typeof navigator.share !== 'function' || !navigator.share.__nx) return;
+    const b = e.target && e.target.closest && e.target.closest('button,[role="button"]');
+    if (!b || !b.closest('[role="group"]') || !SHARE_RE.test(b.getAttribute('aria-label') || '')) return;
+    const art = b.closest('article');
+    const post = art && Xdom.parseArticle(art);
+    if (!post) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    navigator.share({ url: post.url }).catch(() => {});
   }, true);
 
   window.addEventListener('keydown', (e) => {

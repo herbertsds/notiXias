@@ -89,3 +89,5 @@ O WebView pede "tela acesa" sozinho enquanto qualquer vídeo toca (inclusive os 
 **0.8.0:** 5 telas à frente (e 1 atrás; 7 no total). Tela de carregamento ao avançar só quando menos de 2 das telas da frente estão prontas, e então até a que veio para a frente e a seguinte ficarem prontas (para trás: só se o anterior não estiver pronto). `nx_gone`: a tela de trás cujo post foi apagado fica livre e recebe outro post. Script de fábrica 0.21.0.
 
 **0.8.1:** tela de carregamento ao passar de post só se a tela que vem ainda não está pronta, e só até ela ficar pronta. `nx_ready_count`: quantos dos posts pedidos já estão prontos em telas de trás (o script usa para segurar o ▶). Script de fábrica 0.21.1.
+
+**0.9.0:** compartilhar pelo celular. O WebView não tem `navigator.share` (por isso o X só oferecia "Copiar link"); o `shim.js` o cria e ele manda `nx_share`, que abre a folha de compartilhar do Android (`ACTION_SEND` com o link). Vale também para o "Compartilhar via…" do próprio X. Script de fábrica 0.22.0.

@@ -30,6 +30,20 @@
   };
   // Cookies de x.com (inclusive o login, que é HttpOnly): é isto que permite "Enviar sessão do X para o robô" no celular.
   const GM_cookie = { list: (d, cb) => call('cookies', {}).then((l) => cb(l || [], null)).catch((e) => cb([], String(e))) };
+  // Compartilhar: o WebView não tem `navigator.share`, e sem ele o X só oferece "Copiar link". Aqui ele abre a folha de
+  // compartilhar do Android (o app recebe `nx_share`). Vem antes do código da página, para o X já o encontrar.
+  try {
+    if (!navigator.share) {
+      const share = function (d) {
+        d = d || {};
+        const value = JSON.stringify({ title: String(d.title || ''), text: String(d.text || ''), url: String(d.url || '') });
+        return call('set', { key: 'nx_share', value }).then(() => undefined);
+      };
+      Object.defineProperty(share, '__nx', { value: true });
+      Object.defineProperty(Navigator.prototype, 'share', { value: share, configurable: true, writable: true });
+      if (!navigator.canShare) Object.defineProperty(Navigator.prototype, 'canShare', { value: () => true, configurable: true, writable: true });
+    }
+  } catch (e) { /* sem compartilhar nativo */ }
   let started = false;
   const start = () => {
     if (started) return;

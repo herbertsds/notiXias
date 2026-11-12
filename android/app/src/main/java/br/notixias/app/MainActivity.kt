@@ -303,6 +303,7 @@ class MainActivity : Activity() {
             true
         }
         "nx_detach" -> { runOnUiThread { if (ready && view === active.web) detach(JSONObject(value).optString("url")) }; true }
+        "nx_share" -> { runOnUiThread { if (view === top()) shareSheet(JSONObject(value)) }; true }
         "nx_back" -> { runOnUiThread { if (view === detached?.web) detachedBack() }; true }
         "nx_nav" -> {
             runOnUiThread {
@@ -436,6 +437,17 @@ class MainActivity : Activity() {
         }
         applyVisibility()
         emptied = true
+    }
+
+    /** Folha de compartilhar do Android (WhatsApp, Telegram, e-mail…) com o link do post. */
+    private fun shareSheet(o: JSONObject) {
+        val url = o.optString("url")
+        val text = o.optString("text")
+        val body = listOf(text, url).filter { it.isNotBlank() }.distinct().joinToString(" ")
+        if (body.isBlank()) return
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, body)
+        o.optString("title").takeIf { it.isNotBlank() }?.let { send.putExtra(Intent.EXTRA_SUBJECT, it) }
+        try { startActivity(Intent.createChooser(send, "Compartilhar post")) } catch (e: Exception) { /* nenhum app para compartilhar */ }
     }
 
     /** Link para fora da fila: abre na tela por cima (a da fila fica parada no post). */

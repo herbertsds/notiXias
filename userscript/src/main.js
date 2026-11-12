@@ -1669,6 +1669,20 @@ async function startApp() {
     appCall('nx_detach', { url: u.href });
   }, true);
 
+  // No app, o botão de compartilhar de um post abre direto a folha de compartilhar do celular (o app troca o `navigator.share`,
+  // que o WebView não tem) com o link do post, em vez do menu do X que só copia o link.
+  const SHARE_RE = /compartilh|share/i;
+  window.addEventListener('click', (e) => {
+    if (!inApp || cfg.bot || typeof navigator.share !== 'function' || !navigator.share.__nx) return;
+    const b = e.target && e.target.closest && e.target.closest('button,[role="button"]');
+    if (!b || !b.closest('[role="group"]') || !SHARE_RE.test(b.getAttribute('aria-label') || '')) return;
+    const art = b.closest('article');
+    const post = art && Xdom.parseArticle(art);
+    if (!post) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    navigator.share({ url: post.url }).catch(() => {});
+  }, true);
+
   window.addEventListener('keydown', (e) => {
     if (!e.altKey) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); onNext(); }
